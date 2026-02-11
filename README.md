@@ -1,5 +1,12 @@
 ![ci](https://github.com/shin4141/mmar-l0-core/actions/workflows/ci.yml/badge.svg)　CI validates input/output JSON schemas (contract) and runs run_once.
 
+## See output first (30 seconds)
+
+Open these example artifacts (no fork, no setup):
+
+- Example gate output (PASS/DELAY/BLOCK): `examples/decision_gate.sample.json`
+- Example MMAR findings (optional): `examples/mmar_findings.sample.json`
+
 # mmar-l0-core
 
 Minimal MMAR / L0 core.
