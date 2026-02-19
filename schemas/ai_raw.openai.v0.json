@@ -1,1 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/mmar/schemas/ai_raw.openai.v0.json",
+  "title": "MMAR 3AI Raw (OpenAI) v0",
+  "allOf": [
+    { "$ref": "./ai_raw.v0.json" },
+    {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "object",
+          "properties": {
+            "source": { "const": "openai" }
+          },
+          "required": ["source"]
+        }
+      }
+    }
+  ]
+}
 
