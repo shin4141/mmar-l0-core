@@ -1,1 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/mmar/schemas/ai_raw.v0.json",
+  "title": "MMAR 3AI Raw (Common) v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta", "raw"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "captured_at"],
+      "properties": {
+        "source": { "type": "string", "enum": ["openai", "gemini", "claude"] },
+        "captured_at": { "type": "string", "description": "ISO8601 datetime string" },
+        "model": { "type": "string" },
+        "run_id": { "type": "string" },
+        "prompt_hash": { "type": "string" },
+        "input_ref": { "type": "string" }
+      }
+    },
+    "raw": {
+      "type": "object",
+      "description": "Provider-native payload. Keep as-is for reproducibility.",
+      "additionalProperties": true,
+      "properties": {
+        "text": { "type": "string" },
+        "messages": { "type": "array", "items": { "type": "object" } },
+        "usage": { "type": "object" },
+        "tool_calls": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}
 
