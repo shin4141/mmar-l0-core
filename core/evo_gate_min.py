@@ -2,6 +2,10 @@ import argparse
 import json
 from pathlib import Path
 
+"""
+ΔRproxy per update (=1 delta_entry) as Δresolved_count; compare to theta_evo via
+rolling sum over window_k updates; trigger when pass holds for k_consecutive windows.
+"""
 
 def _load_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
