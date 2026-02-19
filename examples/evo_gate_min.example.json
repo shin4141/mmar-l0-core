@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "case_id": "Case A",
+      "update_unit": "delta_entry",
+      "window_k": 3,
+      "k_consecutive": 2,
+      "theta_evo": 2,
+      "resolved_count": [0, 1, 1, 2, 2]
+    },
+    {
+      "case_id": "Case B",
+      "update_unit": "delta_entry",
+      "window_k": 3,
+      "k_consecutive": 2,
+      "theta_evo": 2,
+      "resolved_count": [0, 1, 2, 3, 3]
+    }
+  ]
+}
