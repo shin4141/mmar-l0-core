@@ -1,3 +1,8 @@
 out/
 
 out_gate_test/
+
+logs/
+out_diff/
+out_delta/
+out_gate/
