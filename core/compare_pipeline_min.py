@@ -9,6 +9,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from mmar.dissent_diff import resolved_count
+from mmar.dissent_from_raw import build_dissent_diff
+from mmar.dissent_diff import resolved_count as _resolved_count_from_dissent
 # Minimal pipeline:
 # before/after -> diff -> delta_entry -> append log(jsonl) -> case -> evo_gate
 
@@ -81,7 +83,7 @@ def _append_jsonl(path: Path, obj):
         f.write(line + "\n")
 
 def _make_case_from_log(log_entries, window_k, k_consecutive, theta_evo, mode="cumulative"):
-    proxies = [int(e.get("delta_proxy", {}).get("resolved_count_proxy", 0)) for e in log_entries]
+    proxies = [int(e.get("resolved_count", 0)) for e in log_entries]
     if mode == "cumulative":
         resolved = []
         total = 0
@@ -168,6 +170,9 @@ def main():
     ap.add_argument("--theta-evo", type=float, default=2.0)
     ap.add_argument("--mode", choices=["cumulative", "per_update"], default="cumulative")
     ap.add_argument("--delta-out", default="out_delta/delta_entry.min.json")
+    ap.add_argument("--raw-openai", default=None)
+    ap.add_argument("--raw-gemini", default=None)
+    ap.add_argument("--raw-claude", default=None)
     args = ap.parse_args()
 
     before = _load_json(Path(args.before))
@@ -191,7 +196,30 @@ def main():
         "evidence": [],
     }
 
+    # 3AI raw -> dissent_diff (v0)
+    raw_docs = []
+    for src, path in (("openai", args.raw_openai), ("gemini", args.raw_gemini), ("claude", args.raw_claude)):
+        if path:
+            d = _load_json(Path(path))
+            # allow bare provider payload too: wrap if missing meta/raw
+            if "meta" not in d or "raw" not in d:
+                d = {"meta": {"source": src, "captured_at": now}, "raw": d}
+            raw_docs.append(d)
+    if raw_docs:
+        delta_entry["dissent_diff"] = build_dissent_diff(raw_docs)
+
     # write delta_entry snapshot
+    # MMAR dissent scaffolding (v0)
+    delta_entry.setdefault("dissent_diff", [])
+    # resolved_count is derived from dissent_diff resolutions (v0)
+    try:
+        delta_entry["resolved_count"] = sum(
+            1 for it in delta_entry["dissent_diff"]
+            if isinstance(it, dict) and it.get("resolution", {}).get("status") in {"resolved","accepted","rejected"}
+        )
+    except Exception:
+        delta_entry["resolved_count"] = 0
+
     _write_json(Path(args.delta_out), delta_entry)
 
     # append to log
