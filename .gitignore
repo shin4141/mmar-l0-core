@@ -19,3 +19,16 @@ out_diff/
 out_gate/
 out_gate_test/
 examples/tmp/
+
+# generated artifacts
+logs/
+out_delta/
+out_diff/
+out_gate/
+out_gate_test/
+examples/tmp/
+
+# python
+__pycache__/
+*.pyc
+*.bak
