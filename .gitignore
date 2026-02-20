@@ -6,3 +6,16 @@ logs/
 out_diff/
 out_delta/
 out_gate/
+
+# python
+__pycache__/
+*.pyc
+*.bak
+
+# artifacts
+logs/
+out_delta/
+out_diff/
+out_gate/
+out_gate_test/
+examples/tmp/
