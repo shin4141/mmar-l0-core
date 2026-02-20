@@ -1,109 +1,29 @@
-name: CI
+name: ci
 
 on:
   push:
-    branches: ["main"]
   pull_request:
 
 jobs:
-  ci:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install jsonschema
+          pip install pytest
 
-      - name: Validate input schemas
+      - name: Run tests
         run: |
-          python - << 'PY'
-          import json
-          from jsonschema import validate
-
-          asof = json.load(open("examples/asof_pack.example.json", "r", encoding="utf-8"))
-          delta = json.load(open("examples/delta_entry.example.json", "r", encoding="utf-8"))
-          mmar = json.load(open("examples/mmar_findings.example.json", "r", encoding="utf-8"))
-
-          validate(asof, json.load(open("asof_pack.schema.json", "r", encoding="utf-8")))
-          validate(delta, json.load(open("delta_entry.schema.json", "r", encoding="utf-8")))
-          validate(mmar, json.load(open("mmar_findings.schema.json", "r", encoding="utf-8")))
-
-          print("input schema: OK")
-          PY
-
-      # Quickstart A: delta_entry -> gate
-      - name: Run once (smoke)
-        run: |
-          python -m core.run_once \
-            --asof examples/asof_pack.example.json \
-            --delta examples/delta_entry.example.json \
-            --out out_gate_test/decision_gate.json
-
-      - name: Validate output schema (A)
-        run: |
-          python - << 'PY'
-          import json
-          from jsonschema import validate
-          gate = json.load(open("out_gate_test/decision_gate.json", "r", encoding="utf-8"))
-          schema = json.load(open("decision_gate.schema.json", "r", encoding="utf-8"))
-          validate(gate, schema)
-          print("output schema (A): OK")
-          PY
-
-      # Quickstart B: mmar_findings -> delta_entry -> gate
-      - name: MMAR -> Gate (smoke)
-        run: |
-          python3 core/findings_to_delta.py --in examples/mmar_findings.example.json --out out_gate_test/delta_entry.from_findings.json
-          python -m core.run_once --asof examples/asof_pack.example.json --delta out_gate_test/delta_entry.from_findings.json --out out_gate_test/decision_gate.from_findings.json
-          python3 core/evo_gate_min.py --in examples/evo_gate_min.example.json --out out_gate_test/evo_gate_min.out.json
-
-      - name: Validate output schema (B)
-        run: |
-          python - << 'PY'
-          import json
-          from jsonschema import validate
-          gate = json.load(open("out_gate_test/decision_gate.from_findings.json", "r", encoding="utf-8"))
-          schema = json.load(open("decision_gate.schema.json", "r", encoding="utf-8"))
-          validate(gate, schema)
-          print("output schema (B): OK")
-          PY
-          
-      - name: Intervene (v0) from Gate (B)
-        run: |
-          python3 tools/intervene_gate.py \
-            --gate out_gate_test/decision_gate.from_findings.json \
-            --profile examples/intervene_profile.example.json \
-            --out out_gate_test/intervene.json
-
-          python - << 'PY'
-          import json
-          from jsonschema import validate
-          intervene = json.load(open("out_gate_test/intervene.json", "r", encoding="utf-8"))
-          schema = json.load(open("intervene.schema.json", "r", encoding="utf-8"))
-          validate(intervene, schema)
-          print("intervene schema: OK")
-          PY
-
-          echo "--- out_gate_test/intervene.json ---"
-          cat out_gate_test/intervene.json
-
-      - name: Show outputs
-        run: |
-          echo "--- out_gate_test/decision_gate.json (A) ---"
-          cat out_gate_test/decision_gate.json
-          echo
-          echo "--- out_gate_test/decision_gate.from_findings.json (B) ---"
-          cat out_gate_test/decision_gate.from_findings.json
-          echo
-          echo "--- out_gate_test/delta_entry.from_findings.json (B input) ---"
-          cat out_gate_test/delta_entry.from_findings.json
-
+          pytest -q
