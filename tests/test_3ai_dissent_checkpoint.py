@@ -45,7 +45,7 @@ def test_3ai_raw_to_gate_cycle(tmp_path: Path):
     assert len(d.get("dissent_diff", [])) >= 1
     assert d.get("resolved_count") == 0
 
-    run(f'python3 tools/resolve_dissent.py --in {delta_out} --key output_text --status resolved --by test --note t')
+    run(f'python3 tools/resolve_dissent.py --in {delta_out} --status resolved --by test --note t')
     d2 = json.loads(delta_out.read_text(encoding="utf-8"))
     assert d2.get("resolved_count") == 1
 
