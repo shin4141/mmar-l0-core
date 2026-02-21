@@ -208,6 +208,27 @@ def main():
             raw_docs.append(d)
     if raw_docs:
         delta_entry["dissent_diff"] = build_dissent_diff(raw_docs)
+        # dissent stats (v1)
+        _items = delta_entry.get("dissent_diff", []) or []
+        _total = 0
+        _diff = 0
+        _unknown = 0
+        for _it in _items:
+            if not isinstance(_it, dict):
+                continue
+            _total += 1
+            _stances = _it.get("stances", None) or {}
+            _vals = [v for v in _stances.values() if v != "unknown"]
+            if not _vals:
+                _unknown += 1
+            elif any(v == "diff" for v in _vals):
+                _diff += 1
+        delta_entry["dissent_stats"] = {
+            "total": _total,
+            "diff": _diff,
+            "unknown": _unknown,
+            "rate": (float(_diff) / float(_total)) if _total else 0.0,
+        }
 
     # write delta_entry snapshot
     # MMAR dissent scaffolding (v0)
