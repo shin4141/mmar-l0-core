@@ -211,7 +211,7 @@ def main():
         # dissent stats (v1)
         _items = delta_entry.get("dissent_diff", []) or []
         _total = 0
-        _diff = 0
+        _diff_n = 0
         _unknown = 0
         for _it in _items:
             if not isinstance(_it, dict):
@@ -222,12 +222,12 @@ def main():
             if not _vals:
                 _unknown += 1
             elif any(v == "diff" for v in _vals):
-                _diff += 1
+                _diff_n += 1
         delta_entry["dissent_stats"] = {
             "total": _total,
-            "diff": _diff,
+            "diff": _diff_n,
             "unknown": _unknown,
-            "rate": (float(_diff) / float(_total)) if _total else 0.0,
+            "rate": (float(_diff_n) / float(_total)) if _total else 0.0,
         }
 
     # write delta_entry snapshot
