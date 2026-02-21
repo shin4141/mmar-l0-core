@@ -68,17 +68,14 @@ def _compute_case(case: dict) -> dict:
         "series": series,
         "trigger": trigger,
     # merge input case evidence for audit (no effect on trigger logic)
-    case_evidence = case.get("evidence", {}) if isinstance(case, dict) else {}
-    if not isinstance(case_evidence, dict):
-        case_evidence = {}
 
         "evidence": {
+            "case_evidence": case.get("evidence", {}),
             "resolved_count": resolved,
             "deltas": deltas,
             "pass_indices": pass_indices,
             "max_consecutive_passes": max_consecutive,
             "first_trigger_index": first_trigger_index,
-        "case_evidence": case_evidence,
         },
     }
 
