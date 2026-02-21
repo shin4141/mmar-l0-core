@@ -190,6 +190,7 @@ def main():
             "name": "ΔRproxy",
             "definition": "count(add/change) over JSON diff changes[] (minimal proxy)",
             "resolved_count_proxy": _resolved_proxy(changes),
+            "drift_proxy": len(changes),
         },
         "inputs": {"before": args.before, "after": args.after},
         "delta_items": changes,
@@ -211,14 +212,17 @@ def main():
     # write delta_entry snapshot
     # MMAR dissent scaffolding (v0)
     delta_entry.setdefault("dissent_diff", [])
-    # resolved_count is derived from dissent_diff resolutions (v0)
+    # resolved_count is derived from dissent_diff resolutions (weighted)
+    _W = {"resolved":1.0,"accepted":1.0,"rejected":1.0,"partial":0.5}
     try:
-        delta_entry["resolved_count"] = sum(
-            1 for it in delta_entry["dissent_diff"]
-            if isinstance(it, dict) and it.get("resolution", {}).get("status") in {"resolved","accepted","rejected"}
-        )
+        delta_entry["resolved_count"] = float(sum(
+            _W.get((it.get("resolution", {}) or {}).get("status"), 0.0)
+            for it in delta_entry.get("dissent_diff", [])
+            if isinstance(it, dict)
+        ))
     except Exception:
-        delta_entry["resolved_count"] = 0
+        delta_entry["resolved_count"] = 0.0
+
 
     _write_json(Path(args.delta_out), delta_entry)
 
