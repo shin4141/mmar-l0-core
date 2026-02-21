@@ -83,7 +83,9 @@ def _append_jsonl(path: Path, obj):
         f.write(line + "\n")
 
 def _make_case_from_log(log_entries, window_k, k_consecutive, theta_evo, mode="cumulative"):
-    proxies = [int(e.get("resolved_count", 0)) for e in log_entries]
+    proxies = [float(e.get("resolved_count", 0.0)) for e in log_entries]
+    dissent_rate_series = [float((e.get("dissent_stats", {}) or {}).get("rate", 0.0)) for e in log_entries]
+    drift_series = [int((e.get("delta_proxy", {}) or {}).get("drift_proxy", 0)) for e in log_entries]
     if mode == "cumulative":
         resolved = []
         total = 0
@@ -98,7 +100,7 @@ def _make_case_from_log(log_entries, window_k, k_consecutive, theta_evo, mode="c
         "k_consecutive": k_consecutive,
         "theta_evo": float(theta_evo),
         "resolved_count": resolved,
-        "evidence": {"entries": len(log_entries), "proxies": proxies, "mode": mode},
+        "evidence": {"entries": len(log_entries), "proxies": proxies, "mode": mode, "dissent_rate_series": dissent_rate_series, "drift_series": drift_series},
     }
 
 def _evo_gate(case):
