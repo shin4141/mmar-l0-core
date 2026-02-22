@@ -12,6 +12,7 @@ TURNP = INCOMING / "triad_turn.json"
 MERGED_TXT = INCOMING / "merged_answer.txt"
 
 TAB_FILES = {
+    "compare": INCOMING / "out_compare.txt",
     "expand": INCOMING / "out_expand.txt",
     "guard":  INCOMING / "out_guard.txt",
     "diff":   INCOMING / "out_diff.txt",
