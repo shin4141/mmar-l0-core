@@ -58,3 +58,4 @@ examples/tmp/
 __pycache__/
 *.pyc
 *.bak
+examples/raw_local/
