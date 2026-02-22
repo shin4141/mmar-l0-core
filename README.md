@@ -1,5 +1,27 @@
 ![ci](https://github.com/shin4141/mmar-l0-core/actions/workflows/ci.yml/badge.svg)　CI validates input/output JSON schemas (contract) and runs run_once.
 
+## See output first (30 seconds, no install)
+
+1) **Demo summary**  
+- `examples/tmp/demo_summary.txt`
+
+2) **SSOT (what the system decided)**  
+- `incoming/triad_turn.json`
+
+3) **Latest gate output**  
+- `examples/tmp/evo_gate_min.from_delta_log.out.json`
+
+## Demo (browser-only)
+
+This repo shows a **deterministic decision loop**:
+**Light by default → goes heavy only when the gate triggers**.
+
+Open these files in GitHub (no install):
+
+- **What the system decided (SSOT):** `incoming/triad_turn.json`
+- **Gate result (why it escalated or not):** `examples/tmp/evo_gate_min.from_delta_log.out.json`
+- **Human-readable snapshot:** `examples/tmp/demo_summary.txt`
+
 ## See output first (30 seconds)
 
 Open these example artifacts (no fork, no setup):
@@ -89,3 +111,7 @@ Progress metric (v0): resolved_count per window (session/day).
 If a deadline exists: intervene earlier (threshold is compressed to meet the date).
 Default intervention order: SUBTRACT → ADD_MODEL (avoid endless adding).
 
+## Public vs Private
+
+**Public (this repo):** schemas + deterministic pipeline + demo outputs (SSOT + gate results).  
+**Private (product):** API orchestrator, policy/prompt packs, hosted UI.
