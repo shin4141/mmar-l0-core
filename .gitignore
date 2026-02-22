@@ -1,61 +1,26 @@
-out/
-
-out_gate_test/
-
-logs/
-out_diff/
-out_delta/
-out_gate/
+# secrets
+.env
 
 # python
 __pycache__/
 *.pyc
-*.bak
+.venv/
+.pytest_cache/
 
-# artifacts
-logs/
-out_delta/
-out_diff/
+# outputs / generated
+incoming/
+out_state/
+out_v1/
 out_gate/
 out_gate_test/
-examples/tmp/
-
-# generated artifacts
-logs/
 out_delta/
 out_diff/
-out_gate/
-out_gate_test/
-examples/tmp/
-
-# python
-__pycache__/
-*.pyc
-*.bak
-
-# generated artifacts
 logs/
-out_delta/
-out_diff/
-out_gate/
-out_gate_test/
 examples/tmp/
 
-# python
-__pycache__/
-*.pyc
-*.bak
+# mac
+.DS_Store
 
-# generated artifacts
-logs/
-out_delta/
-out_diff/
-out_gate/
-out_gate_test/
-examples/tmp/
-
-# python
-__pycache__/
-*.pyc
-*.bak
+# local-only (do not commit)
+providers/
 examples/raw_local/
