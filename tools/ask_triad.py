@@ -183,10 +183,15 @@ def main():
     TAB_FILES["merge"].write_text(master, encoding="utf-8")
 
     if tab in ("expand", "guard", "diff"):
-    # Always generate DIFF as well when running EXPAND (for compare)
         prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
         out = call_openai(prompt)
         TAB_FILES[tab].write_text(out, encoding="utf-8")
+
+        # If running EXPAND, also generate DIFF in the background for compare view
+        if tab == "expand":
+            diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
+            diff_out = call_openai(diff_prompt)
+            TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
     else:
         out = master
 
