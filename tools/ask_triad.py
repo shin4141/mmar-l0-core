@@ -190,6 +190,29 @@ def main():
 
     # attach output paths for future browser tabs
     turn_after["tab_outputs"] = {k: str(v) for k, v in TAB_FILES.items()}
+    # --- COMPARE (Before/After/Δ) for "social proof" ---
+    expand_txt = ""
+    diff_txt = ""
+
+    if TAB_FILES.get("expand") and Path(TAB_FILES["expand"]).exists():
+        expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
+
+    if TAB_FILES.get("diff") and Path(TAB_FILES["diff"]).exists():
+        diff_txt = Path(TAB_FILES["diff"]).read_text(encoding="utf-8", errors="replace").strip()
+
+    diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
+
+    compare = (
+        "=== INPUT ===\n"
+        f"{q}\n\n"
+        "=== BEFORE (Single / seed) ===\n"
+        f"{seed}\n\n"
+        "=== AFTER (MMAR / EXPAND) ===\n"
+        f"{expand_txt}\n\n"
+        "=== Δ (Diff head) ===\n"
+        f"{diff_head}\n"
+    )
+    Path(TAB_FILES["compare"]).write_text(compare, encoding="utf-8")
     TURNP.write_text(json.dumps(turn_after, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # minimal summary (same as before)
