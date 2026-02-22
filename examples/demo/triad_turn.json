@@ -1,0 +1,69 @@
+{
+  "case_id": "Case TRIAD",
+  "question": "",
+  "seed_model": "openai",
+  "seed_answer": "",
+  "counter_a_model": "gemini",
+  "counter_a": "",
+  "counter_b_model": "claude",
+  "counter_b": "",
+  "merged_answer": "AUTO-CHANGE 2026-02-21T23:41:19.470246+00:00\nAUTO-CHANGE 2026-02-21T23:39:45.117222+00:00\nAUTO-CHANGE 2026-02-21T23:39:30.417286+00:00\nMerged v0 (test):\n- Claim A: system works end-to-end.\n- Claim B: next step is integrate counters and merge.\nBUMP 2026-02-21T23:24:23.799953+00:00\nBUMP 2026-02-21T23:24:23.993783+00:00\nBUMP 2026-02-21T23:24:24.026029+00:00\nBUMP 2026-02-21T23:24:24.189581+00:00\nBUMP 2026-02-21T23:26:31.456486+00:00\nBUMP 2026-02-21T23:26:31.732609+00:00\nAUTO-BUMP 2026-02-21T23:36:32.965042+00:00\nAUTO-BUMP 2026-02-21T23:36:38.298018+00:00",
+  "gate_reason": {
+    "case_id": "Case TRIAD",
+    "trigger": true,
+    "window_k": 3,
+    "k_consecutive": 2,
+    "theta_evo": 1.0,
+    "pass_indices": [
+      3,
+      11,
+      12,
+      18
+    ],
+    "max_consecutive_passes": 2,
+    "first_trigger_index": 12,
+    "asof_last_delta": "2026-02-22T01:02:18Z"
+  },
+  "recommended_mode": "t3f",
+  "cost_meter": {
+    "triad_est_requests": 4,
+    "t3f_est_requests": 13,
+    "recommended": "t3f"
+  },
+  "auto_progress": {
+    "asof": "2026-02-22T01:02:18Z",
+    "resolved_v2": 0.0,
+    "claims_total": 2,
+    "status_counts": {
+      "resolved": 0,
+      "partial": 0,
+      "pending": 2
+    },
+    "source": "examples/tmp/triad_claims.latest.json"
+  },
+  "gate_reason_auto": {
+    "case_id": "Case TRIAD",
+    "trigger": true,
+    "window_k": 3,
+    "k_consecutive": 2,
+    "theta_evo": 1.0,
+    "pass_indices": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "max_consecutive_passes": 7,
+    "first_trigger_index": 2
+  },
+  "recommended_mode_auto": "t3f",
+  "cost_meter_auto": {
+    "triad_est_requests": 4,
+    "t3f_est_requests": 13,
+    "recommended": "t3f",
+    "basis": "resolution_auto gate"
+  }
+}

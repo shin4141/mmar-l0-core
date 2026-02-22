@@ -1,0 +1,10 @@
+=== MMAR DEMO SUMMARY ===
+[TRIAD] case=Case TRIAD recommended_mode_auto=t3f
+  triad_turn asof=2026-02-22T01:02:18Z claims_total=2 drift=0
+  auto asof=2026-02-22T01:02:18Z resolved_v2=0.0 counts={'resolved': 0, 'partial': 0, 'pending': 2}
+  auto_gate trigger=True pass_idx=[1, 2, 3, 4, 5, 6, 7] max_consec=7
+  manual asof=2026-02-22T01:02:18Z resolved_v2=1.0 counts={'resolved': 1, 'accepted': 0, 'rejected': 0, 'partial': 0, 'pending': 1, 'unknown': 0, 'needs-evidence': 0}
+[T3F] recommended and executed if inputs present
+  t3f_turn asof=2026-02-22T01:02:18Z claims_total=3 drift=0
+  t3f_claims stats={'claims_total': 3}
+[TRIAD_CLAIMS] stats={'claims_total': 2}

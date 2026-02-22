@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "case_id": "Case T3F",
+      "update_unit": "delta_entry",
+      "window_k": 3,
+      "k_consecutive": 2,
+      "theta_evo": 1.0,
+      "series": [
+        {
+          "i": 0,
+          "resolved_count": 3.0,
+          "delta": 0,
+          "window_sum": 0.0,
+          "pass_i": false,
+          "consecutive_passes": 0
+        },
+        {
+          "i": 1,
+          "resolved_count": 3.0,
+          "delta": 0.0,
+          "window_sum": 0.0,
+          "pass_i": false,
+          "consecutive_passes": 0
+        },
+        {
+          "i": 2,
+          "resolved_count": 3.0,
+          "delta": 0.0,
+          "window_sum": 0.0,
+          "pass_i": false,
+          "consecutive_passes": 0
+        },
+        {
+          "i": 3,
+          "resolved_count": 3.0,
+          "delta": 0.0,
+          "window_sum": 0.0,
+          "pass_i": false,
+          "consecutive_passes": 0
+        }
+      ],
+      "trigger": false,
+      "evidence": {
+        "case_evidence": {},
+        "resolved_count": [
+          3.0,
+          3.0,
+          3.0,
+          3.0
+        ],
+        "deltas": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "pass_indices": [],
+        "max_consecutive_passes": 0,
+        "first_trigger_index": null
+      }
+    }
+  ]
+}
