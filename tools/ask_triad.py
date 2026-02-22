@@ -58,13 +58,28 @@ def tab_prompt(tab: str, q: str, seed: str, c1: str, c2: str, master: str, turn_
         f"GATE_REASON_JSON:\n{json.dumps(gate, ensure_ascii=False)}\n"
     )
 
-    if tab == "expand":
+        if tab == "expand":
+        flavor = os.getenv("MMAR_EXPAND_FLAVOR", "wow").strip().lower()
+        if flavor == "plan":
+            return (
+                "TAB=EXPAND (plan).\n"
+                "Goal: produce an executable pilot plan to discover thresholds via real trials.\n"
+                "Output MUST include:\n"
+                "1) Pilot plan (timebox + session count)\n"
+                "2) Metrics to measure (3 bullets)\n"
+                "3) Thresholds to tune (3 bullets)\n"
+                "4) Failure modes + fallback (3 bullets)\n"
+                "5) Ask: what inputs you need next (max 3 items)\n"
+                "Keep it practical.\n\n"
+                + common_ctx
+            )
+        # default: wow
         return (
-            "TAB=EXPAND (拡張/自己進化).\n"
-            "Goal: create impressive, dense, useful output. Do NOT audit or block.\n"
+            "TAB=EXPAND (wow).\n"
+            "Goal: produce impressive, dense, structural output (not auditing).\n"
             "Output MUST include:\n"
-            "1) WOW_DELIVERABLES: (pick best format) concept frame + example + counterexample + diagram outline\n"
-            "2) 3 alternative angles (bullet)\n"
+            "1) WOW_DELIVERABLES: concept frame + example + counterexample + diagram outline\n"
+            "2) 3 alternative angles (bullets)\n"
             "3) Next 3 experiments (numbered 1-3)\n"
             "Keep it executable.\n\n"
             + common_ctx
