@@ -65,9 +65,26 @@ def _canonical_index_html() -> str:
     details{ border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:#fff; }
     summary{ cursor:pointer; font-weight:800; list-style:none; }
     summary::-webkit-details-marker{ display:none; }
+    .sumRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .sumLeft{ min-width:0; }
+    .pillBadge{
+      font-size:11px; font-weight:800; color:#0369A1;
+      border:1px solid rgba(56,189,248,.45); background:rgba(56,189,248,.12);
+      border-radius:999px; padding:2px 8px; white-space:nowrap;
+    }
     .small{ color:var(--muted); font-size:12px; margin-left:8px; font-weight:700; }
     .preview{ margin-top:8px; }
+    .beforeBox{ box-shadow:0 1px 3px rgba(15,23,42,.04); }
+    .afterBox{
+      border:1px solid rgba(56,189,248,.35);
+      box-shadow:0 12px 28px rgba(56,189,248,.18);
+      animation:afterHero 1s ease-out 1;
+    }
     .deltaBox{ background: rgba(56,189,248,.08); border:1px solid rgba(56,189,248,.25); }
+    @keyframes afterHero{
+      0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
+      100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
+    }
   </style>
 </head>
 <body>
@@ -170,12 +187,13 @@ def _canonical_index_html() -> str:
     };
   }
 
-  function detailsBlock(title, fullText, previewLines, extraClass=""){
+  function detailsBlock(title, fullText, previewLines, extraClass="", badgeText=""){
     const info = clipLines(fullText, previewLines);
     const meta = `<span class="small">(${info.total} lines, preview ${info.clippedTo})</span>`;
+    const badge = badgeText ? `<span class="pillBadge">${escapeHtml(badgeText)}</span>` : "";
     return `
       <details class="${extraClass}" open>
-        <summary>${title} ${meta}</summary>
+        <summary><span class="sumRow"><span class="sumLeft">${title} ${meta}</span>${badge}</span></summary>
         <div class="preview"><pre class="subpre">${escapeHtml(info.preview)}</pre></div>
       </details>
     `;
@@ -198,9 +216,9 @@ def _canonical_index_html() -> str:
 
         outEl.innerHTML = `
           <div style="display:flex; flex-direction:column; gap:12px;">
-            ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN)}
-            ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN)}
-            ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox")}
+            ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
+            ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended")}
+            ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
           </div>
         `;
       } else {
@@ -227,6 +245,7 @@ def _check_state(text: str) -> list[str]:
         ("文字数カウンター(LIMIT=600/Remaining/warn)", ("const LIMIT = 600;" in text and "Remaining:" in text and "counter.warn" in text)),
         ("Compare details収納(Before/After/Δ)", ('detailsBlock("Before (Single)"' in text and 'detailsBlock("After (MMAR)"' in text and 'detailsBlock("Δ (Diff)"' in text and "<details" in text)),
         ("行数プレビュー(7/7/3)", ("const PREVIEW_LINES_MAIN = 7;" in text and "const PREVIEW_LINES_DELTA = 3;" in text and "clipLines(" in text)),
+        ("After強調/Before弱化/Key changes", ("afterBox" in text and "beforeBox" in text and "Recommended" in text and "Key changes" in text)),
         ("初期プレビュー(open)", '<details class="${extraClass}" open>' in text),
         ("衝突マーカーなし", all(mark not in text for mark in CONFLICT_MARKERS)),
     ]
