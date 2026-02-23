@@ -1,4 +1,31 @@
-<!doctype html>
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+import re
+
+
+CONFLICT_MARKERS = ("<<<<<<<", "=======", ">>>>>>>")
+
+
+def _root_dir() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _demo_dir(root: Path) -> Path:
+    return root / "examples" / "demo"
+
+
+def _target_file(root: Path) -> Path:
+    return _demo_dir(root) / "index.html"
+
+
+def _backup_dir(root: Path) -> Path:
+    return _demo_dir(root) / "_bak"
+
+
+def _canonical_index_html() -> str:
+    return """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -126,18 +153,18 @@
   }
 
   function section(txt, head, nextHead){
-    const re = new RegExp(`=== ${head} ===\\s*([\\s\\S]*?)(?=\\n=== ${nextHead} ===|$)`);
+    const re = new RegExp(`=== ${head} ===\\\\s*([\\\\s\\\\S]*?)(?=\\\\n=== ${nextHead} ===|$)`);
     const m = txt.match(re);
     return (m && m[1]) ? m[1].trim() : "";
   }
 
   function clipLines(text, maxLines){
-    const raw = (text || "(empty)").replace(/\r\n/g, "\n");
-    const lines = raw.split("\n");
-    const clipped = lines.slice(0, maxLines).join("\n");
+    const raw = (text || "(empty)").replace(/\\r\\n/g, "\\n");
+    const lines = raw.split("\\n");
+    const clipped = lines.slice(0, maxLines).join("\\n");
     const truncated = lines.length > maxLines;
     return {
-      preview: truncated ? `${clipped}\n...` : clipped,
+      preview: truncated ? `${clipped}\\n...` : clipped,
       total: lines.length,
       clippedTo: maxLines
     };
@@ -162,10 +189,10 @@
       setTimestamp();
 
       if (active === "compare"){
-        const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
-        const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
-        const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
-        const delta  = section(txt, "DIFF \\(head\\)", "$");
+        const input  = section(txt, "INPUT", "SINGLE \\\\(seed\\\\)");
+        const before = section(txt, "SINGLE \\\\(seed\\\\)", "MMAR EXPAND \\\\(tab output\\\\)");
+        const after  = section(txt, "MMAR EXPAND \\\\(tab output\\\\)", "DIFF \\\\(head\\\\)");
+        const delta  = section(txt, "DIFF \\\\(head\\\\)", "$");
         if (input) qEl.value = input;
         updateCounter();
 
@@ -180,7 +207,7 @@
         outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
       }
     } catch(e){
-      outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
+      outEl.textContent = `Failed to load ${spec.file}\\n\\n${e}`;
     }
   }
 
@@ -190,3 +217,77 @@
 </script>
 </body>
 </html>
+"""
+
+
+def _check_state(text: str) -> list[str]:
+    checks = [
+        ("水色テーマ(accent=56,189,248)", bool(re.search(r"56\s*,\s*189\s*,\s*248", text))),
+        ("入力欄focus拡張(55vh)", "textarea.big{ min-height:55vh; }" in text),
+        ("文字数カウンター(LIMIT=600/Remaining/warn)", ("const LIMIT = 600;" in text and "Remaining:" in text and "counter.warn" in text)),
+        ("Compare details収納(Before/After/Δ)", ('detailsBlock("Before (Single)"' in text and 'detailsBlock("After (MMAR)"' in text and 'detailsBlock("Δ (Diff)"' in text and "<details" in text)),
+        ("行数プレビュー(7/7/3)", ("const PREVIEW_LINES_MAIN = 7;" in text and "const PREVIEW_LINES_DELTA = 3;" in text and "clipLines(" in text)),
+        ("初期プレビュー(open)", '<details class="${extraClass}" open>' in text),
+        ("衝突マーカーなし", all(mark not in text for mark in CONFLICT_MARKERS)),
+    ]
+    return [f"[{'OK' if ok else 'NG'}] {name}" for name, ok in checks]
+
+
+def _scan_conflicts_or_fail(root: Path) -> None:
+    demo_dir = _demo_dir(root)
+    paths = sorted(demo_dir.glob("*.txt")) + [demo_dir / "index.html"]
+    hits: list[tuple[Path, int, str]] = []
+
+    for p in paths:
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if any(marker in line for marker in CONFLICT_MARKERS):
+                hits.append((p, lineno, line.strip()))
+
+    if hits:
+        print("[FAIL] conflict markers found in demo artifacts:")
+        for path, lineno, line in hits:
+            print(f"  - {path}:{lineno}: {line}")
+        raise SystemExit(1)
+
+    print("[ui_patch] conflict scan: OK")
+
+
+def main() -> None:
+    root = _root_dir()
+    target = _target_file(root)
+    if not target.exists():
+        raise SystemExit(f"[ERROR] target not found: {target}")
+
+    _scan_conflicts_or_fail(root)
+
+    before = target.read_text(encoding="utf-8")
+    after = _canonical_index_html()
+
+    print("[ui_patch] target:", target)
+    print("[ui_patch] before checks:")
+    for line in _check_state(before):
+        print(" ", line)
+
+    if before == after:
+        print("[ui_patch] no change: already normalized")
+        return
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    bak_dir = _backup_dir(root)
+    bak_dir.mkdir(parents=True, exist_ok=True)
+    backup = bak_dir / f"index.html.bak_{ts}"
+    backup.write_text(before, encoding="utf-8")
+    target.write_text(after, encoding="utf-8")
+
+    print("[ui_patch] backup:", backup)
+    print("[ui_patch] wrote normalized index.html")
+    print("[ui_patch] after checks:")
+    for line in _check_state(after):
+        print(" ", line)
+
+
+if __name__ == "__main__":
+    main()

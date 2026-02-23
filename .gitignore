@@ -26,4 +26,5 @@ providers/
 examples/raw_local/
 
 # local backups
+examples/demo/_bak/
 examples/demo/index.html.bak*
