@@ -141,7 +141,7 @@ async function loadActive() {
         <div class="compareGrid">
           <div class="subcard">
             <div class="subhead">Before (Single)</div>
-            <pre class="subpre">${escapeHtml(before || "(empty)")}</pre>
+            <pre class="subpre">${escapeHtml((before||"(empty)").slice(0, 800))}</pre>
           </div>
           <div class="subcard">
             <div class="subhead">After (MMAR)</div>
@@ -167,7 +167,3 @@ async function loadActive() {
 </script>
 </body>
 </html>
-
-
-
-
