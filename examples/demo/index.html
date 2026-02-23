@@ -13,6 +13,9 @@
     .pill { border:1px solid #e6e8ee; border-radius:999px; padding:4px 10px; font-size:12px; background:#fff; }
     textarea { width:100%; min-height:140px; resize:vertical; border:1px solid #e6e8ee; border-radius:12px; padding:10px; font-size:14px; outline:none; }
     textarea:focus { border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.12); }
+    textarea.big { min-height: 55vh; }
+    .counter { margin-left:auto; font-size:12px; color:#64748B; }
+    .counter.warn { color:#c2410c; } /* オレンジ系（怖くしない） */
     .tabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
     button { border:1px solid #e6e8ee; background:#fff; border-radius:999px; padding:8px 12px; cursor:pointer; font-weight:600; }
     button.active { border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.12); }
@@ -37,6 +40,7 @@
       <div class="row" style="margin-top:10px;">
         <button id="reload">Reload files</button>
         <span class="muted">Default view is Compare.</span>
+        <span id="counter" class="counter"></span>
       </div>
       <p class="muted" style="margin-top:10px;">
         Files expected:
@@ -65,7 +69,20 @@
   const outEl  = document.getElementById("out");
   const qEl    = document.getElementById("q");
   const tsEl   = document.getElementById("ts");
+  const LIMIT = 600;
+  const counterEl = document.getElementById("counter");
 
+  function updateCounter(){
+  const used = (qEl.value || "").length;
+  const left = LIMIT - used;
+  counterEl.textContent = `Remaining: ${left}`;
+  counterEl.className = "counter" + (left < 0 ? " warn" : "");
+}
+
+qEl.addEventListener("input", updateCounter);
+qEl.addEventListener("focus", ()=> qEl.classList.add("big"));
+qEl.addEventListener("blur",  ()=> qEl.classList.remove("big"));
+updateCounter();
   let active = "compare";
 
   function setTimestamp() { tsEl.textContent = new Date().toISOString(); }
@@ -143,5 +160,6 @@ async function loadActive() {
 </script>
 </body>
 </html>
+
 
 
