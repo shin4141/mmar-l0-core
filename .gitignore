@@ -24,3 +24,6 @@ examples/tmp/
 # local-only (do not commit)
 providers/
 examples/raw_local/
+
+# local backups
+examples/demo/index.html.bak*

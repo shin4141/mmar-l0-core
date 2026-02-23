@@ -5,22 +5,48 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MMAR Demo</title>
   <style>
-    body { font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial; margin: 0; background:#f6f7f9; }
-    .wrap { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; padding: 16px; height: 100vh; box-sizing: border-box; }
-    .card { background:#fff; border:1px solid #e6e8ee; border-radius:16px; padding:14px; display:flex; flex-direction:column; min-height:0; box-shadow:0 8px 24px rgba(16,24,40,.06); }
-    .muted { color:#667085; font-size:12px; }
-    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .pill { border:1px solid #e6e8ee; border-radius:999px; padding:4px 10px; font-size:12px; background:#fff; }
-    textarea { width:100%; min-height:140px; resize:vertical; border:1px solid #e6e8ee; border-radius:12px; padding:10px; font-size:14px; outline:none; }
-    textarea:focus { border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.12); }
-    .tabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
-    button { border:1px solid #e6e8ee; background:#fff; border-radius:999px; padding:8px 12px; cursor:pointer; font-weight:600; }
-    button.active { border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.12); }
-    pre { margin:0; white-space:pre-wrap; word-break:break-word; overflow:auto; flex:1; font-size:13px; line-height:1.45; }
+    :root{
+      --bg:#f6f7f9; --card:#ffffff; --text:#0F172A; --muted:#64748B;
+      --line:#e6e8ee; --accent:rgba(56,189,248,.75); --accentSoft:rgba(56,189,248,.12);
+      --shadow:0 10px 26px rgba(16,24,40,.08);
+      --r:16px;
+    }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+          color:var(--text); background:var(--bg); }
+    .wrap{ display:grid; grid-template-columns: 1fr 2fr; gap:16px; padding:16px; height:100vh; }
+    .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r);
+           padding:14px; display:flex; flex-direction:column; min-height:0; box-shadow:var(--shadow); }
+    .muted{ color:var(--muted); font-size:12px; }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .pill{ border:1px solid var(--line); border-radius:999px; padding:4px 10px; font-size:12px; background:#fff; }
+    textarea{ width:100%; min-height:160px; resize:vertical; border:1px solid var(--line);
+              border-radius:12px; padding:10px; font-size:14px; outline:none; }
+    textarea:focus{ border-color:var(--accent); box-shadow:0 0 0 4px var(--accentSoft); }
+    textarea.big{ min-height:55vh; }
+
+    .tabs{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:8px 12px;
+            cursor:pointer; font-weight:700; }
+    button.active{ border-color:var(--accent); box-shadow:0 0 0 4px var(--accentSoft); color:#0284C7; }
+    pre{ margin:0; white-space:pre-wrap; word-break:break-word; overflow:auto; flex:1; font-size:13px; line-height:1.45; }
+
+    /* Counter */
+    .counter{ margin-left:auto; font-size:12px; color:var(--muted); font-weight:700; }
+    .counter.warn{ color:#c2410c; } /* 怖くしないオレンジ */
+
+    /* Fold cards (Compare) */
+    details{ border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:#fff; }
+    summary{ cursor:pointer; font-weight:800; list-style:none; }
+    summary::-webkit-details-marker{ display:none; }
+    .small{ color:var(--muted); font-size:12px; margin-left:8px; font-weight:700; }
+    .preview{ margin-top:8px; }
+    .deltaBox{ background: rgba(56,189,248,.08); border:1px solid rgba(56,189,248,.25); }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <!-- Left -->
     <div class="card">
       <div class="row">
         <div class="pill">MMAR demo</div>
@@ -31,6 +57,7 @@
       <div class="row" style="margin-top:10px;">
         <button id="reload">Reload files</button>
         <span class="muted">Default view is Compare.</span>
+        <span id="counter" class="counter"></span>
       </div>
       <p class="muted" style="margin-top:10px;">
         Files expected:
@@ -38,9 +65,10 @@
       </p>
     </div>
 
+    <!-- Right -->
     <div class="card">
       <div class="tabs" id="tabs"></div>
-      <pre id="out">Loading…</pre>
+      <div id="out">Loading…</div>
       <div class="muted" style="margin-top:8px;">
         If content doesn't load on GitHub Pages immediately, wait a bit or hard-reload.
       </div>
@@ -60,13 +88,26 @@
   const qEl    = document.getElementById("q");
   const tsEl   = document.getElementById("ts");
 
+  // Counter config (UI only)
+  const LIMIT = 600;
+  const counterEl = document.getElementById("counter");
+  function updateCounter(){
+    const used = (qEl.value || "").length;
+    const left = LIMIT - used;
+    counterEl.textContent = `Remaining: ${left}`;
+    counterEl.className = "counter" + (left < 0 ? " warn" : "");
+  }
+  qEl.addEventListener("input", updateCounter);
+  qEl.addEventListener("focus", ()=> qEl.classList.add("big"));
+  qEl.addEventListener("blur",  ()=> qEl.classList.remove("big"));
+  updateCounter();
+
   let active = "compare";
+  function setTimestamp(){ tsEl.textContent = new Date().toISOString(); }
 
-  function setTimestamp() { tsEl.textContent = new Date().toISOString(); }
-
-  function renderTabs() {
+  function renderTabs(){
     tabsEl.innerHTML = "";
-    for (const t of TAB_SPEC) {
+    for (const t of TAB_SPEC){
       const b = document.createElement("button");
       b.textContent = t.label;
       b.className = (t.key === active) ? "active" : "";
@@ -75,31 +116,72 @@
     }
   }
 
-  async function fetchText(file) {
+  async function fetchText(file){
     const url = `${file}?_=${Date.now()}`; // cache-bust
     const r = await fetch(url);
     if (!r.ok) throw new Error(`${file}: HTTP ${r.status}`);
     return await r.text();
   }
 
-  async function loadActive() {
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function section(txt, head, nextHead){
+    const re = new RegExp(`=== ${head} ===\\s*([\\s\\S]*?)(?=\\n=== ${nextHead} ===|$)`);
+    const m = txt.match(re);
+    return (m && m[1]) ? m[1].trim() : "";
+  }
+
+  const PREVIEW_N = 650;
+  const clip = (t, n) => (t && t.length > n) ? (t.slice(0, n) + "…") : (t || "");
+
+  function detailsBlock(title, fullText, extraClass=""){
+    const full = fullText || "(empty)";
+    const preview = clip(full, PREVIEW_N);
+    const meta = `<span class="small">(${full.length} chars)</span>`;
+    const showFull = (full.length > PREVIEW_N)
+      ? `<div style="margin-top:10px;"><pre>${escapeHtml(full)}</pre></div>`
+      : "";
+    return `
+      <details class="${extraClass}">
+        <summary>${title} ${meta}</summary>
+        <div class="preview"><pre>${escapeHtml(preview)}</pre></div>
+        ${showFull}
+      </details>
+    `;
+  }
+
+  async function loadActive(){
     const spec = TAB_SPEC.find(x => x.key === active);
     outEl.textContent = "Loading…";
-    try {
+    try{
       const txt = await fetchText(spec.file);
-      outEl.textContent = txt.trim() ? txt : "(empty)";
       setTimestamp();
-      if (active === "compare") {
-        const m = txt.match(/=== INPUT ===\s*([\s\S]*?)\n=== /);
-        if (m && m[1]) qEl.value = m[1].trim();
+
+      if (active === "compare"){
+        const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
+        const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
+        const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
+        const delta  = section(txt, "DIFF \\(head\\)", "$");
+        if (input) qEl.value = input;
+
+        outEl.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            ${detailsBlock("Before (Single)", before)}
+            ${detailsBlock("After (MMAR)", after)}
+            ${detailsBlock("Δ (Diff)", delta, "deltaBox")}
+          </div>
+        `;
+      } else {
+        outEl.innerHTML = `<pre>${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
       }
-    } catch (e) {
+    } catch(e){
       outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
     }
   }
 
   document.getElementById("reload").onclick = loadActive;
-
   renderTabs();
   loadActive();
 </script>
