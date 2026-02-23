@@ -88,22 +88,54 @@
     return await r.text();
   }
 
-  async function loadActive() {
-    const spec = TAB_SPEC.find(x => x.key === active);
-    outEl.textContent = "Loading…";
-    try {
-      const txt = await fetchText(spec.file);
-      outEl.textContent = txt.trim() ? txt : "(empty)";
-      setTimestamp();
-      if (active === "compare") {
-        const m = txt.match(/=== INPUT ===\s*([\s\S]*?)\n=== /);
-        if (m && m[1]) qEl.value = m[1].trim();
-      }
-    } catch (e) {
-      outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
-    }
-  }
+  function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
+function section(txt, head, nextHead){
+  const re = new RegExp(`=== ${head} ===\\s*([\\s\\S]*?)(?=\\n=== ${nextHead} ===|$)`);
+  const m = txt.match(re);
+  return (m && m[1]) ? m[1].trim() : "";
+}
+
+async function loadActive() {
+  const spec = TAB_SPEC.find(x => x.key === active);
+  outEl.textContent = "Loading…";
+  try {
+    const txt = await fetchText(spec.file);
+    setTimestamp();
+
+    if (active === "compare") {
+      const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
+      const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
+      const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
+      const delta  = section(txt, "DIFF \\(head\\)", "$");
+
+      if (input) qEl.value = input;
+
+      outEl.innerHTML = `
+        <div class="compareGrid">
+          <div class="subcard">
+            <div class="subhead">Before (Single)</div>
+            <pre class="subpre">${escapeHtml(before || "(empty)")}</pre>
+          </div>
+          <div class="subcard">
+            <div class="subhead">After (MMAR)</div>
+            <pre class="subpre">${escapeHtml(after || "(empty)")}</pre>
+          </div>
+        </div>
+        <div class="subcard deltaCard">
+          <div class="subhead">Δ (Diff)</div>
+          <pre class="subpre">${escapeHtml(delta || "(empty)")}</pre>
+        </div>
+      `;
+    } else {
+      outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+    }
+  } catch (e) {
+    outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
+  }
+}
   document.getElementById("reload").onclick = loadActive;
 
   renderTabs();
@@ -111,4 +143,5 @@
 </script>
 </body>
 </html>
+
 
