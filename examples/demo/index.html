@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <!doctype html>
 <html lang="en">
 <head>
@@ -187,3 +188,175 @@
 </script>
 </body>
 </html>
+=======
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MMAR Demo</title>
+  <style>
+    body { font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial; margin: 0; background:#f6f7f9; }
+    .wrap { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; padding: 16px; height: 100vh; box-sizing: border-box; }
+    .card { background:#fff; border:1px solid #e6e8ee; border-radius:16px; padding:14px; display:flex; flex-direction:column; min-height:0; box-shadow:0 8px 24px rgba(16,24,40,.06); }
+    .muted { color:#667085; font-size:12px; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .pill { border:1px solid #e6e8ee; border-radius:999px; padding:4px 10px; font-size:12px; background:#fff; }
+    textarea { width:100%; min-height:140px; resize:vertical; border:1px solid #e6e8ee; border-radius:12px; padding:10px; font-size:14px; outline:none; }
+    textarea:focus { border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.12); }
+    textarea.big { min-height: 55vh; }
+    .counter { margin-left:auto; font-size:12px; color:#64748B; }
+    .counter.warn { color:#c2410c; } /* オレンジ系（怖くしない） */
+    .tabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    button { border:1px solid #e6e8ee; background:#fff; border-radius:999px; padding:8px 12px; cursor:pointer; font-weight:600; }
+    button.active { border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.12); }
+    pre { margin:0; white-space:pre-wrap; word-break:break-word; overflow:auto; flex:1; font-size:13px; line-height:1.45; }
+    /* Compare split */
+　　.compareGrid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+　　.subcard:nth-child(2){border:1px solid rgba(56,189,248,.35);box-shadow:0 6px 20px rgba(56,189,248,.08);}
+　　.subhead{ font-size:12px; color:#64748B; margin:0 0 8px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+　　.subpre{ margin:0; white-space:pre-wrap; word-break:break-word; overflow:auto; flex:1; font-size:13px; line-height:1.45; }
+　　.deltaCard{ margin-top:12px; }
+    details { border:1px solid #e6e8ee; border-radius:14px; padding:10px 12px; background:#fff; }
+    summary { cursor:pointer; font-weight:800; list-style:none; }
+    summary::-webkit-details-marker { display:none; }
+    .kicker { color:#64748B; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+    .preview { margin-top:8px; color:#0F172A; }
+    .small { color:#64748B; font-size:12px; margin-left:8px; font-weight:700; }
+    .deltaBox { background: rgba(56,189,248,.08); border:1px solid rgba(56,189,248,.25); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <div class="pill">MMAR demo</div>
+        <div id="ts" class="muted"></div>
+      </div>
+      <p class="muted" style="margin:10px 0 6px;">Input (static demo). Output files are loaded from this folder.</p>
+      <textarea id="q" placeholder="Question (for display only)"></textarea>
+      <div class="row" style="margin-top:10px;">
+        <button id="reload">Reload files</button>
+        <span class="muted">Default view is Compare.</span>
+        <span id="counter" class="counter"></span>
+      </div>
+      <p class="muted" style="margin-top:10px;">
+        Files expected:
+        <br>out_compare.txt / out_expand.txt / out_diff.txt / out_merge.txt
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="tabs" id="tabs"></div>
+      <div id="out">Loading…</div>
+      <div class="muted" style="margin-top:8px;">
+        If content doesn't load on GitHub Pages immediately, wait a bit or hard-reload.
+      </div>
+    </div>
+  </div>
+
+<script>
+  const TAB_SPEC = [
+    { key: "compare", label: "Compare", file: "out_compare.txt" },
+    { key: "expand",  label: "Expand",  file: "out_expand.txt"  },
+    { key: "diff",    label: "Diff",    file: "out_diff.txt"    },
+    { key: "merge",   label: "Merge",   file: "out_merge.txt"   },
+  ];
+
+  const tabsEl = document.getElementById("tabs");
+  const outEl  = document.getElementById("out");
+  const qEl    = document.getElementById("q");
+  const tsEl   = document.getElementById("ts");
+  const LIMIT = 600;
+  const counterEl = document.getElementById("counter");
+
+  function updateCounter(){
+  const used = (qEl.value || "").length;
+  const left = LIMIT - used;
+  counterEl.textContent = `Remaining: ${left}`;
+  counterEl.className = "counter" + (left < 0 ? " warn" : "");
+}
+
+qEl.addEventListener("input", updateCounter);
+qEl.addEventListener("focus", ()=> qEl.classList.add("big"));
+qEl.addEventListener("blur",  ()=> qEl.classList.remove("big"));
+updateCounter();
+  let active = "compare";
+
+  function setTimestamp() { tsEl.textContent = new Date().toISOString(); }
+
+  function renderTabs() {
+    tabsEl.innerHTML = "";
+    for (const t of TAB_SPEC) {
+      const b = document.createElement("button");
+      b.textContent = t.label;
+      b.className = (t.key === active) ? "active" : "";
+      b.onclick = () => { active = t.key; renderTabs(); loadActive(); };
+      tabsEl.appendChild(b);
+    }
+  }
+
+  async function fetchText(file) {
+    const url = `${file}?_=${Date.now()}`; // cache-bust
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${file}: HTTP ${r.status}`);
+    return await r.text();
+  }
+
+  function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function section(txt, head, nextHead){
+  const re = new RegExp(`=== ${head} ===\\s*([\\s\\S]*?)(?=\\n=== ${nextHead} ===|$)`);
+  const m = txt.match(re);
+  return (m && m[1]) ? m[1].trim() : "";
+}
+
+async function loadActive() {
+  const spec = TAB_SPEC.find(x => x.key === active);
+  outEl.textContent = "Loading…";
+  try {
+    const txt = await fetchText(spec.file);
+    setTimestamp();
+
+    if (active === "compare") {
+      const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
+      const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
+      const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
+      const delta  = section(txt, "DIFF \\(head\\)", "$");
+
+      if (input) qEl.value = input;
+
+      outEl.innerHTML = `
+        <div class="compareGrid">
+          <div class="subcard">
+            <div class="subhead">Before (Single)</div>
+            <pre class="subpre">${escapeHtml((before||"(empty)").slice(0, 800))}</pre>
+          </div>
+          <div class="subcard">
+            <div class="subhead">After (MMAR)</div>
+            <pre class="subpre">${escapeHtml(after || "(empty)")}</pre>
+          </div>
+        </div>
+        <div class="subcard deltaCard">
+          <div class="subhead">Δ (Diff)</div>
+          <pre class="subpre">${escapeHtml(delta || "(empty)")}</pre>
+        </div>
+      `;
+    } else {
+      outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+    }
+  } catch (e) {
+    outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
+  }
+}
+  document.getElementById("reload").onclick = loadActive;
+
+  renderTabs();
+  loadActive();
+</script>
+</body>
+</html>
+
+>>>>>>> 396317107c93ec4ee82ccf2a5af808d6b90e17fc
