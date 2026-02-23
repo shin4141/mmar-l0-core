@@ -22,17 +22,28 @@ TAB_FILES = {
 def log(msg: str) -> None:
     print(msg, flush=True)
 
-def call_openai(prompt: str, timeout_s: int = 60) -> str:
-    try:
-        from providers.openai_min import responses_create
-        return responses_create(prompt, timeout_s=timeout_s)
-    except Exception as e:
-        log(f"[warn] OpenAI failed -> Dummy fallback: {e}")
-        return (
-            "SSOT:\n- (dummy)\n\n"
-            "Δ:\n- (dummy)\n- (dummy)\n\n"
-            "Next step: (dummy)\n"
-        )
+def call_openai(prompt: str, timeout_s: int = 20) -> str:
+    """Hard rule: never hang.
+    - try up to 2 attempts with short timeout
+    - if still failing, return a dummy and continue
+    """
+    last_err = None
+    for attempt in range(1, 3):
+        try:
+            from providers.openai_min import responses_create
+            return responses_create(prompt, timeout_s=timeout_s)
+        except Exception as e:
+            last_err = e
+            log(f"[warn] OpenAI attempt {attempt}/2 failed: {e}")
+            time.sleep(0.5)
+
+    log("[warn] OpenAI failed twice -> Dummy fallback (continue)")
+    return (
+        "SSOT:\n- (dummy)\n\n"
+        "Δ:\n- (dummy)\n- (dummy)\n\n"
+        "Next step: (dummy)\n"
+        f"(error: {last_err})\n"
+    )
 
 def master_merge_prompt() -> str:
     # Master Contract (fixed)
@@ -182,11 +193,41 @@ def main():
     # always write merge tab as the master merge
     TAB_FILES["merge"].write_text(master, encoding="utf-8")
 
+    # always write compare view (no extra LLM call)
+    expand_path = TAB_FILES.get("expand")
+    diff_path = TAB_FILES.get("diff")
+
+    expand_txt = expand_path.read_text(encoding="utf-8", errors="replace") if expand_path and expand_path.exists() else ""
+    diff_txt = diff_path.read_text(encoding="utf-8", errors="replace") if diff_path and diff_path.exists() else ""
+
+    # take top part of diff to keep compare readable
+    diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
+
+    compare = (
+        "=== INPUT ===\n"
+        f"{q}\n\n"
+        "=== SINGLE (seed) ===\n"
+        f"{seed}\n\n"
+        "=== MMAR EXPAND (tab output) ===\n"
+        f"{expand_txt.strip()}\n\n"
+        "=== DIFF (head) ===\n"
+        f"{diff_head}\n"
+    )
+    TAB_FILES["compare"].write_text(compare, encoding="utf-8")
+
     if tab in ("expand", "guard", "diff"):
         prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
         out = call_openai(prompt)
         TAB_FILES[tab].write_text(out, encoding="utf-8")
+<<<<<<< Updated upstream
 
+=======
+        # If running EXPAND, also generate DIFF in the background for compare view
+        if tab == "expand":
+            diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
+            diff_out = call_openai(diff_prompt)
+            TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
+>>>>>>> Stashed changes
         # If running EXPAND, also generate DIFF in the background for compare view
         if tab == "expand":
             diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
