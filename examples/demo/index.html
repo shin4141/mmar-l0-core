@@ -226,7 +226,7 @@
       updateRunButton();
       return;
     }
-    liveHintEl.textContent = "Checking live...";
+    liveHintEl.textContent = `Checking live... ${apiBase}`;
     renderMode();
     const w = withTimeout(3000);
     try {
