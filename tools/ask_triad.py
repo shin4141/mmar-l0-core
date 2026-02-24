@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, json, subprocess, time, argparse
+import os, sys, json, subprocess, time, argparse, re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -49,31 +49,54 @@ def call_openai(prompt: str, timeout_s: int = 20) -> str:
 def dummy_fallback_text(label: str = "dummy") -> str:
     return (
         f"SSOT:\n- ({label})\n\n"
+        "WEIGHTS (Low/Med/High, optional):\n"
+        "- Time:\n"
+        "- Money:\n"
+        "- Growth:\n\n"
         "Δ:\n- (dummy)\n- (dummy)\n\n"
         "Next step: (dummy)\n"
     )
 
 
 def _decision_sections(q: str) -> str:
-    q_line = (q or "").strip().replace("\n", " ")
-    if len(q_line) > 80:
-        q_line = q_line[:80] + "..."
-    assumptions = ""
-    if len((q or "").strip()) < 12:
-        assumptions = (
-            "\nASSUMPTIONS:\n"
-            "- success metric is practical decision quality (not style)\n"
-            "- time/cost constraints are binding\n"
-            "- missing domain constraints should be provided by user\n"
-        )
+    q_l = (q or "").lower()
+    norm = {"low": "Low", "med": "Med", "medium": "Med", "high": "High"}
+    val = {"Low": 1, "Med": 2, "High": 3}
+    assumptions: list[str] = []
+
+    def _pick(axis: str, hints: tuple[str, ...]) -> str:
+        m = re.search(rf"{axis}\s*[:=]\s*(low|med|medium|high)", q_l)
+        if m:
+            return norm[m.group(1)]
+        for h in hints:
+            if h in q_l:
+                assumptions.append(f"- inferred {axis.title()}=High from input hint: \"{h}\"")
+                return "High"
+        assumptions.append(f"- missing {axis.title()} weight; defaulted to Med")
+        return "Med"
+
+    time_w = _pick("time", ("urgent", "asap", "quick", "fast", "deadline"))
+    money_w = _pick("money", ("budget", "cheap", "cost", "expense", "save money"))
+    growth_w = _pick("growth", ("growth", "scale", "revenue", "long-term", "market share"))
+    scores = {"Time": val[time_w], "Money": val[money_w], "Growth": val[growth_w]}
+    dominant_axis = max(scores, key=scores.get)
+
+    assumptions_txt = ""
+    if assumptions:
+        assumptions_txt = "\nASSUMPTIONS:\n" + "\n".join(assumptions[:3]) + "\n"
+
+    dom_line = (
+        f"- {dominant_axis} dominates under mapped weights "
+        f"(Time={time_w}({scores['Time']}), Money={money_w}({scores['Money']}), Growth={growth_w}({scores['Growth']}))."
+    )
     return (
         "\nDOMINANT_AXIS:\n"
-        f"- Input objective priority: \"{q_line or '(unspecified input)'}\"\n\n"
+        f"{dom_line}\n\n"
         "FLIP_THRESHOLD:\n"
-        "- If the primary objective changes (e.g., speed over certainty), conclusion can flip.\n"
-        "- If acceptable risk tolerance shifts by one level (strict -> moderate), recommendation can flip.\n"
-        "- If critical evidence status changes from missing to verified, final decision can reverse.\n"
-        f"{assumptions}"
+        f"- If {dominant_axis} drops by one level (e.g., High->Med), decision may flip.\n"
+        "- If another axis rises by one level (e.g., Med->High), ranking can invert.\n"
+        "- If two axes tie at High, prefer explicit tie-break criterion (time vs cost vs growth).\n"
+        f"{assumptions_txt}"
     )
 
 
