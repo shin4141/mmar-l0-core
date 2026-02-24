@@ -28,3 +28,6 @@ examples/raw_local/
 # local backups
 examples/demo/_bak/
 examples/demo/index.html.bak*
+
+# local backups
+*.bak_fix_*
