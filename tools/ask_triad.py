@@ -22,11 +22,17 @@ TAB_FILES = {
 def log(msg: str) -> None:
     print(msg, flush=True)
 
-def call_openai(prompt: str, timeout_s: int = 20) -> str:
+def call_openai(prompt: str, timeout_s: int = 20, question: str = "") -> str:
     """Hard rule: never hang.
     - try up to 2 attempts with short timeout
     - if still failing, return a dummy and continue
     """
+    env_timeout = os.getenv("MMAR_LLM_TIMEOUT", "").strip()
+    if env_timeout:
+        try:
+            timeout_s = max(1, int(env_timeout))
+        except Exception:
+            pass
     last_err = None
     for attempt in range(1, 3):
         try:
@@ -37,12 +43,30 @@ def call_openai(prompt: str, timeout_s: int = 20) -> str:
             log(f"[warn] OpenAI attempt {attempt}/2 failed: {e}")
             time.sleep(0.5)
 
-    log("[warn] OpenAI failed twice -> Dummy fallback (continue)")
+    log("[warn] OpenAI failed twice -> meaningful fallback (continue)")
+    decision = _decision_sections(question) if question else (
+        "\nDOMINANT_AXIS:\n"
+        "- 暫定: Growth（情報不足のため仮置き）\n\n"
+        "FLIP_THRESHOLD:\n"
+        "- Time または Money が1段階上がると結論が反転し得る\n"
+    )
     return (
-        "SSOT:\n- (dummy)\n\n"
-        "Δ:\n- (dummy)\n- (dummy)\n\n"
-        "Next step: (dummy)\n"
-        f"(error: {last_err})\n"
+        "SSOT:\n"
+        "- OpenAI応答がタイムアウトしたため、暫定の構造化ドラフトを返します。\n\n"
+        "PURPOSE/CONSTRAINTS:\n"
+        "- 目的: まず比較可能な初稿を出し、Thinkで精度を上げる。\n"
+        "- 制約: 外部LLM応答なし。入力テキストと既存ルールのみで生成。\n\n"
+        "WEIGHTS (Low/Med/High, optional):\n"
+        "- Time:\n"
+        "- Money:\n"
+        "- Growth:\n"
+        f"{decision}\n"
+        "NEXT_3_QUESTIONS:\n"
+        "1) いつまでに意思決定が必要ですか？（期限）\n"
+        "2) 許容できるコスト上限は？（予算レンジ）\n"
+        "3) 今回の成功条件は何ですか？（成長KPI）\n\n"
+        "Next step: 上の3質問に回答し、Thinkモードで再実行してください。\n"
+        f"(openai_error: {last_err})\n"
     )
 
 
@@ -212,27 +236,27 @@ def main():
         master = dummy_fallback_text("master")
     else:
         log("[2/5] OpenAI seed...")
-        seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}")
+        seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}", question=q)
 
         log("[2/5] OpenAI counter-1...")
         c1 = call_openai(
             "Counter-1: Improve the answer by adding missing assumptions + concrete corrections.\n"
             "Return: (a) 3 weaknesses (bullets) (b) corrected version (short).\n\n"
             f"Q: {q}\n\nSEED:\n{seed}"
-        )
+        , question=q)
 
         log("[2/5] OpenAI counter-2...")
         c2 = call_openai(
             "Counter-2: Provide a different angle than Counter-1.\n"
             "Return: (a) 2 alternative frames (bullets) (b) 1 failure mode.\n\n"
             f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}"
-        )
+        , question=q)
 
         log("[2/5] OpenAI MASTER merge...")
         master = call_openai(
             master_merge_prompt() + "\n\n" +
             f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}\n\nCOUNTER-2:\n{c2}"
-        )
+        , question=q)
     if think_mode:
         master = _append_decision_sections(master, q)
 
@@ -295,21 +319,21 @@ def main():
                 TAB_FILES["diff"].write_text(dummy_fallback_text("tab-diff"), encoding="utf-8")
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
-            out = call_openai(prompt)
+            out = call_openai(prompt, question=q)
             if think_mode:
                 out = _append_decision_sections(out, q)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             # If running EXPAND, also generate DIFF in the background for compare view
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-                diff_out = call_openai(diff_prompt)
+                diff_out = call_openai(diff_prompt, question=q)
                 if think_mode:
                     diff_out = _append_decision_sections(diff_out, q)
                 TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
             # If running EXPAND, also generate DIFF in the background for compare view
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-                diff_out = call_openai(diff_prompt)
+                diff_out = call_openai(diff_prompt, question=q)
                 if think_mode:
                     diff_out = _append_decision_sections(diff_out, q)
                 TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
