@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, json, subprocess, time, argparse, re
+import os, sys, json, subprocess, time, argparse, re, difflib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -140,6 +140,25 @@ def meaningful_after_fallback(q: str, note: str = "") -> str:
     if note:
         body = body.rstrip() + f"\n({note})\n"
     return body
+
+
+def build_diff_lite(before: str, after: str, max_lines: int = 30) -> str:
+    b = (before or "").splitlines()
+    a = (after or "").splitlines()
+    lines = list(difflib.unified_diff(b, a, fromfile="before", tofile="after", lineterm=""))
+    if not lines:
+        return "Δ:\n- LLM timeout -> lite used\n- before/afterに差分はありません\n"
+    head = "\n".join(lines[:max_lines]).strip()
+    return f"Δ (lite):\n{head}\n"
+
+def _is_valid_after_full(text: str, min_lines: int = 10) -> bool:
+    t = (text or "").strip()
+    if not t or "(dummy)" in t:
+        return False
+    required = ("TENTATIVE_CALL:", "DOMINANT_AXIS:", "FLIP_THRESHOLD:", "NEXT_3:")
+    if not all(h in t for h in required):
+        return False
+    return len(t.splitlines()) >= min_lines
 
 
 def _decision_sections(q: str) -> str:
@@ -286,6 +305,22 @@ def main():
     # 1) triad_turn skeleton (existing generator)
     log("[1/5] generate_triad_turn_min.py -> incoming/triad_turn.json")
     subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
+    lite_after = meaningful_after_fallback(q, "LLM timeout; lite first")
+    lite_before = "初期SEED生成中（lite first）"
+    lite_diff = build_diff_lite(lite_before, lite_after)
+    TAB_FILES["expand"].write_text(lite_after, encoding="utf-8")
+    TAB_FILES["diff"].write_text(lite_diff, encoding="utf-8")
+    TAB_FILES["compare"].write_text(
+        "=== INPUT ===\n"
+        f"{q}\n\n"
+        "=== BEFORE (Single / seed) ===\n"
+        f"{lite_before}\n\n"
+        "=== AFTER (MMAR / EXPAND) ===\n"
+        f"{lite_after}\n\n"
+        "=== Δ (Diff head) ===\n"
+        f"{lite_diff}\n",
+        encoding="utf-8",
+    )
 
     # 2) LLM calls for seed/counters/master-merge
     if no_llm:
@@ -378,12 +413,16 @@ def main():
             out = meaningful_after_fallback(q, "LLM timeout; fallback used") if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             if tab == "expand":
-                TAB_FILES["diff"].write_text(dummy_fallback_text("tab-diff"), encoding="utf-8")
+                TAB_FILES["diff"].write_text(build_diff_lite(seed, out), encoding="utf-8")
+            if tab == "diff":
+                TAB_FILES["diff"].write_text(build_diff_lite(seed, meaningful_after_fallback(q, "LLM timeout; fallback used")), encoding="utf-8")
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
             out = call_openai(prompt, question=q)
-            if tab == "expand" and _is_pure_dummy(out):
-                out = meaningful_after_fallback(q, "LLM timeout; fallback used")
+            if tab == "expand" and not _is_valid_after_full(out):
+                out = meaningful_after_fallback(q, "LLM timeout; lite used")
+            elif tab == "expand":
+                out = out.rstrip() + "\n(full)\n"
             if think_mode:
                 out = _append_decision_sections(out, q)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
@@ -391,6 +430,8 @@ def main():
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
                 diff_out = call_openai(diff_prompt, question=q)
+                if _is_pure_dummy(diff_out):
+                    diff_out = build_diff_lite(seed, out)
                 if think_mode:
                     diff_out = _append_decision_sections(diff_out, q)
                 TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
@@ -398,6 +439,8 @@ def main():
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
                 diff_out = call_openai(diff_prompt, question=q)
+                if _is_pure_dummy(diff_out):
+                    diff_out = build_diff_lite(seed, out)
                 if think_mode:
                     diff_out = _append_decision_sections(diff_out, q)
                 TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
@@ -418,6 +461,9 @@ def main():
 
     if TAB_FILES.get("diff") and Path(TAB_FILES["diff"]).exists():
         diff_txt = Path(TAB_FILES["diff"]).read_text(encoding="utf-8", errors="replace").strip()
+    if _is_pure_dummy(diff_txt):
+        diff_txt = build_diff_lite(seed, expand_txt).strip()
+        Path(TAB_FILES["diff"]).write_text(diff_txt, encoding="utf-8")
 
     diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
     if not diff_head:
