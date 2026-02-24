@@ -93,7 +93,10 @@
       <div class="row" style="margin-top:10px;">
         <button id="mode-static" class="active">Static</button>
         <button id="mode-live">Live</button>
+        <button id="run-fast" class="active" title="First pass (fast)">Quick</button>
+        <button id="run-full" title="Thinking (deeper, may take longer)">Think</button>
         <button id="run-live" disabled>Run</button>
+        <span id="live-result-badge" class="pillBadge" style="display:none;"></span>
         <span id="live-api-base" class="muted"></span>
         <span id="live-last-run" class="muted"></span>
         <span id="live-hint" class="muted"></span>
@@ -140,17 +143,20 @@
   const tsEl   = document.getElementById("ts");
   const modeStaticEl = document.getElementById("mode-static");
   const modeLiveEl = document.getElementById("mode-live");
+  const runFastEl = document.getElementById("run-fast");
+  const runFullEl = document.getElementById("run-full");
   const runLiveEl = document.getElementById("run-live");
+  const liveResultBadgeEl = document.getElementById("live-result-badge");
   const liveApiBaseEl = document.getElementById("live-api-base");
   const liveLastRunEl = document.getElementById("live-last-run");
   const liveHintEl = document.getElementById("live-hint");
   const runBarEl = document.getElementById("run-bar");
-  const RUN_MODE = (new URLSearchParams(window.location.search).get("mode") || "FAST").toUpperCase();
   const LIMIT = 600;
   const PREVIEW_LINES_MAIN = 7;
   const PREVIEW_LINES_DELTA = 3;
   const counterEl = document.getElementById("counter");
   let mode = "static";
+  let runMode = "quick";
   let liveData = null;
   let liveReady = false;
 
@@ -182,12 +188,18 @@
   function renderMode(){
     modeStaticEl.className = (mode === "static") ? "active" : "";
     modeLiveEl.className = (mode === "live") ? "active" : "";
-    runLiveEl.disabled = (mode !== "live") || !liveReady;
+    runFastEl.className = (runMode === "quick") ? "active" : "";
+    runFullEl.className = (runMode === "think") ? "active" : "";
+    updateRunButton();
     liveApiBaseEl.textContent = `API: ${API_BASE || "(none)"}`;
     if (!liveLastRunEl.textContent) liveLastRunEl.textContent = "Last run: -";
     if (!API_BASE && mode === "live" && !liveHintEl.textContent) {
       liveHintEl.textContent = "Live error: API base is empty";
     }
+  }
+
+  function updateRunButton(){
+    runLiveEl.disabled = (mode !== "live") || !liveReady;
   }
 
   function withTimeout(ms){
@@ -205,10 +217,12 @@
   async function checkLiveHealth(){
     liveReady = false;
     setRunVisual("idle", "2.8s");
+    updateRunButton();
     if (!API_BASE) {
       liveHintEl.textContent = "Live error: API base is empty";
       setRunVisual("error", "2.8s");
       renderMode();
+      updateRunButton();
       return;
     }
     liveHintEl.textContent = "Checking live...";
@@ -217,8 +231,6 @@
     try {
       const r = await fetch(`${API_BASE}/api/health`, { signal: w.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const h = await r.json();
-      if (!h || h.ok !== true) throw new Error("health not ok");
       liveReady = true;
       liveHintEl.textContent = `Checking live... ${apiBase}`;
       renderMode();
@@ -230,6 +242,7 @@
       setRunVisual("error", "2.8s");
     } finally {
       w.done();
+      updateRunButton();
       renderMode();
     }
   }
@@ -298,14 +311,15 @@
       setRunVisual("error", "2.8s");
       return;
     }
-    const runSpeed = (RUN_MODE === "FULL") ? "1.2s" : "2.8s";
+    const runSpeed = (runMode === "think") ? "1.2s" : "2.8s";
     runLiveEl.disabled = true;
-    liveHintEl.textContent = "Running...";
+    liveResultBadgeEl.style.display = "none";
+    liveHintEl.textContent = (runMode === "think") ? "Thinking..." : "Running...";
     outEl.textContent = "Running...";
     setRunVisual("running", runSpeed);
     try {
       const w = withTimeout(30000);
-      const r = await fetch(`${API_BASE}/api/triad`, {
+      const r = await fetch(`${API_BASE}/api/triad?mode=${encodeURIComponent(runMode)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: qEl.value || "" }),
@@ -316,15 +330,52 @@
         const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
+        if (runMode === "quick") {
+          liveResultBadgeEl.textContent = "Quick draft";
+          liveResultBadgeEl.style.display = "inline-block";
+        }
         setRunVisual("error", "2.8s");
         return;
       }
       const data = await r.json();
+      if (data && typeof data.job_id === "string") {
+        while (true) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const jr = await fetch(`${API_BASE}/api/job/${encodeURIComponent(data.job_id)}`);
+          if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
+          const j = await jr.json();
+          if (j.status === "running") continue;
+          if (j.status === "error") {
+            const detail = JSON.stringify(j);
+            const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
+            liveHintEl.textContent = `Live error: ${j.error || "job_error"}`;
+            outEl.textContent = `Live error\n\n${short}`;
+            setRunVisual("error", "2.8s");
+            return;
+          }
+          if (j.status === "done") {
+            liveData = j;
+            liveHintEl.textContent = "Live ready";
+            liveResultBadgeEl.textContent = "Final";
+            liveResultBadgeEl.style.display = "inline-block";
+            liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
+            setRunVisual("ready", "2.8s");
+            setTimestamp();
+            loadActive();
+            return;
+          }
+          throw new Error("invalid job status");
+        }
+      }
       if (data && data.ok === false) {
         const detail = JSON.stringify(data);
         const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
         outEl.textContent = `Live error\n\n${short}`;
+        if (runMode === "quick") {
+          liveResultBadgeEl.textContent = "Quick draft";
+          liveResultBadgeEl.style.display = "inline-block";
+        }
         setRunVisual("error", "2.8s");
         return;
       }
@@ -377,6 +428,8 @@
 
   modeStaticEl.onclick = () => { mode = "static"; renderMode(); loadActive(); };
   modeLiveEl.onclick = async () => { mode = "live"; renderMode(); await checkLiveHealth(); loadActive(); };
+  runFastEl.onclick = () => { runMode = "quick"; renderMode(); };
+  runFullEl.onclick = () => { runMode = "think"; renderMode(); };
   runLiveEl.onclick = runLive;
   document.getElementById("reload").onclick = loadActive;
   renderMode();
