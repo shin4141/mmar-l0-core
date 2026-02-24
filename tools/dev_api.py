@@ -156,10 +156,8 @@ class Handler(BaseHTTPRequestHandler):
             if isinstance(started_at, (int, float)):
                 elapsed_sec = max(0.0, time.time() - float(started_at))
 
-            if job.get("status") == "running" and elapsed_sec > 180:
-                with JOBS_LOCK:
-                    JOBS[job_id] = {"status": "error", "mode": "think", "started_at": started_at, "error": "timeout"}
-                    job = JOBS[job_id]
+            # Thinkは強制timeoutしない
+            # elapsed_secは表示のみ
 
             out = dict(job)
             if out.get("status") == "running" and elapsed_sec > 20:
