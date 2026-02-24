@@ -78,6 +78,24 @@ def _start_full_job(user_input: str) -> str:
         JOBS[job_id] = {"status": "running", "mode": "think", "started_at": started_at}
 
     def _worker():
+        stop_monitor = threading.Event()
+
+        def _monitor_expand():
+            while not stop_monitor.is_set():
+                expand_txt = _read_text(OUT_FILES["expand"]).strip()
+                if expand_txt:
+                    with JOBS_LOCK:
+                        cur = JOBS.get(job_id, {})
+                        if cur.get("status") in ("running", "slow"):
+                            nxt = dict(cur)
+                            nxt["expand"] = expand_txt
+                            nxt["stage"] = "draft"
+                            JOBS[job_id] = nxt
+                    return
+                stop_monitor.wait(0.4)
+
+        monitor_thread = threading.Thread(target=_monitor_expand, daemon=True)
+        monitor_thread.start()
         try:
             proc = _run_ask_triad(user_input, timeout_s=None, env_extra=None)
             if proc.returncode != 0:
@@ -106,10 +124,18 @@ def _start_full_job(user_input: str) -> str:
                     }
                 return
             with JOBS_LOCK:
-                JOBS[job_id] = {"status": "done", "mode": "think", "started_at": started_at, **payload}
+                JOBS[job_id] = {
+                    "status": "done",
+                    "stage": "final",
+                    "mode": "think",
+                    "started_at": started_at,
+                    **payload,
+                }
         except Exception as e:
             with JOBS_LOCK:
                 JOBS[job_id] = {"status": "error", "mode": "think", "started_at": started_at, "error": str(e)}
+        finally:
+            stop_monitor.set()
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()

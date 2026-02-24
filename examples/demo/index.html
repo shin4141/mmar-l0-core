@@ -312,6 +312,10 @@
     if (!after) after = section(txt, "AFTER(?:[^\\n]*)", "(?:Δ|DIFF)(?:[^\\n]*)");
     if (!delta) delta = section(txt, "(?:Δ|DIFF)(?:[^\\n]*)", "$");
     updateCounter();
+    if (!before && !after && !delta) {
+      outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
+      return;
+    }
 
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
@@ -363,6 +367,12 @@
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
           if (j.status === "running") {
+            if (j.stage === "draft" && j.expand && j.expand.trim()) {
+              liveData = { expand: j.expand };
+              liveResultBadgeEl.textContent = "Draft";
+              liveResultBadgeEl.style.display = "inline-block";
+              loadActive();
+            }
             const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
             liveHintEl.textContent = `Thinking... ${sec}s`;
             setRunVisual("running", runSpeed);
@@ -371,6 +381,12 @@
             continue;
           }
           if (j.status === "slow") {
+            if (j.stage === "draft" && j.expand && j.expand.trim()) {
+              liveData = { expand: j.expand };
+              liveResultBadgeEl.textContent = "Draft";
+              liveResultBadgeEl.style.display = "inline-block";
+              loadActive();
+            }
             const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
             liveHintEl.textContent = `Thinking... ${sec}s`;
             setRunVisual("running", runSpeed);
