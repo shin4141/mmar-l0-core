@@ -348,6 +348,11 @@
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
           if (j.status === "running") continue;
+          if (j.status === "slow") {
+            const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
+            liveHintEl.textContent = `Thinking... ${sec}s`;
+            continue;
+          }
           if (j.status === "error") {
             const detail = JSON.stringify(j);
             const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
