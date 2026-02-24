@@ -26,6 +26,16 @@
     textarea.big{ min-height:55vh; }
 
     .tabs{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    .gearBtn{
+      position:absolute; top:14px; right:14px; width:32px; height:32px; padding:0;
+      display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700;
+    }
+    .ctrlPanel{
+      position:fixed; top:56px; right:20px; z-index:30; min-width:220px;
+      border:1px solid var(--line); background:#fff; border-radius:12px; box-shadow:var(--shadow);
+      padding:10px 12px; display:none;
+    }
+    .ctrlPanel.open{ display:block; }
     button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:8px 12px;
             cursor:pointer; font-weight:700; }
     button.active{ border-color:var(--accent); box-shadow:0 0 0 4px var(--accentSoft); color:#0284C7; }
@@ -97,29 +107,36 @@
         <button id="run-fast" class="active" title="First pass (fast)">Quick</button>
         <button id="run-full" title="Thinking (deeper, may take longer)">Think</button>
         <button id="run-live" disabled>Run</button>
+        <button id="stop-live" title="Stop" style="display:none; padding:8px 10px;">■</button>
         <span id="live-result-badge" class="pillBadge" style="display:none;"></span>
         <span id="live-api-base" class="muted"></span>
         <span id="live-last-run" class="muted"></span>
+        <span id="live-think-time" class="muted" style="display:none;"></span>
         <span id="live-hint" class="muted"></span>
       </div>
       <div class="row" style="margin-top:10px;">
         <button id="reload">Reload files</button>
-        <span class="muted">Default view is Compare.</span>
         <span id="counter" class="counter"></span>
       </div>
-      <p class="muted" style="margin-top:10px;">
-        Files expected:
-        <br>out_compare.txt / out_expand.txt / out_diff.txt / out_merge.txt
-      </p>
+      <details class="muted" style="margin-top:10px;">
+        <summary>ⓘ</summary>
+        <div>If content doesn't load on GitHub Pages immediately, wait a bit or hard-reload.</div>
+        <div style="margin-top:6px;">Files expected:</div>
+        <div>out_compare.txt / out_expand.txt / out_diff.txt / out_merge.txt</div>
+      </details>
     </div>
 
-    <div class="card">
+    <div class="card" style="position:relative;">
       <div class="tabs" id="tabs"></div>
+      <button id="ctrl-gear" class="gearBtn" title="Control">⚙️</button>
+      <div id="ctrl-panel" class="ctrlPanel muted">
+        <div id="ctrl-think-time">Think time: -</div>
+        <div id="ctrl-live-status">Live: unknown</div>
+        <div id="ctrl-llm-status">LLM: unknown</div>
+        <div id="ctrl-outcome">Outcome: Unknown</div>
+      </div>
       <div class="runVisual" style="margin-top:4px; margin-bottom:8px;"><div id="run-bar" class="runBar state-idle"></div></div>
       <div id="out">Loading…</div>
-      <div class="muted" style="margin-top:8px;">
-        If content doesn't load on GitHub Pages immediately, wait a bit or hard-reload.
-      </div>
     </div>
   </div>
 
@@ -146,11 +163,19 @@
   const runFastEl = document.getElementById("run-fast");
   const runFullEl = document.getElementById("run-full");
   const runLiveEl = document.getElementById("run-live");
+  const stopLiveEl = document.getElementById("stop-live");
   const liveResultBadgeEl = document.getElementById("live-result-badge");
   const liveApiBaseEl = document.getElementById("live-api-base");
   const liveLastRunEl = document.getElementById("live-last-run");
+  const liveThinkTimeEl = document.getElementById("live-think-time");
   const liveHintEl = document.getElementById("live-hint");
   const runBarEl = document.getElementById("run-bar");
+  const ctrlGearEl = document.getElementById("ctrl-gear");
+  const ctrlPanelEl = document.getElementById("ctrl-panel");
+  const ctrlThinkTimeEl = document.getElementById("ctrl-think-time");
+  const ctrlLiveStatusEl = document.getElementById("ctrl-live-status");
+  const ctrlLlmStatusEl = document.getElementById("ctrl-llm-status");
+  const ctrlOutcomeEl = document.getElementById("ctrl-outcome");
   const PREVIEW_LINES_MAIN = 7;
   const PREVIEW_LINES_DELTA = 3;
   const counterEl = document.getElementById("counter");
@@ -158,6 +183,9 @@
   let runMode = "quick";
   let liveData = null;
   let liveReady = false;
+  let currentJobId = "";
+  let stopRequested = false;
+  let liveStatus = "unknown";
 
   function currentLimit(){
     if (mode === "static") return 600;
@@ -198,16 +226,44 @@
     runFastEl.className = (runMode === "quick") ? "active" : "";
     runFullEl.className = (runMode === "think") ? "active" : "";
     updateRunButton();
+    updateStopButton();
     liveApiBaseEl.textContent = `API: ${apiBase || "(none)"}`;
     updateCounter();
     if (!liveLastRunEl.textContent) liveLastRunEl.textContent = "Last run: -";
+    liveThinkTimeEl.style.display = (mode === "live" && runMode === "think") ? "inline" : "none";
+    if (mode !== "live" || runMode !== "think") liveThinkTimeEl.textContent = "";
     if (!apiBase && mode === "live" && !liveHintEl.textContent) {
       liveHintEl.textContent = "Live error: API base is empty";
     }
   }
 
+  function formatThinkTime(sec){
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}m ${r}s`;
+  }
+
   function updateRunButton(){
     runLiveEl.disabled = (mode !== "live") || !liveReady;
+  }
+
+  function updateStopButton(){
+    stopLiveEl.style.display = (mode === "live" && !!currentJobId) ? "inline-block" : "none";
+  }
+
+  function updateCtrlPanel(){
+    const thinkTxt = (liveThinkTimeEl.textContent || "").trim() || "Think time: -";
+    ctrlThinkTimeEl.textContent = thinkTxt;
+    ctrlLiveStatusEl.textContent = `Live: ${liveStatus}`;
+    const afterLike = `${(liveData && liveData.expand) || ""}\n${(liveData && liveData.compare) || ""}`;
+    const llm = afterLike.includes("タイムアウト") ? "lite" : (afterLike.trim() ? "full" : "unknown");
+    ctrlLlmStatusEl.textContent = `LLM: ${llm}`;
+    let outcome = "Unknown";
+    const txt = `${(liveData && liveData.diff) || ""}\n${(liveData && liveData.compare) || ""}`;
+    if (/reinforced|強化/i.test(txt)) outcome = "Reinforced";
+    if (/flipped|逆転/i.test(txt)) outcome = "Flipped";
+    ctrlOutcomeEl.textContent = `Outcome: ${outcome}`;
   }
 
   function withTimeout(ms){
@@ -225,13 +281,16 @@
   async function checkLiveHealth(){
     const apiBase = getApiBase();
     liveReady = false;
+    liveStatus = "checking";
     setRunVisual("idle", "2.8s");
     updateRunButton();
     if (!apiBase) {
       liveHintEl.textContent = "Live error: API base is empty";
+      liveStatus = "error";
       setRunVisual("error", "2.8s");
       renderMode();
       updateRunButton();
+      updateCtrlPanel();
       return;
     }
     liveHintEl.textContent = `Checking live... ${apiBase}`;
@@ -241,11 +300,13 @@
       const r = await fetch(`${apiBase}/api/health`, { signal: w.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       liveReady = true;
+      liveStatus = "ready";
       liveHintEl.textContent = `Checking live... ${apiBase}`;
       renderMode();
       setRunVisual("ready", "2.8s");
     } catch (e) {
       liveReady = false;
+      liveStatus = "error";
       const msg = (e && e.name === "AbortError") ? "timeout" : String(e);
       liveHintEl.textContent = `Live error: ${msg}`;
       setRunVisual("error", "2.8s");
@@ -253,6 +314,7 @@
       w.done();
       updateRunButton();
       renderMode();
+      updateCtrlPanel();
     }
   }
 
@@ -330,14 +392,22 @@
     const apiBase = getApiBase();
     if (!liveReady) {
       outEl.textContent = "Live not ready";
+      liveStatus = "error";
       setRunVisual("error", "2.8s");
+      updateCtrlPanel();
       return;
     }
     const runSpeed = (runMode === "think") ? "1.2s" : "2.8s";
     runLiveEl.disabled = true;
+    stopRequested = false;
+    currentJobId = "";
+    updateStopButton();
     liveResultBadgeEl.style.display = "none";
     liveHintEl.textContent = (runMode === "think") ? "Thinking..." : "Running...";
+    if (runMode === "think") liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
+    liveStatus = (runMode === "think") ? "running" : "ready";
     outEl.textContent = "Running...";
+    updateCtrlPanel();
     setRunVisual("running", runSpeed);
     try {
       const w = withTimeout(30000);
@@ -351,17 +421,28 @@
         const body = await r.text();
         const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
+        liveStatus = "error";
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
         if (runMode === "quick") {
           liveResultBadgeEl.textContent = "Quick draft";
           liveResultBadgeEl.style.display = "inline-block";
         }
         setRunVisual("error", "2.8s");
+        updateCtrlPanel();
         return;
       }
       const data = await r.json();
       if (data && typeof data.job_id === "string") {
+        currentJobId = data.job_id;
+        updateStopButton();
         while (true) {
+          if (stopRequested) {
+            liveHintEl.textContent = "Stopped";
+            liveStatus = "cancelled";
+            setRunVisual("ready", "2.8s");
+            updateCtrlPanel();
+            return;
+          }
           await new Promise(resolve => setTimeout(resolve, 500));
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
@@ -373,11 +454,16 @@
               liveResultBadgeEl.style.display = "inline-block";
               loadActive();
             }
-            const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
-            liveHintEl.textContent = `Thinking... ${sec}s`;
+            const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
+            const elapsedInt = Math.max(0, Math.floor(elapsed));
+            const lap = 1 + Math.floor(elapsed / 120);
+            const lapPct = ((elapsed % 120) / 120) * 100;
+            liveHintEl.textContent = `Thinking… ${elapsedInt}s · Lap ${lap}`;
+            liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(elapsed)}`;
+            liveStatus = "running";
             setRunVisual("running", runSpeed);
-            const pct = (typeof j.elapsed_sec === "number") ? Math.min(100, Math.round((j.elapsed_sec / 120) * 100)) : 0;
-            runBarEl.style.width = `${Math.max(12, pct)}%`;
+            runBarEl.style.width = `${Math.max(0, Math.min(100, Math.round(lapPct)))}%`;
+            updateCtrlPanel();
             continue;
           }
           if (j.status === "slow") {
@@ -387,24 +473,36 @@
               liveResultBadgeEl.style.display = "inline-block";
               loadActive();
             }
-            const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
-            liveHintEl.textContent = `Thinking... ${sec}s`;
+            const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
+            const elapsedInt = Math.max(0, Math.floor(elapsed));
+            const lap = 1 + Math.floor(elapsed / 120);
+            const lapPct = ((elapsed % 120) / 120) * 100;
+            liveHintEl.textContent = `Thinking… ${elapsedInt}s · Lap ${lap}`;
+            liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(elapsed)}`;
+            liveStatus = "slow";
             setRunVisual("running", runSpeed);
-            const pct = (typeof j.elapsed_sec === "number") ? Math.min(100, Math.round((j.elapsed_sec / 120) * 100)) : 0;
-            runBarEl.style.width = `${Math.max(12, pct)}%`;
+            runBarEl.style.width = `${Math.max(0, Math.min(100, Math.round(lapPct)))}%`;
+            updateCtrlPanel();
             continue;
           }
           if (j.status === "error") {
+            currentJobId = "";
+            updateStopButton();
             const detail = JSON.stringify(j);
             const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
             liveHintEl.textContent = `Live error: ${j.error || "job_error"}`;
+            liveStatus = "error";
             outEl.textContent = `Live error\n\n${short}`;
             setRunVisual("error", "2.8s");
+            updateCtrlPanel();
             return;
           }
           if (j.status === "done") {
             liveData = j;
+            currentJobId = "";
+            updateStopButton();
             liveHintEl.textContent = "Live ready";
+            liveStatus = "ready";
             liveResultBadgeEl.textContent = "Final";
             liveResultBadgeEl.style.display = "inline-block";
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
@@ -412,6 +510,16 @@
             runBarEl.style.width = "100%";
             setTimestamp();
             loadActive();
+            updateCtrlPanel();
+            return;
+          }
+          if (j.status === "cancelled") {
+            currentJobId = "";
+            updateStopButton();
+            liveHintEl.textContent = "Stopped";
+            liveStatus = "cancelled";
+            setRunVisual("ready", "2.8s");
+            updateCtrlPanel();
             return;
           }
           throw new Error("invalid job status");
@@ -421,26 +529,34 @@
         const detail = JSON.stringify(data);
         const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
+        liveStatus = "error";
         outEl.textContent = `Live error\n\n${short}`;
         if (runMode === "quick") {
           liveResultBadgeEl.textContent = "Quick draft";
           liveResultBadgeEl.style.display = "inline-block";
         }
         setRunVisual("error", "2.8s");
+        updateCtrlPanel();
         return;
       }
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
       if (!ok) throw new Error("invalid response shape");
       liveData = data;
       liveHintEl.textContent = "Live ready";
+      liveStatus = "ready";
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
       setTimestamp();
       loadActive();
+      updateCtrlPanel();
     } catch (e) {
+      currentJobId = "";
+      updateStopButton();
       liveHintEl.textContent = `Live error: ${e}`;
+      liveStatus = "error";
       outEl.textContent = `Live run failed\n\n${e}`;
       setRunVisual("error", "2.8s");
+      updateCtrlPanel();
     } finally {
       renderMode();
     }
@@ -480,6 +596,31 @@
   modeLiveEl.addEventListener("click", async () => { mode = "live"; liveHintEl.textContent = "Live clicked"; renderMode(); await checkLiveHealth(); loadActive(); });
   runFastEl.onclick = () => { runMode = "quick"; renderMode(); };
   runFullEl.onclick = () => { runMode = "think"; renderMode(); };
+  stopLiveEl.onclick = async () => {
+    if (!currentJobId) return;
+    stopRequested = true;
+    const apiBase = getApiBase();
+    try {
+      await fetch(`${apiBase}/api/cancel/${encodeURIComponent(currentJobId)}`, { method: "POST" });
+    } catch (e) {}
+    currentJobId = "";
+    updateStopButton();
+    liveHintEl.textContent = "Stopped";
+    liveStatus = "cancelled";
+    setRunVisual("ready", "2.8s");
+    updateCtrlPanel();
+    renderMode();
+  };
+  ctrlGearEl.onclick = (e) => {
+    e.stopPropagation();
+    ctrlPanelEl.classList.toggle("open");
+    updateCtrlPanel();
+  };
+  document.addEventListener("click", (e) => {
+    if (!ctrlPanelEl.classList.contains("open")) return;
+    if (ctrlPanelEl.contains(e.target) || ctrlGearEl.contains(e.target)) return;
+    ctrlPanelEl.classList.remove("open");
+  });
   runLiveEl.onclick = runLive;
   document.getElementById("reload").onclick = loadActive;
   renderMode();
