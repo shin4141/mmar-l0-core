@@ -70,6 +70,12 @@
       <p class="muted" style="margin:10px 0 6px;">Input (static demo). Output files are loaded from this folder.</p>
       <textarea id="q" placeholder="Question (for display only)"></textarea>
       <div class="row" style="margin-top:10px;">
+        <button id="mode-static" class="active">Static</button>
+        <button id="mode-live">Live</button>
+        <button id="run-live" disabled>Run</button>
+        <span id="live-hint" class="muted"></span>
+      </div>
+      <div class="row" style="margin-top:10px;">
         <button id="reload">Reload files</button>
         <span class="muted">Default view is Compare.</span>
         <span id="counter" class="counter"></span>
@@ -90,6 +96,7 @@
   </div>
 
 <script>
+  const API_BASE = "";
   const TAB_SPEC = [
     { key: "compare", label: "Compare", file: "out_compare.txt" },
     { key: "expand",  label: "Expand",  file: "out_expand.txt"  },
@@ -101,10 +108,16 @@
   const outEl  = document.getElementById("out");
   const qEl    = document.getElementById("q");
   const tsEl   = document.getElementById("ts");
+  const modeStaticEl = document.getElementById("mode-static");
+  const modeLiveEl = document.getElementById("mode-live");
+  const runLiveEl = document.getElementById("run-live");
+  const liveHintEl = document.getElementById("live-hint");
   const LIMIT = 600;
   const PREVIEW_LINES_MAIN = 7;
   const PREVIEW_LINES_DELTA = 3;
   const counterEl = document.getElementById("counter");
+  let mode = "static";
+  let liveData = null;
 
   function updateCounter(){
     const used = (qEl.value || "").length;
@@ -129,6 +142,13 @@
       b.onclick = () => { active = t.key; renderTabs(); loadActive(); };
       tabsEl.appendChild(b);
     }
+  }
+
+  function renderMode(){
+    modeStaticEl.className = (mode === "static") ? "active" : "";
+    modeLiveEl.className = (mode === "live") ? "active" : "";
+    runLiveEl.disabled = (mode !== "live") || !API_BASE;
+    liveHintEl.textContent = API_BASE ? "" : "Live disabled";
   }
 
   async function fetchText(file){
@@ -172,28 +192,69 @@
     `;
   }
 
+  function renderCompare(txt){
+    const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
+    const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
+    const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
+    const delta  = section(txt, "DIFF \\(head\\)", "$");
+    if (input) qEl.value = input;
+    updateCounter();
+
+    outEl.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
+        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended")}
+        ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
+      </div>
+    `;
+  }
+
+  async function runLive(){
+    if (!API_BASE) {
+      outEl.textContent = "Live disabled";
+      return;
+    }
+    outEl.textContent = "Running…";
+    try {
+      const r = await fetch(`${API_BASE}/api/triad`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: qEl.value || "" }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
+      if (!ok) throw new Error("invalid response shape");
+      liveData = data;
+      setTimestamp();
+      loadActive();
+    } catch (e) {
+      outEl.textContent = `Live run failed\n\n${e}`;
+    }
+  }
+
   async function loadActive(){
     const spec = TAB_SPEC.find(x => x.key === active);
     outEl.textContent = "Loading…";
+    if (mode === "live"){
+      if (!liveData){
+        outEl.textContent = API_BASE ? "Live mode: press Run" : "Live disabled";
+        return;
+      }
+      const txt = liveData[active] || "";
+      if (active === "compare") {
+        renderCompare(txt);
+      } else {
+        outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+      }
+      return;
+    }
     try{
       const txt = await fetchText(spec.file);
       setTimestamp();
 
       if (active === "compare"){
-        const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
-        const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
-        const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
-        const delta  = section(txt, "DIFF \\(head\\)", "$");
-        if (input) qEl.value = input;
-        updateCounter();
-
-        outEl.innerHTML = `
-          <div style="display:flex; flex-direction:column; gap:12px;">
-            ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-            ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended")}
-            ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
-          </div>
-        `;
+        renderCompare(txt);
       } else {
         outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
       }
@@ -202,7 +263,11 @@
     }
   }
 
+  modeStaticEl.onclick = () => { mode = "static"; renderMode(); loadActive(); };
+  modeLiveEl.onclick = () => { mode = "live"; renderMode(); loadActive(); };
+  runLiveEl.onclick = runLive;
   document.getElementById("reload").onclick = loadActive;
+  renderMode();
   renderTabs();
   loadActive();
 </script>
