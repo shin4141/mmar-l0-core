@@ -53,6 +53,35 @@ def dummy_fallback_text(label: str = "dummy") -> str:
         "Next step: (dummy)\n"
     )
 
+
+def _decision_sections(q: str) -> str:
+    q_line = (q or "").strip().replace("\n", " ")
+    if len(q_line) > 80:
+        q_line = q_line[:80] + "..."
+    assumptions = ""
+    if len((q or "").strip()) < 12:
+        assumptions = (
+            "\nASSUMPTIONS:\n"
+            "- success metric is practical decision quality (not style)\n"
+            "- time/cost constraints are binding\n"
+            "- missing domain constraints should be provided by user\n"
+        )
+    return (
+        "\nDOMINANT_AXIS:\n"
+        f"- Input objective priority: \"{q_line or '(unspecified input)'}\"\n\n"
+        "FLIP_THRESHOLD:\n"
+        "- If the primary objective changes (e.g., speed over certainty), conclusion can flip.\n"
+        "- If acceptable risk tolerance shifts by one level (strict -> moderate), recommendation can flip.\n"
+        "- If critical evidence status changes from missing to verified, final decision can reverse.\n"
+        f"{assumptions}"
+    )
+
+
+def _append_decision_sections(text: str, q: str) -> str:
+    if "DOMINANT_AXIS:" in text and "FLIP_THRESHOLD:" in text:
+        return text
+    return (text.rstrip() + "\n\n" + _decision_sections(q)).rstrip() + "\n"
+
 def master_merge_prompt() -> str:
     # Master Contract (fixed)
     return (
@@ -143,6 +172,7 @@ def main():
     q = " ".join(args.question).strip()
     tab = args.tab
     no_llm = os.getenv("MMAR_NO_LLM", "").strip() == "1"
+    think_mode = not no_llm
 
     log(f"[0/5] tab={tab}")
 
@@ -180,6 +210,8 @@ def main():
             master_merge_prompt() + "\n\n" +
             f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}\n\nCOUNTER-2:\n{c2}"
         )
+    if think_mode:
+        master = _append_decision_sections(master, q)
 
     # 3) write merged_answer.txt (required by triad_turn_to_claims_and_delta)
     log("[3/5] write incoming/merged_answer.txt + attach to triad_turn.json")
@@ -228,6 +260,8 @@ def main():
         "=== DIFF (head) ===\n"
         f"{diff_head}\n"
     )
+    if think_mode:
+        compare = _append_decision_sections(compare, q)
     TAB_FILES["compare"].write_text(compare, encoding="utf-8")
 
     if tab in ("expand", "guard", "diff"):
@@ -239,16 +273,22 @@ def main():
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
             out = call_openai(prompt)
+            if think_mode:
+                out = _append_decision_sections(out, q)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             # If running EXPAND, also generate DIFF in the background for compare view
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
                 diff_out = call_openai(diff_prompt)
+                if think_mode:
+                    diff_out = _append_decision_sections(diff_out, q)
                 TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
             # If running EXPAND, also generate DIFF in the background for compare view
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
                 diff_out = call_openai(diff_prompt)
+                if think_mode:
+                    diff_out = _append_decision_sections(diff_out, q)
                 TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
     else:
         out = master
@@ -277,6 +317,8 @@ def main():
         "=== Δ (Diff head) ===\n"
         f"{diff_head}\n"
     )
+    if think_mode:
+        compare = _append_decision_sections(compare, q)
     Path(TAB_FILES["compare"]).write_text(compare, encoding="utf-8")
     TURNP.write_text(json.dumps(turn_after, ensure_ascii=False, indent=2), encoding="utf-8")
 
