@@ -129,7 +129,6 @@
     const raw = (q != null ? q : API_BASE_DEFAULT).trim();
     return raw.replace(/\/+$/, "");
   }
-  const API_BASE = getApiBase();
   const TAB_SPEC = [
     { key: "compare", label: "Compare", file: "out_compare.txt" },
     { key: "expand",  label: "Expand",  file: "out_expand.txt"  },
@@ -186,14 +185,15 @@
   }
 
   function renderMode(){
+    const apiBase = getApiBase();
     modeStaticEl.className = (mode === "static") ? "active" : "";
     modeLiveEl.className = (mode === "live") ? "active" : "";
     runFastEl.className = (runMode === "quick") ? "active" : "";
     runFullEl.className = (runMode === "think") ? "active" : "";
     updateRunButton();
-    liveApiBaseEl.textContent = `API: ${API_BASE || "(none)"}`;
+    liveApiBaseEl.textContent = `API: ${apiBase || "(none)"}`;
     if (!liveLastRunEl.textContent) liveLastRunEl.textContent = "Last run: -";
-    if (!API_BASE && mode === "live" && !liveHintEl.textContent) {
+    if (!apiBase && mode === "live" && !liveHintEl.textContent) {
       liveHintEl.textContent = "Live error: API base is empty";
     }
   }
@@ -215,10 +215,11 @@
   }
 
   async function checkLiveHealth(){
+    const apiBase = getApiBase();
     liveReady = false;
     setRunVisual("idle", "2.8s");
     updateRunButton();
-    if (!API_BASE) {
+    if (!apiBase) {
       liveHintEl.textContent = "Live error: API base is empty";
       setRunVisual("error", "2.8s");
       renderMode();
@@ -229,7 +230,7 @@
     renderMode();
     const w = withTimeout(3000);
     try {
-      const r = await fetch(`${API_BASE}/api/health`, { signal: w.signal });
+      const r = await fetch(`${apiBase}/api/health`, { signal: w.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       liveReady = true;
       liveHintEl.textContent = `Checking live... ${apiBase}`;
@@ -306,6 +307,7 @@
   }
 
   async function runLive(){
+    const apiBase = getApiBase();
     if (!liveReady) {
       outEl.textContent = "Live not ready";
       setRunVisual("error", "2.8s");
@@ -319,7 +321,7 @@
     setRunVisual("running", runSpeed);
     try {
       const w = withTimeout(30000);
-      const r = await fetch(`${API_BASE}/api/triad?mode=${encodeURIComponent(runMode)}`, {
+      const r = await fetch(`${apiBase}/api/triad?mode=${encodeURIComponent(runMode)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: qEl.value || "" }),
@@ -341,7 +343,7 @@
       if (data && typeof data.job_id === "string") {
         while (true) {
           await new Promise(resolve => setTimeout(resolve, 500));
-          const jr = await fetch(`${API_BASE}/api/job/${encodeURIComponent(data.job_id)}`);
+          const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
           if (j.status === "running") continue;
