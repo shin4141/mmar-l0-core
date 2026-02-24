@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -72,8 +73,9 @@ def _run_ask_triad(user_input: str, timeout_s: int | None, env_extra: dict | Non
 
 def _start_full_job(user_input: str) -> str:
     job_id = str(uuid.uuid4())
+    started_at = time.time()
     with JOBS_LOCK:
-        JOBS[job_id] = {"status": "running"}
+        JOBS[job_id] = {"status": "running", "mode": "think", "started_at": started_at}
 
     def _worker():
         try:
@@ -83,18 +85,31 @@ def _start_full_job(user_input: str) -> str:
                 if len(err) > 1200:
                     err = err[:1200] + "..."
                 with JOBS_LOCK:
-                    JOBS[job_id] = {"status": "error", "error": "subprocess_failed", "returncode": proc.returncode, "stderr_trunc": err}
+                    JOBS[job_id] = {
+                        "status": "error",
+                        "mode": "think",
+                        "started_at": started_at,
+                        "error": "subprocess_failed",
+                        "returncode": proc.returncode,
+                        "stderr_trunc": err,
+                    }
                 return
             payload, missing = _collect_outputs()
             if missing:
                 with JOBS_LOCK:
-                    JOBS[job_id] = {"status": "error", "error": "missing_outputs", "missing": missing}
+                    JOBS[job_id] = {
+                        "status": "error",
+                        "mode": "think",
+                        "started_at": started_at,
+                        "error": "missing_outputs",
+                        "missing": missing,
+                    }
                 return
             with JOBS_LOCK:
-                JOBS[job_id] = {"status": "done", **payload}
+                JOBS[job_id] = {"status": "done", "mode": "think", "started_at": started_at, **payload}
         except Exception as e:
             with JOBS_LOCK:
-                JOBS[job_id] = {"status": "error", "error": str(e)}
+                JOBS[job_id] = {"status": "error", "mode": "think", "started_at": started_at, "error": str(e)}
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
@@ -136,7 +151,22 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 self._send_json(404, {"ok": False, "error": "job_not_found"})
                 return
-            self._send_json(200, job)
+            started_at = job.get("started_at")
+            elapsed_sec = 0.0
+            if isinstance(started_at, (int, float)):
+                elapsed_sec = max(0.0, time.time() - float(started_at))
+
+            if job.get("status") == "running" and elapsed_sec > 180:
+                with JOBS_LOCK:
+                    JOBS[job_id] = {"status": "error", "mode": "think", "started_at": started_at, "error": "timeout"}
+                    job = JOBS[job_id]
+
+            out = dict(job)
+            if out.get("status") == "running" and elapsed_sec > 20:
+                out["status"] = "slow"
+                out["hint"] = "still running"
+            out["elapsed_sec"] = round(elapsed_sec, 1)
+            self._send_json(200, out)
             return
         else:
             self._send_json(404, {"error": "not found"})
