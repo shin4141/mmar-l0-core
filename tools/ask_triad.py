@@ -45,6 +45,14 @@ def call_openai(prompt: str, timeout_s: int = 20) -> str:
         f"(error: {last_err})\n"
     )
 
+
+def dummy_fallback_text(label: str = "dummy") -> str:
+    return (
+        f"SSOT:\n- ({label})\n\n"
+        "Δ:\n- (dummy)\n- (dummy)\n\n"
+        "Next step: (dummy)\n"
+    )
+
 def master_merge_prompt() -> str:
     # Master Contract (fixed)
     return (
@@ -134,6 +142,7 @@ def main():
 
     q = " ".join(args.question).strip()
     tab = args.tab
+    no_llm = os.getenv("MMAR_NO_LLM", "").strip() == "1"
 
     log(f"[0/5] tab={tab}")
 
@@ -142,28 +151,35 @@ def main():
     subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
 
     # 2) LLM calls for seed/counters/master-merge
-    log("[2/5] OpenAI seed...")
-    seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}")
+    if no_llm:
+        log("[2/5] MMAR_NO_LLM=1 -> skip OpenAI and use dummy fallback")
+        seed = dummy_fallback_text("seed")
+        c1 = dummy_fallback_text("counter-1")
+        c2 = dummy_fallback_text("counter-2")
+        master = dummy_fallback_text("master")
+    else:
+        log("[2/5] OpenAI seed...")
+        seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}")
 
-    log("[2/5] OpenAI counter-1...")
-    c1 = call_openai(
-        "Counter-1: Improve the answer by adding missing assumptions + concrete corrections.\n"
-        "Return: (a) 3 weaknesses (bullets) (b) corrected version (short).\n\n"
-        f"Q: {q}\n\nSEED:\n{seed}"
-    )
+        log("[2/5] OpenAI counter-1...")
+        c1 = call_openai(
+            "Counter-1: Improve the answer by adding missing assumptions + concrete corrections.\n"
+            "Return: (a) 3 weaknesses (bullets) (b) corrected version (short).\n\n"
+            f"Q: {q}\n\nSEED:\n{seed}"
+        )
 
-    log("[2/5] OpenAI counter-2...")
-    c2 = call_openai(
-        "Counter-2: Provide a different angle than Counter-1.\n"
-        "Return: (a) 2 alternative frames (bullets) (b) 1 failure mode.\n\n"
-        f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}"
-    )
+        log("[2/5] OpenAI counter-2...")
+        c2 = call_openai(
+            "Counter-2: Provide a different angle than Counter-1.\n"
+            "Return: (a) 2 alternative frames (bullets) (b) 1 failure mode.\n\n"
+            f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}"
+        )
 
-    log("[2/5] OpenAI MASTER merge...")
-    master = call_openai(
-        master_merge_prompt() + "\n\n" +
-        f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}\n\nCOUNTER-2:\n{c2}"
-    )
+        log("[2/5] OpenAI MASTER merge...")
+        master = call_openai(
+            master_merge_prompt() + "\n\n" +
+            f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}\n\nCOUNTER-2:\n{c2}"
+        )
 
     # 3) write merged_answer.txt (required by triad_turn_to_claims_and_delta)
     log("[3/5] write incoming/merged_answer.txt + attach to triad_turn.json")
@@ -215,19 +231,25 @@ def main():
     TAB_FILES["compare"].write_text(compare, encoding="utf-8")
 
     if tab in ("expand", "guard", "diff"):
-        prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
-        out = call_openai(prompt)
-        TAB_FILES[tab].write_text(out, encoding="utf-8")
-        # If running EXPAND, also generate DIFF in the background for compare view
-        if tab == "expand":
-            diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-            diff_out = call_openai(diff_prompt)
-            TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
-        # If running EXPAND, also generate DIFF in the background for compare view
-        if tab == "expand":
-            diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-            diff_out = call_openai(diff_prompt)
-            TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
+        if no_llm:
+            out = dummy_fallback_text(f"tab-{tab}")
+            TAB_FILES[tab].write_text(out, encoding="utf-8")
+            if tab == "expand":
+                TAB_FILES["diff"].write_text(dummy_fallback_text("tab-diff"), encoding="utf-8")
+        else:
+            prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
+            out = call_openai(prompt)
+            TAB_FILES[tab].write_text(out, encoding="utf-8")
+            # If running EXPAND, also generate DIFF in the background for compare view
+            if tab == "expand":
+                diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
+                diff_out = call_openai(diff_prompt)
+                TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
+            # If running EXPAND, also generate DIFF in the background for compare view
+            if tab == "expand":
+                diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
+                diff_out = call_openai(diff_prompt)
+                TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
     else:
         out = master
 
