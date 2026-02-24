@@ -220,7 +220,8 @@
       const h = await r.json();
       if (!h || h.ok !== true) throw new Error("health not ok");
       liveReady = true;
-      liveHintEl.textContent = "Live ready";
+      liveHintEl.textContent = `Checking live... ${apiBase}`;
+      renderMode();
       setRunVisual("ready", "2.8s");
     } catch (e) {
       liveReady = false;
