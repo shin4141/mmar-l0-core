@@ -71,7 +71,7 @@ def tab_prompt(tab: str, q: str, seed: str, c1: str, c2: str, master: str, turn_
     )
 
         if tab == "expand":
-        flavor = os.getenv("MMAR_EXPAND_FLAVOR", "wow").strip().lower()
+           flavor = os.getenv("MMAR_EXPAND_FLAVOR", "wow").strip().lower()
         if flavor == "plan":
             return (
                 "TAB=EXPAND (plan).\n"
