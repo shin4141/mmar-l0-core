@@ -354,10 +354,20 @@
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
-          if (j.status === "running") continue;
+          if (j.status === "running") {
+            const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
+            liveHintEl.textContent = `Thinking... ${sec}s`;
+            setRunVisual("running", runSpeed);
+            const pct = (typeof j.elapsed_sec === "number") ? Math.min(100, Math.round((j.elapsed_sec / 120) * 100)) : 0;
+            runBarEl.style.width = `${Math.max(12, pct)}%`;
+            continue;
+          }
           if (j.status === "slow") {
             const sec = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : "?";
             liveHintEl.textContent = `Thinking... ${sec}s`;
+            setRunVisual("running", runSpeed);
+            const pct = (typeof j.elapsed_sec === "number") ? Math.min(100, Math.round((j.elapsed_sec / 120) * 100)) : 0;
+            runBarEl.style.width = `${Math.max(12, pct)}%`;
             continue;
           }
           if (j.status === "error") {
@@ -375,6 +385,7 @@
             liveResultBadgeEl.style.display = "inline-block";
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");
+            runBarEl.style.width = "100%";
             setTimestamp();
             loadActive();
             return;
@@ -419,7 +430,7 @@
         outEl.textContent = liveReady ? "Live mode: press Run" : "Live not ready";
         return;
       }
-      const txt = liveData[active] || "";
+      const txt = (liveData[active] && liveData[active].trim()) ? liveData[active] : (liveData.expand || "");
       if (active === "compare") {
         renderCompare(txt);
       } else {
