@@ -58,9 +58,8 @@ class Handler(BaseHTTPRequestHandler):
             200,
             {
                 "ok": True,
-                "cwd": str(REPO),
-                "python": sys.executable,
                 "time": datetime.now(timezone.utc).isoformat(),
+                "cwd": str(REPO),
             },
         )
 
@@ -105,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
                         "ok": False,
                         "error": "subprocess_failed",
                         "returncode": proc.returncode,
-                        "stderr": err,
+                        "stderr_trunc": err,
                     },
                 )
                 return
@@ -119,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **payload})
 
         except subprocess.TimeoutExpired:
-            self._send_json(504, {"ok": False, "error": "subprocess_timeout"})
+            self._send_json(504, {"ok": False, "error": "timeout"})
         except json.JSONDecodeError:
             self._send_json(400, {"ok": False, "error": "invalid_json"})
         except Exception as e:

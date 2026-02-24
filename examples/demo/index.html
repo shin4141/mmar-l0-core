@@ -74,6 +74,7 @@
         <button id="mode-live">Live</button>
         <button id="run-live" disabled>Run</button>
         <span id="live-api-base" class="muted"></span>
+        <span id="live-last-run" class="muted"></span>
         <span id="live-hint" class="muted"></span>
       </div>
       <div class="row" style="margin-top:10px;">
@@ -119,6 +120,7 @@
   const modeLiveEl = document.getElementById("mode-live");
   const runLiveEl = document.getElementById("run-live");
   const liveApiBaseEl = document.getElementById("live-api-base");
+  const liveLastRunEl = document.getElementById("live-last-run");
   const liveHintEl = document.getElementById("live-hint");
   const LIMIT = 600;
   const PREVIEW_LINES_MAIN = 7;
@@ -158,6 +160,7 @@
     modeLiveEl.className = (mode === "live") ? "active" : "";
     runLiveEl.disabled = (mode !== "live") || !liveReady;
     liveApiBaseEl.textContent = `API: ${API_BASE || "(none)"}`;
+    if (!liveLastRunEl.textContent) liveLastRunEl.textContent = "Last run: -";
     if (!API_BASE && mode === "live" && !liveHintEl.textContent) {
       liveHintEl.textContent = "Live error: API base is empty";
     }
@@ -182,6 +185,8 @@
     try {
       const r = await fetch(`${API_BASE}/api/health`, { signal: w.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const h = await r.json();
+      if (!h || h.ok !== true) throw new Error("health not ok");
       liveReady = true;
       liveHintEl.textContent = "Live ready";
     } catch (e) {
@@ -270,16 +275,24 @@
       });
       if (!r.ok) {
         const body = await r.text();
-        const short = body.length > 600 ? (body.slice(0, 600) + "...") : body;
+        const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
         return;
       }
       const data = await r.json();
+      if (data && data.ok === false) {
+        const detail = JSON.stringify(data);
+        const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
+        liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
+        outEl.textContent = `Live error\n\n${short}`;
+        return;
+      }
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
       if (!ok) throw new Error("invalid response shape");
       liveData = data;
       liveHintEl.textContent = "Live ready";
+      liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setTimestamp();
       loadActive();
     } catch (e) {
