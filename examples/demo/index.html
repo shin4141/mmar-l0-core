@@ -268,9 +268,15 @@
   }
 
   function section(txt, head, nextHead){
-    const re = new RegExp(`=== ${head} ===\\s*([\\s\\S]*?)(?=\\n=== ${nextHead} ===|$)`);
-    const m = txt.match(re);
-    return (m && m[1]) ? m[1].trim() : "";
+    const nextBoundary = (nextHead === "$")
+      ? "$"
+      : `\\n(?:===\\s*${nextHead}\\s*===|${nextHead}:)`;
+    const reEq = new RegExp(`===\\s*${head}\\s*===\\s*([\\s\\S]*?)(?=${nextBoundary})`);
+    const mEq = txt.match(reEq);
+    if (mEq && mEq[1]) return mEq[1].trim();
+    const reColon = new RegExp(`${head}:\\s*([\\s\\S]*?)(?=${nextBoundary})`);
+    const mColon = txt.match(reColon);
+    return (mColon && mColon[1]) ? mColon[1].trim() : "";
   }
 
   function clipLines(text, maxLines){
@@ -299,9 +305,12 @@
 
   function renderCompare(txt){
     const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
-    const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
-    const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
-    const delta  = section(txt, "DIFF \\(head\\)", "$");
+    let before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
+    let after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
+    let delta  = section(txt, "DIFF \\(head\\)", "$");
+    if (!before) before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
+    if (!after) after = section(txt, "AFTER(?:[^\\n]*)", "(?:Δ|DIFF)(?:[^\\n]*)");
+    if (!delta) delta = section(txt, "(?:Δ|DIFF)(?:[^\\n]*)", "$");
     updateCounter();
 
     outEl.innerHTML = `
