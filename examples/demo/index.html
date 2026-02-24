@@ -58,6 +58,27 @@
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
     }
+    /* INSERTED CSS BLOCK: rainbow running bar (below Static/Live/Run controls) */
+    .runVisual{
+      margin-top:6px; height:6px; border-radius:999px; border:1px solid var(--line);
+      background:#eef2f7; overflow:hidden;
+    }
+    .runBar{
+      width:100%; height:100%; opacity:.35;
+      background:linear-gradient(90deg,#ef4444,#f59e0b,#eab308,#22c55e,#06b6d4,#3b82f6,#8b5cf6,#ef4444);
+      background-size:220% 100%;
+      animation:runRainbow 2.8s linear infinite;
+      animation-play-state:paused;
+      transition:opacity .2s ease;
+    }
+    .runBar.state-running{ opacity:1; animation-play-state:running; }
+    .runBar.state-ready{ opacity:.55; animation-play-state:paused; }
+    .runBar.state-error{ opacity:.6; animation-play-state:paused; filter:saturate(1.35); }
+    .runBar.state-idle{ opacity:.25; animation-play-state:paused; }
+    @keyframes runRainbow{
+      0%{ background-position:0% 50%; }
+      100%{ background-position:200% 50%; }
+    }
   </style>
 </head>
 <body>
@@ -77,6 +98,8 @@
         <span id="live-last-run" class="muted"></span>
         <span id="live-hint" class="muted"></span>
       </div>
+      <!-- INSERTED HTML BLOCK: visual running bar under Live status row -->
+      <div class="runVisual"><div id="run-bar" class="runBar state-idle"></div></div>
       <div class="row" style="margin-top:10px;">
         <button id="reload">Reload files</button>
         <span class="muted">Default view is Compare.</span>
@@ -122,6 +145,8 @@
   const liveApiBaseEl = document.getElementById("live-api-base");
   const liveLastRunEl = document.getElementById("live-last-run");
   const liveHintEl = document.getElementById("live-hint");
+  const runBarEl = document.getElementById("run-bar");
+  const RUN_MODE = (new URLSearchParams(window.location.search).get("mode") || "FAST").toUpperCase();
   const LIMIT = 600;
   const PREVIEW_LINES_MAIN = 7;
   const PREVIEW_LINES_DELTA = 3;
@@ -172,10 +197,18 @@
     return { signal: ctrl.signal, done: () => clearTimeout(t) };
   }
 
+  // INSERTED JS BLOCK: running visual controller
+  function setRunVisual(state, speed){
+    runBarEl.className = `runBar state-${state}`;
+    runBarEl.style.animationDuration = (speed || "2.8s");
+  }
+
   async function checkLiveHealth(){
     liveReady = false;
+    setRunVisual("idle", "2.8s");
     if (!API_BASE) {
       liveHintEl.textContent = "Live error: API base is empty";
+      setRunVisual("error", "2.8s");
       renderMode();
       return;
     }
@@ -189,10 +222,12 @@
       if (!h || h.ok !== true) throw new Error("health not ok");
       liveReady = true;
       liveHintEl.textContent = "Live ready";
+      setRunVisual("ready", "2.8s");
     } catch (e) {
       liveReady = false;
       const msg = (e && e.name === "AbortError") ? "timeout" : String(e);
       liveHintEl.textContent = `Live error: ${msg}`;
+      setRunVisual("error", "2.8s");
     } finally {
       w.done();
       renderMode();
@@ -260,11 +295,14 @@
   async function runLive(){
     if (!liveReady) {
       outEl.textContent = "Live not ready";
+      setRunVisual("error", "2.8s");
       return;
     }
+    const runSpeed = (RUN_MODE === "FULL") ? "1.2s" : "2.8s";
     runLiveEl.disabled = true;
     liveHintEl.textContent = "Running...";
     outEl.textContent = "Running...";
+    setRunVisual("running", runSpeed);
     try {
       const w = withTimeout(30000);
       const r = await fetch(`${API_BASE}/api/triad`, {
@@ -278,6 +316,7 @@
         const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
+        setRunVisual("error", "2.8s");
         return;
       }
       const data = await r.json();
@@ -286,6 +325,7 @@
         const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
         outEl.textContent = `Live error\n\n${short}`;
+        setRunVisual("error", "2.8s");
         return;
       }
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
@@ -293,11 +333,13 @@
       liveData = data;
       liveHintEl.textContent = "Live ready";
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
+      setRunVisual("ready", "2.8s");
       setTimestamp();
       loadActive();
     } catch (e) {
       liveHintEl.textContent = `Live error: ${e}`;
       outEl.textContent = `Live run failed\n\n${e}`;
+      setRunVisual("error", "2.8s");
     } finally {
       renderMode();
     }
