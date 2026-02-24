@@ -114,13 +114,57 @@ def _lite_params_from_q(q: str):
     ]
     return weights, assumptions[:3], dominant_axis, flip_threshold[:2]
 
+def _detect_q_type(q: str) -> str:
+    t = (q or "")
+    if re.search(r"(どっち|比較|\bvs\b|A\s*[/\-]?\s*B|\bA\b.*\bB\b)", t, re.IGNORECASE):
+        return "TYPE_AB"
+    if re.search(r"(確率|可能性|%|未来|起こる|来るか)", t):
+        return "TYPE_ESTIMATE"
+    if re.search(r"(やり方|方法|どうすれば|手順)", t):
+        return "TYPE_HOWTO"
+    return "TYPE_AB"
+
 
 def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->str:
+    q_type = _detect_q_type(q)
     qs = [
         "1) 期限はいつか（Time）",
         "2) 予算上限はいくらか（Money）",
         "3) 成功KPIは何か（Growth）",
     ]
+    if q_type == "TYPE_ESTIMATE":
+        return (
+            "TENTATIVE_CALL:\n"
+            "- 現時点では「起こる可能性は中程度（暫定）」と判断します (lite)。\n\n"
+            "WHY_3:\n"
+            "- 入力に根拠データ（時系列・母数）が不足しているため。\n"
+            "- 反証条件が未定義で、強い断定ができないため。\n"
+            "- 外部イベント依存が大きく、前提ぶれが残るため。\n\n"
+            "FLIP_CONDITIONS:\n"
+            "- 反対方向の定量証拠（最新データ）が出た場合。\n"
+            "- 主要前提（期限/資源/外部条件）が明確化された場合。\n\n"
+            "NEXT_3:\n"
+            "1) 予測対象の期間はいつまでか？\n"
+            "2) 参照できる過去データはあるか？\n"
+            "3) 成否判定の基準値は何か？\n"
+        )
+    if q_type == "TYPE_HOWTO":
+        return (
+            "TENTATIVE_CALL:\n"
+            "- まず小さく試す3ステップ計画で進めるのが妥当です (lite)。\n\n"
+            "PLAN_3:\n"
+            "- Step1: 目的と成功条件を1枚に固定する。\n"
+            "- Step2: 最小実験を実行して結果を記録する。\n"
+            "- Step3: 結果に基づき次の打ち手を1つに絞る。\n\n"
+            "PITFALLS_3:\n"
+            "- 目的未定義のまま作業し、評価不能になる。\n"
+            "- 一度に広げすぎて検証不能になる。\n"
+            "- 記録を残さず再現できなくなる。\n\n"
+            "NEXT_3:\n"
+            "1) 成功条件は何か？\n"
+            "2) 最小実験の期間は？\n"
+            "3) 失敗時の撤退ラインは？\n"
+        )
     return (
         "TENTATIVE_CALL:\n"
         "- LLMタイムアウト時の暫定判断として、比較可能なAfter-liteを採用する (lite)。\n\n"
