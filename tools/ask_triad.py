@@ -69,9 +69,8 @@ def tab_prompt(tab: str, q: str, seed: str, c1: str, c2: str, master: str, turn_
         f"AUTO_PROGRESS_JSON:\n{json.dumps(auto, ensure_ascii=False)}\n\n"
         f"GATE_REASON_JSON:\n{json.dumps(gate, ensure_ascii=False)}\n"
     )
-
-        if tab == "expand":
-           flavor = os.getenv("MMAR_EXPAND_FLAVOR", "wow").strip().lower()
+    if tab == "expand":
+        flavor = os.getenv("MMAR_EXPAND_FLAVOR", "wow").strip().lower()
         if flavor == "plan":
             return (
                 "TAB=EXPAND (plan).\n"
@@ -219,15 +218,11 @@ def main():
         prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
         out = call_openai(prompt)
         TAB_FILES[tab].write_text(out, encoding="utf-8")
-<<<<<<< Updated upstream
-
-=======
         # If running EXPAND, also generate DIFF in the background for compare view
         if tab == "expand":
             diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
             diff_out = call_openai(diff_prompt)
             TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
->>>>>>> Stashed changes
         # If running EXPAND, also generate DIFF in the background for compare view
         if tab == "expand":
             diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
