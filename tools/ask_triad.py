@@ -88,30 +88,58 @@ def _is_pure_dummy(text: str) -> bool:
     return "(dummy)" in t and "PURPOSE" not in t and "PURPOSE/CONSTRAINTS" not in t
 
 
-def meaningful_after_fallback(q: str, note: str = "") -> str:
-    note_line = f"- ({note})\n" if note else ""
+def _lite_params_from_q(q: str):
+    q_l = (q or "").lower()
+    assumptions = []
+    weights = {"Time": "Med", "Money": "Med", "Growth": "Med"}
+    for axis, hints in (
+        ("Time", ("urgent", "asap", "quick", "fast", "deadline")),
+        ("Money", ("budget", "cheap", "cost", "expense", "save money")),
+        ("Growth", ("growth", "scale", "revenue", "long-term", "market share")),
+    ):
+        m = re.search(rf"{axis.lower()}\s*[:=]\s*(low|med|medium|high)", q_l)
+        if m:
+            v = m.group(1)
+            weights[axis] = "High" if v == "high" else ("Low" if v == "low" else "Med")
+        elif any(h in q_l for h in hints):
+            weights[axis] = "High"
+            assumptions.append(f"- {axis}は入力ヒントからHighと仮定")
+        else:
+            assumptions.append(f"- {axis}は指定なしのためMed仮定")
+    score = {"Low": 1, "Med": 2, "High": 3}
+    dominant_axis = max(weights, key=lambda k: score[weights[k]])
+    flip_threshold = [
+        f"- {dominant_axis}が1段階下がる（High→Med/Med→Low）と結論が反転し得る",
+        "- 別軸が1段階上がると優先順位が入れ替わり得る",
+    ]
+    return weights, assumptions[:3], dominant_axis, flip_threshold[:2]
+
+
+def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->str:
+    qs = [
+        "1) 期限はいつか（Time）",
+        "2) 予算上限はいくらか（Money）",
+        "3) 成功KPIは何か（Growth）",
+    ]
     return (
-        "PURPOSE:\n"
-        "- OpenAI応答が不安定でも、意思決定に使えるAfter草案を維持する。\n"
-        "- まず比較可能な構造を確保し、次のThinkで精度を上げる。\n\n"
-        "CONSTRAINTS:\n"
-        "- 外部LLMの応答がタイムアウト/失敗。\n"
-        "- 入力テキストと既存ルールのみで生成。\n"
-        "- 過剰な一般論を避け、前提不足は明示する。\n"
-        f"{note_line}\n"
-        "WEIGHTS (Low/Med/High, optional):\n"
-        "- Time:\n"
-        "- Money:\n"
-        "- Growth:\n\n"
-        "COUNTER_DIRECTIONS:\n"
-        "- 反対論1: 時間優先が過剰で、品質や将来拡張を毀損していないか。\n"
-        "- 反対論2: 成長優先が過剰で、足元のコスト/運用リスクを無視していないか。\n\n"
-        "NEXT_QUESTIONS:\n"
-        "1) 期限はいつか（Timeの重みを確定）\n"
-        "2) 予算上限はいくらか（Moneyの重みを確定）\n"
-        "3) 成功KPIは何か（Growthの重みを確定）\n"
-        f"{_decision_sections(q)}"
+        "TENTATIVE_CALL:\n"
+        "- LLMタイムアウト時の暫定判断として、比較可能なAfter-liteを採用する (lite)。\n\n"
+        "DOMINANT_AXIS:\n"
+        f"- {dominant_axis}（Time={weights.get('Time','Med')}, Money={weights.get('Money','Med')}, Growth={weights.get('Growth','Med')}）\n"
+        + ("".join([f"{a}\n" for a in assumptions]) if assumptions else "")
+        + "\nFLIP_THRESHOLD:\n"
+        + "\n".join((flip_threshold or [])[:2]) + "\n\n"
+        + "NEXT_3:\n"
+        + "\n".join(qs[:3]) + "\n"
     )
+
+
+def meaningful_after_fallback(q: str, note: str = "") -> str:
+    weights, assumptions, dominant_axis, flip_threshold = _lite_params_from_q(q)
+    body = build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)
+    if note:
+        body = body.rstrip() + f"\n({note})\n"
+    return body
 
 
 def _decision_sections(q: str) -> str:
@@ -328,6 +356,8 @@ def main():
 
     # take top part of diff to keep compare readable
     diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
+    if not diff_head:
+        diff_head = "- LLM timeout -> lite used"
 
     compare = (
         "=== INPUT ===\n"
@@ -390,6 +420,8 @@ def main():
         diff_txt = Path(TAB_FILES["diff"]).read_text(encoding="utf-8", errors="replace").strip()
 
     diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
+    if not diff_head:
+        diff_head = "- LLM timeout -> lite used"
 
     compare = (
         "=== INPUT ===\n"
