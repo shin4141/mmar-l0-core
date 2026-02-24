@@ -73,6 +73,7 @@
         <button id="mode-static" class="active">Static</button>
         <button id="mode-live">Live</button>
         <button id="run-live" disabled>Run</button>
+        <span id="live-api-base" class="muted"></span>
         <span id="live-hint" class="muted"></span>
       </div>
       <div class="row" style="margin-top:10px;">
@@ -96,7 +97,13 @@
   </div>
 
 <script>
-  const API_BASE = "";
+  const API_BASE_DEFAULT = "";
+  function getApiBase(){
+    const q = new URLSearchParams(window.location.search).get("api");
+    const raw = (q != null ? q : API_BASE_DEFAULT).trim();
+    return raw.replace(/\/+$/, "");
+  }
+  const API_BASE = getApiBase();
   const TAB_SPEC = [
     { key: "compare", label: "Compare", file: "out_compare.txt" },
     { key: "expand",  label: "Expand",  file: "out_expand.txt"  },
@@ -111,6 +118,7 @@
   const modeStaticEl = document.getElementById("mode-static");
   const modeLiveEl = document.getElementById("mode-live");
   const runLiveEl = document.getElementById("run-live");
+  const liveApiBaseEl = document.getElementById("live-api-base");
   const liveHintEl = document.getElementById("live-hint");
   const LIMIT = 600;
   const PREVIEW_LINES_MAIN = 7;
@@ -118,6 +126,7 @@
   const counterEl = document.getElementById("counter");
   let mode = "static";
   let liveData = null;
+  let liveReady = false;
 
   function updateCounter(){
     const used = (qEl.value || "").length;
@@ -147,8 +156,42 @@
   function renderMode(){
     modeStaticEl.className = (mode === "static") ? "active" : "";
     modeLiveEl.className = (mode === "live") ? "active" : "";
-    runLiveEl.disabled = (mode !== "live") || !API_BASE;
-    liveHintEl.textContent = API_BASE ? "" : "Live disabled";
+    runLiveEl.disabled = (mode !== "live") || !liveReady;
+    liveApiBaseEl.textContent = `API: ${API_BASE || "(none)"}`;
+    if (!API_BASE && mode === "live" && !liveHintEl.textContent) {
+      liveHintEl.textContent = "Live error: API base is empty";
+    }
+  }
+
+  function withTimeout(ms){
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    return { signal: ctrl.signal, done: () => clearTimeout(t) };
+  }
+
+  async function checkLiveHealth(){
+    liveReady = false;
+    if (!API_BASE) {
+      liveHintEl.textContent = "Live error: API base is empty";
+      renderMode();
+      return;
+    }
+    liveHintEl.textContent = "Checking live...";
+    renderMode();
+    const w = withTimeout(3000);
+    try {
+      const r = await fetch(`${API_BASE}/api/health`, { signal: w.signal });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      liveReady = true;
+      liveHintEl.textContent = "Live ready";
+    } catch (e) {
+      liveReady = false;
+      const msg = (e && e.name === "AbortError") ? "timeout" : String(e);
+      liveHintEl.textContent = `Live error: ${msg}`;
+    } finally {
+      w.done();
+      renderMode();
+    }
   }
 
   async function fetchText(file){
@@ -210,26 +253,40 @@
   }
 
   async function runLive(){
-    if (!API_BASE) {
-      outEl.textContent = "Live disabled";
+    if (!liveReady) {
+      outEl.textContent = "Live not ready";
       return;
     }
-    outEl.textContent = "Running…";
+    runLiveEl.disabled = true;
+    liveHintEl.textContent = "Running...";
+    outEl.textContent = "Running...";
     try {
+      const w = withTimeout(30000);
       const r = await fetch(`${API_BASE}/api/triad`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: qEl.value || "" }),
+        signal: w.signal,
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        const body = await r.text();
+        const short = body.length > 600 ? (body.slice(0, 600) + "...") : body;
+        liveHintEl.textContent = `Live error: HTTP ${r.status}`;
+        outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
+        return;
+      }
       const data = await r.json();
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
       if (!ok) throw new Error("invalid response shape");
       liveData = data;
+      liveHintEl.textContent = "Live ready";
       setTimestamp();
       loadActive();
     } catch (e) {
+      liveHintEl.textContent = `Live error: ${e}`;
       outEl.textContent = `Live run failed\n\n${e}`;
+    } finally {
+      renderMode();
     }
   }
 
@@ -238,7 +295,7 @@
     outEl.textContent = "Loading…";
     if (mode === "live"){
       if (!liveData){
-        outEl.textContent = API_BASE ? "Live mode: press Run" : "Live disabled";
+        outEl.textContent = liveReady ? "Live mode: press Run" : "Live not ready";
         return;
       }
       const txt = liveData[active] || "";
@@ -264,7 +321,7 @@
   }
 
   modeStaticEl.onclick = () => { mode = "static"; renderMode(); loadActive(); };
-  modeLiveEl.onclick = () => { mode = "live"; renderMode(); loadActive(); };
+  modeLiveEl.onclick = async () => { mode = "live"; renderMode(); await checkLiveHealth(); loadActive(); };
   runLiveEl.onclick = runLive;
   document.getElementById("reload").onclick = loadActive;
   renderMode();

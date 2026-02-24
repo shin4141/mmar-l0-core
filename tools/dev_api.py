@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def _read_text(path: Path) -> str:
 
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
 
 
@@ -49,6 +50,20 @@ class Handler(BaseHTTPRequestHandler):
         _cors_headers(self)
         self.end_headers()
 
+    def do_GET(self) -> None:
+        if self.path != "/api/health":
+            self._send_json(404, {"error": "not found"})
+            return
+        self._send_json(
+            200,
+            {
+                "ok": True,
+                "cwd": str(REPO),
+                "python": sys.executable,
+                "time": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
     def do_POST(self) -> None:
         if self.path != "/api/triad":
             self._send_json(404, {"error": "not found"})
@@ -58,9 +73,12 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(n)
             data = json.loads(raw.decode("utf-8"))
-            user_input = data.get("input", "") if isinstance(data, dict) else ""
+            if not isinstance(data, dict) or "input" not in data:
+                self._send_json(400, {"ok": False, "error": "missing_input"})
+                return
+            user_input = data.get("input")
             if not isinstance(user_input, str):
-                self._send_json(400, {"error": "input must be string"})
+                self._send_json(400, {"ok": False, "error": "input must be string"})
                 return
 
             cmd = [
@@ -75,29 +93,37 @@ class Handler(BaseHTTPRequestHandler):
                 cwd=str(REPO),
                 capture_output=True,
                 text=True,
-                timeout=180,
+                timeout=30,
             )
             if proc.returncode != 0:
+                err = proc.stderr or ""
+                if len(err) > 1200:
+                    err = err[:1200] + "..."
                 self._send_json(
                     500,
                     {
-                        "error": "triad pipeline failed",
+                        "ok": False,
+                        "error": "subprocess_failed",
                         "returncode": proc.returncode,
-                        "stdout": proc.stdout,
-                        "stderr": proc.stderr,
+                        "stderr": err,
                     },
                 )
                 return
 
+            missing = [k for k, p in OUT_FILES.items() if not p.exists()]
+            if missing:
+                self._send_json(500, {"ok": False, "error": "missing_outputs", "missing": missing})
+                return
+
             payload = {k: _read_text(p) for k, p in OUT_FILES.items()}
-            self._send_json(200, payload)
+            self._send_json(200, {"ok": True, **payload})
 
         except subprocess.TimeoutExpired:
-            self._send_json(504, {"error": "triad pipeline timed out"})
+            self._send_json(504, {"ok": False, "error": "subprocess_timeout"})
         except json.JSONDecodeError:
-            self._send_json(400, {"error": "invalid json"})
+            self._send_json(400, {"ok": False, "error": "invalid_json"})
         except Exception as e:
-            self._send_json(500, {"error": str(e)})
+            self._send_json(500, {"ok": False, "error": str(e)})
 
 
 def main() -> int:
