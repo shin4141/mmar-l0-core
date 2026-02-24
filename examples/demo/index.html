@@ -429,7 +429,7 @@
   }
 
   modeStaticEl.onclick = () => { mode = "static"; renderMode(); loadActive(); };
-  modeLiveEl.onclick = async () => { mode = "live"; renderMode(); await checkLiveHealth(); loadActive(); };
+  modeLiveEl.addEventListener("click", async () => { mode = "live"; liveHintEl.textContent = "Live clicked"; renderMode(); await checkLiveHealth(); loadActive(); });
   runFastEl.onclick = () => { runMode = "quick"; renderMode(); };
   runFullEl.onclick = () => { runMode = "think"; renderMode(); };
   runLiveEl.onclick = runLive;
