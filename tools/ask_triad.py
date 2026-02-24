@@ -81,6 +81,38 @@ def dummy_fallback_text(label: str = "dummy") -> str:
         "Next step: (dummy)\n"
     )
 
+def _is_pure_dummy(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    return "(dummy)" in t and "PURPOSE" not in t and "PURPOSE/CONSTRAINTS" not in t
+
+
+def meaningful_after_fallback(q: str, note: str = "") -> str:
+    note_line = f"- ({note})\n" if note else ""
+    return (
+        "PURPOSE:\n"
+        "- OpenAI応答が不安定でも、意思決定に使えるAfter草案を維持する。\n"
+        "- まず比較可能な構造を確保し、次のThinkで精度を上げる。\n\n"
+        "CONSTRAINTS:\n"
+        "- 外部LLMの応答がタイムアウト/失敗。\n"
+        "- 入力テキストと既存ルールのみで生成。\n"
+        "- 過剰な一般論を避け、前提不足は明示する。\n"
+        f"{note_line}\n"
+        "WEIGHTS (Low/Med/High, optional):\n"
+        "- Time:\n"
+        "- Money:\n"
+        "- Growth:\n\n"
+        "COUNTER_DIRECTIONS:\n"
+        "- 反対論1: 時間優先が過剰で、品質や将来拡張を毀損していないか。\n"
+        "- 反対論2: 成長優先が過剰で、足元のコスト/運用リスクを無視していないか。\n\n"
+        "NEXT_QUESTIONS:\n"
+        "1) 期限はいつか（Timeの重みを確定）\n"
+        "2) 予算上限はいくらか（Moneyの重みを確定）\n"
+        "3) 成功KPIは何か（Growthの重みを確定）\n"
+        f"{_decision_sections(q)}"
+    )
+
 
 def _decision_sections(q: str) -> str:
     q_l = (q or "").lower()
@@ -233,7 +265,7 @@ def main():
         seed = dummy_fallback_text("seed")
         c1 = dummy_fallback_text("counter-1")
         c2 = dummy_fallback_text("counter-2")
-        master = dummy_fallback_text("master")
+        master = meaningful_after_fallback(q, "LLM timeout; fallback used")
     else:
         log("[2/5] OpenAI seed...")
         seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}", question=q)
@@ -313,13 +345,15 @@ def main():
 
     if tab in ("expand", "guard", "diff"):
         if no_llm:
-            out = dummy_fallback_text(f"tab-{tab}")
+            out = meaningful_after_fallback(q, "LLM timeout; fallback used") if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             if tab == "expand":
                 TAB_FILES["diff"].write_text(dummy_fallback_text("tab-diff"), encoding="utf-8")
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
             out = call_openai(prompt, question=q)
+            if tab == "expand" and _is_pure_dummy(out):
+                out = meaningful_after_fallback(q, "LLM timeout; fallback used")
             if think_mode:
                 out = _append_decision_sections(out, q)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
@@ -348,6 +382,9 @@ def main():
 
     if TAB_FILES.get("expand") and Path(TAB_FILES["expand"]).exists():
         expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
+    if _is_pure_dummy(expand_txt):
+        expand_txt = meaningful_after_fallback(q, "LLM timeout; fallback used").strip()
+        Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
 
     if TAB_FILES.get("diff") and Path(TAB_FILES["diff"]).exists():
         diff_txt = Path(TAB_FILES["diff"]).read_text(encoding="utf-8", errors="replace").strip()
