@@ -302,7 +302,6 @@
     const before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
     const after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
     const delta  = section(txt, "DIFF \\(head\\)", "$");
-    if (mode !== "live" && input) qEl.value = input;
     updateCounter();
 
     outEl.innerHTML = `
