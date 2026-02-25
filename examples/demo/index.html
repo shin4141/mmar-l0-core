@@ -193,6 +193,8 @@
   let liveStatus = "unknown";
   let lastApiMode = "";
   let lastSubmittedInput = "";
+  let deepRunning = false;
+  let deepDone = false;
   const THINK_UNLOCK_THRESHOLD = 60;
 
   function currentLimit(){
@@ -261,11 +263,18 @@
 
   function quickQualityPercent(text){
     const src = String(text || "");
-    const checks = [
-      /目的:\s*\n-\s*(?!何を判断するかを1行で)(.+)/.test(src),
-      /制約:\s*\n-\s*(?!期限 \/ 予算 \/ 禁止条件)(.+)/.test(src),
-      /問い\(整形\):\s*\n(?!（ここに問いを1行）)(.+)/.test(src),
-    ];
+    const keys = ["PURPOSE", "CONSTRAINTS", "WEIGHTS", "NEXT"];
+    const checks = keys.map((k) => {
+      const re = new RegExp(`^\\s*${k}\\s*:\\s*([\\s\\S]*?)(?=^\\s*[A-Z_]+\\s*:|\\s*$)`, "m");
+      const m = src.match(re);
+      if (!m) return false;
+      const body = (m[1] || "")
+        .split("\n")
+        .map(x => x.trim())
+        .filter(x => x && x !== "-" && x !== "..." && !/\\(optional\\)/i.test(x))
+        .join(" ");
+      return body.length > 0;
+    });
     const score = checks.filter(Boolean).length;
     return Math.round((score / checks.length) * 100);
   }
@@ -303,11 +312,12 @@
     const src = (inputText || "").trim();
     return (
       "QUICK TEMPLATE\n"
-      + "目的:\n- 何を判断するかを1行で\n\n"
-      + "制約:\n- 期限 / 予算 / 禁止条件\n\n"
-      + "問い(整形):\n"
-      + (src ? `${src}\n\n` : "（ここに問いを1行）\n\n")
-      + "出力形式:\n- CALL\n- WHY-3\n- FLIP-2\n- NEXT-3\n"
+      + "PURPOSE:\n- \n\n"
+      + "CONSTRAINTS:\n- \n\n"
+      + "WEIGHTS:\n- Time:\n- Money:\n- Growth:\n\n"
+      + "QUESTION:\n"
+      + (src ? `${src}\n\n` : "\n")
+      + "NEXT:\n- \n"
     );
   }
 
@@ -360,7 +370,7 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       liveReady = true;
       liveStatus = "ready";
-      liveHintEl.textContent = `Checking live... ${apiBase}`;
+      liveHintEl.textContent = "Live ready";
       renderMode();
       setRunVisual("ready", "2.8s");
     } catch (e) {
@@ -445,7 +455,7 @@
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `<button id="after-deep-btn" style="padding:2px 8px; margin-right:6px;">Deep ▸</button>`)}
+        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `<button id="after-deep-btn" ${deepRunning ? "disabled" : ""} style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`)}
         ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
       </div>
     `;
@@ -473,6 +483,10 @@
     if ((apiMode === "think" || apiMode === "deep") && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
       return;
+    }
+    if (apiMode === "think" || apiMode === "deep") {
+      deepRunning = true;
+      deepDone = false;
     }
     if (!liveReady) {
       outEl.textContent = "Live not ready";
@@ -550,6 +564,7 @@
         const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         liveStatus = "error";
+        deepRunning = false;
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
         setRunVisual("error", "2.8s");
         updateCtrlPanel();
@@ -563,6 +578,7 @@
           if (stopRequested) {
             liveHintEl.textContent = "Stopped";
             liveStatus = "cancelled";
+            deepRunning = false;
             setRunVisual("ready", "2.8s");
             updateCtrlPanel();
             return;
@@ -612,6 +628,7 @@
           if (j.status === "error") {
             currentJobId = "";
             updateStopButton();
+            deepRunning = false;
             const detail = JSON.stringify(j);
             const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
             liveHintEl.textContent = `Live error: ${j.error || "job_error"}`;
@@ -625,9 +642,13 @@
             liveData = j;
             currentJobId = "";
             updateStopButton();
+            deepRunning = false;
+            deepDone = true;
             liveHintEl.textContent = "Live ready";
             liveStatus = "ready";
-            liveResultBadgeEl.textContent = "Final";
+            const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
+            const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
+            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}`;
             liveResultBadgeEl.style.display = "inline-block";
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");
@@ -640,6 +661,7 @@
           if (j.status === "cancelled") {
             currentJobId = "";
             updateStopButton();
+            deepRunning = false;
             liveHintEl.textContent = "Stopped";
             liveStatus = "cancelled";
             setRunVisual("ready", "2.8s");
@@ -654,6 +676,7 @@
         const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
         liveStatus = "error";
+        deepRunning = false;
         outEl.textContent = `Live error\n\n${short}`;
         if (apiMode === "quick" || apiMode === "core") {
           liveResultBadgeEl.textContent = "Quick draft";
@@ -681,6 +704,7 @@
     } catch (e) {
       currentJobId = "";
       updateStopButton();
+      deepRunning = false;
       liveHintEl.textContent = `Live error: ${e}`;
       liveStatus = "error";
       outEl.textContent = `Live run failed\n\n${e}`;

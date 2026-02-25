@@ -50,6 +50,39 @@ def _collect_outputs() -> tuple[dict, list[str]]:
         return {}, missing
     return {k: _read_text(p) for k, p in OUT_FILES.items()}, []
 
+def _extract_before_section(compare_txt: str) -> str:
+    txt = compare_txt or ""
+    marker = "=== BEFORE (Single / seed) ==="
+    idx = txt.find(marker)
+    if idx < 0:
+        return ""
+    rest = txt[idx + len(marker):]
+    end_m = "\n=== AFTER (MMAR / EXPAND) ==="
+    end = rest.find(end_m)
+    if end < 0:
+        return rest.strip()
+    return rest[:end].strip()
+
+def _restore_before_section(compare_txt: str, before_snapshot: str) -> str:
+    txt = compare_txt or ""
+    marker_b = "=== BEFORE (Single / seed) ==="
+    marker_a = "\n=== AFTER (MMAR / EXPAND) ==="
+    i = txt.find(marker_b)
+    if i < 0:
+        return txt
+    j = txt.find(marker_a, i + len(marker_b))
+    if j < 0:
+        return txt
+    head = txt[: i + len(marker_b)]
+    tail = txt[j:]
+    return f"{head}\n{before_snapshot.strip()}\n{tail.lstrip()}"
+
+def _derive_llm_mode(payload: dict) -> str:
+    expand_txt = (payload.get("expand") or "").strip()
+    if "\n(full)\n" in f"\n{expand_txt}\n" or expand_txt.endswith("\n(full)") or expand_txt.endswith("(full)"):
+        return "full"
+    return "lite"
+
 
 def _run_ask_triad(user_input: str, timeout_s: int | None, env_extra: dict | None = None) -> subprocess.CompletedProcess:
     cmd = [
@@ -75,6 +108,7 @@ def _run_ask_triad(user_input: str, timeout_s: int | None, env_extra: dict | Non
 def _start_full_job(user_input: str) -> str:
     job_id = str(uuid.uuid4())
     started_at = time.time()
+    before_snapshot = _extract_before_section(_read_text(OUT_FILES["compare"]))
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "running", "mode": "think", "started_at": started_at}
 
@@ -124,11 +158,15 @@ def _start_full_job(user_input: str) -> str:
                         "missing": missing,
                     }
                 return
+            if before_snapshot and isinstance(payload.get("compare"), str):
+                payload["compare"] = _restore_before_section(payload["compare"], before_snapshot)
+                OUT_FILES["compare"].write_text(payload["compare"], encoding="utf-8")
             with JOBS_LOCK:
                 JOBS[job_id] = {
                     "status": "done",
                     "stage": "final",
                     "mode": "think",
+                    "llm_mode": _derive_llm_mode(payload),
                     "started_at": started_at,
                     **payload,
                 }
@@ -253,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                 proc = _run_ask_triad(
                     user_input,
                     timeout_s=8,
-                    env_extra={"MMAR_SEED_ONLY": "1", "MMAR_LLM_TIMEOUT": "4"},
+                    env_extra={"MMAR_SEED_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "4"},
                 )
                 if proc.returncode != 0:
                     err = proc.stderr or ""

@@ -477,8 +477,8 @@ def main():
 
     if seed_only:
         before_seed = normalize_before_seed(q)
-        after_seed = build_seed_after_core(before_seed)
-        diff_seed = build_diff_lite(before_seed, after_seed, max_lines=24)
+        after_seed = "(Deep running...)"
+        diff_seed = "(Deep running...)"
         TAB_FILES["compare"].write_text(
             "=== INPUT ===\n"
             f"{q}\n\n"
@@ -492,7 +492,7 @@ def main():
         )
         TAB_FILES["expand"].write_text(after_seed, encoding="utf-8")
         TAB_FILES["diff"].write_text(diff_seed, encoding="utf-8")
-        TAB_FILES["merge"].write_text(after_seed, encoding="utf-8")
+        TAB_FILES["merge"].write_text(before_seed, encoding="utf-8")
         log("[seed_only] wrote out_compare placeholders and returned")
         return
 
