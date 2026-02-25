@@ -50,32 +50,43 @@ def _collect_outputs() -> tuple[dict, list[str]]:
         return {}, missing
     return {k: _read_text(p) for k, p in OUT_FILES.items()}, []
 
-def _extract_before_section(compare_txt: str) -> str:
-    txt = compare_txt or ""
-    marker = "=== BEFORE (Single / seed) ==="
-    idx = txt.find(marker)
-    if idx < 0:
+def _extract_section(text: str, start_marker: str, end_marker: str) -> str:
+    txt = text or ""
+    i = txt.find(start_marker)
+    if i < 0:
         return ""
-    rest = txt[idx + len(marker):]
-    end_m = "\n=== AFTER (MMAR / EXPAND) ==="
-    end = rest.find(end_m)
-    if end < 0:
+    rest = txt[i + len(start_marker):]
+    j = rest.find(end_marker)
+    if j < 0:
         return rest.strip()
-    return rest[:end].strip()
+    return rest[:j].strip()
 
-def _restore_before_section(compare_txt: str, before_snapshot: str) -> str:
-    txt = compare_txt or ""
-    marker_b = "=== BEFORE (Single / seed) ==="
-    marker_a = "\n=== AFTER (MMAR / EXPAND) ==="
-    i = txt.find(marker_b)
+def _replace_section(text: str, start_marker: str, end_marker: str, new_body: str) -> str:
+    txt = text or ""
+    i = txt.find(start_marker)
     if i < 0:
         return txt
-    j = txt.find(marker_a, i + len(marker_b))
+    j = txt.find(end_marker, i + len(start_marker))
     if j < 0:
         return txt
-    head = txt[: i + len(marker_b)]
+    head = txt[: i + len(start_marker)]
     tail = txt[j:]
-    return f"{head}\n{before_snapshot.strip()}\n{tail.lstrip()}"
+    return f"{head}\n{(new_body or '').strip()}\n{tail.lstrip()}"
+
+def _extract_before_section(compare_txt: str) -> str:
+    return _extract_section(
+        compare_txt,
+        "=== BEFORE (Single / seed) ===",
+        "\n=== AFTER (MMAR / EXPAND) ===",
+    )
+
+def _restore_before_section(compare_txt: str, before_snapshot: str) -> str:
+    return _replace_section(
+        compare_txt,
+        "=== BEFORE (Single / seed) ===",
+        "\n=== AFTER (MMAR / EXPAND) ===",
+        before_snapshot,
+    )
 
 def _derive_llm_mode(payload: dict) -> str:
     expand_txt = (payload.get("expand") or "").strip()
@@ -110,7 +121,12 @@ def _start_full_job(user_input: str) -> str:
     started_at = time.time()
     before_snapshot = _extract_before_section(_read_text(OUT_FILES["compare"]))
     with JOBS_LOCK:
-        JOBS[job_id] = {"status": "running", "mode": "think", "started_at": started_at}
+        JOBS[job_id] = {
+            "status": "running",
+            "mode": "think",
+            "started_at": started_at,
+            "before_snapshot": before_snapshot,
+        }
 
     def _worker():
         stop_monitor = threading.Event()
@@ -158,9 +174,15 @@ def _start_full_job(user_input: str) -> str:
                         "missing": missing,
                     }
                 return
-            if before_snapshot and isinstance(payload.get("compare"), str):
-                payload["compare"] = _restore_before_section(payload["compare"], before_snapshot)
+            snapshot = before_snapshot
+            with JOBS_LOCK:
+                cur = JOBS.get(job_id, {})
+                if isinstance(cur.get("before_snapshot"), str):
+                    snapshot = cur.get("before_snapshot", "")
+            if snapshot and isinstance(payload.get("compare"), str):
+                payload["compare"] = _restore_before_section(payload["compare"], snapshot)
                 OUT_FILES["compare"].write_text(payload["compare"], encoding="utf-8")
+                print("[deep] restored BEFORE from snapshot", flush=True)
             with JOBS_LOCK:
                 JOBS[job_id] = {
                     "status": "done",
@@ -168,6 +190,7 @@ def _start_full_job(user_input: str) -> str:
                     "mode": "think",
                     "llm_mode": _derive_llm_mode(payload),
                     "started_at": started_at,
+                    "before_snapshot": snapshot,
                     **payload,
                 }
         except Exception as e:
