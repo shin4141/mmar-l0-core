@@ -128,6 +128,26 @@ def _qual_to_num(label: str) -> float:
     scale = {"Very_Low": 0.05, "Low": 0.2, "Med": 0.5, "High": 0.8}
     return scale.get(label, 0.5)
 
+def _extract_claim_percent(text: str):
+    t = (text or "")
+    m = re.search(r"(\d+(?:\.\d+)?)\s*%", t)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except Exception:
+        return None
+
+def _estimate_evidence_grade(text: str) -> str:
+    t = (text or "")
+    strong = ("物理証拠", "第三者検証", "公開データ")
+    situational = ("兆候", "観測", "報告", "目撃")
+    if any(k in t for k in strong):
+        return "E2"
+    if any(k in t for k in situational):
+        return "E1"
+    return "E0"
+
 def _estimate_label(text: str, default_label: str = "Med") -> str:
     t = (text or "")
     if re.search(r"(very[_ ]?low|極めて低|ほぼない|まずない)", t, re.IGNORECASE):
@@ -139,8 +159,13 @@ def _estimate_label(text: str, default_label: str = "Med") -> str:
     return default_label
 
 def _classify_outcome(q_type: str, q: str, weights: dict, dominant_axis: str):
-    prior_label = _estimate_label(q, "Med")
-    after_label = "High" if dominant_axis == "Growth" else ("Low" if dominant_axis == "Money" else weights.get("Time", "Med"))
+    if q_type == "TYPE_ESTIMATE":
+        prior_label = "Low"
+        evidence_grade = _estimate_evidence_grade(q)
+        after_label = "Med" if evidence_grade == "E2" else "Low"
+    else:
+        prior_label = _estimate_label(q, "Med")
+        after_label = "High" if dominant_axis == "Growth" else ("Low" if dominant_axis == "Money" else weights.get("Time", "Med"))
     prior = _qual_to_num(prior_label)
     after = _qual_to_num(after_label)
     direction_change = False
@@ -172,16 +197,29 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
         "3) 成功KPIは何か（Growth）",
     ]
     if q_type == "TYPE_ESTIMATE":
+        claim_pct = _extract_claim_percent(q)
+        claim_txt = f"{claim_pct}%" if claim_pct is not None else "未指定"
+        evidence_grade = _estimate_evidence_grade(q)
+        prior_band = "Low"
+        posterior_band = "Med" if evidence_grade == "E2" else prior_band
         return (
-            "TENTATIVE_CALL:\n"
-            "- 現時点では「起こる可能性は中程度（暫定）」と判断します (lite)。\n\n"
-            "WHY_3:\n"
-            "- 入力に根拠データ（時系列・母数）が不足しているため。\n"
-            "- 反証条件が未定義で、強い断定ができないため。\n"
-            "- 外部イベント依存が大きく、前提ぶれが残るため。\n\n"
+            "CLAIM:\n"
+            f"- ユーザー主張確率: {claim_txt}\n\n"
+            "PRIOR_BAND:\n"
+            "- 既定レンジ: Low（保守側に固定）\n"
+            "  ※ ここではユーザーの%を使わない\n\n"
+            "EVIDENCE_GRADE:\n"
+            "- E0: 証拠なし（再現可能データなし）\n"
+            "- E1: 状況証拠のみ\n"
+            "- E2: 第三者検証あり\n"
+            f"- 今回判定: {evidence_grade}\n\n"
+            "POSTERIOR_BAND:\n"
+            f"- posterior: {posterior_band}\n"
+            "- E0ならPRIOR_BANDを維持\n"
+            "- 「物理証拠」「第三者検証」「公開データ」がある場合のみ1段階上方修正\n\n"
             "FLIP_CONDITIONS:\n"
-            "- 反対方向の定量証拠（最新データ）が出た場合。\n"
-            "- 主要前提（期限/資源/外部条件）が明確化された場合。\n\n"
+            "- 第三者検証済みの公開データが追加される\n"
+            "- 反証不能な物理証拠が提示される\n\n"
             f"OUTCOME: {outcome}\n\n"
             "NEXT_3:\n"
             "1) 予測対象の期間はいつまでか？\n"
