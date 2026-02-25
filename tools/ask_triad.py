@@ -279,6 +279,30 @@ def build_diff_lite(before: str, after: str, max_lines: int = 30) -> str:
     head = "\n".join(lines[:max_lines]).strip()
     return f"Δ (lite):\n{head}\n"
 
+def build_after_core(q: str) -> str:
+    q_type = _detect_q_type(q)
+    weights, assumptions, dominant_axis, flip_threshold = _lite_params_from_q(q)
+    outcome, _, _ = _classify_outcome(q_type, q, weights, dominant_axis)
+    call = "Low" if q_type == "TYPE_ESTIMATE" else ("High" if dominant_axis == "Growth" else "Med")
+    return (
+        f"CALL: {call}\n"
+        "WHY-3:\n"
+        "- 現時点で再現可能な証拠が不足しているため保守側で判断。\n"
+        "- 入力の主張値は仮説として扱い、直接採用しない。\n"
+        "- 逆転条件を先に定義して検証可能性を確保する。\n\n"
+        "COUNTER-2:\n"
+        "- 反対仮説: 前提が過度に悲観的/楽観的でないか。\n"
+        "- 反対仮説: 観測バイアスで確率を誤認していないか。\n\n"
+        "FLIP-2:\n"
+        "- 第三者検証済みデータが追加される。\n"
+        "- 主要前提（期限/予算/制約）が反証される。\n\n"
+        "NEXT-3:\n"
+        "1) 反証可能な閾値を1つ決める\n"
+        "2) 必要データの取得元を決める\n"
+        "3) 再判定の期限を決める\n\n"
+        f"OUTCOME: {outcome}\n"
+    )
+
 def _is_valid_after_full(text: str, min_lines: int = 10) -> bool:
     t = (text or "").strip()
     if not t or "(dummy)" in t:
@@ -425,6 +449,7 @@ def main():
 
     q = " ".join(args.question).strip()
     tab = args.tab
+    core_only = os.getenv("MMAR_CORE_ONLY", "").strip() == "1"
     no_llm = os.getenv("MMAR_NO_LLM", "").strip() == "1"
     think_mode = not no_llm
 
@@ -433,6 +458,26 @@ def main():
     # 1) triad_turn skeleton (existing generator)
     log("[1/5] generate_triad_turn_min.py -> incoming/triad_turn.json")
     subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
+    if core_only:
+        after_core = build_after_core(q)
+        before_core = q
+        diff_core = build_diff_lite(before_core, after_core)
+        TAB_FILES["expand"].write_text(after_core, encoding="utf-8")
+        TAB_FILES["diff"].write_text(diff_core, encoding="utf-8")
+        TAB_FILES["merge"].write_text(after_core, encoding="utf-8")
+        TAB_FILES["compare"].write_text(
+            "=== INPUT ===\n"
+            f"{q}\n\n"
+            "=== BEFORE (Single / seed) ===\n"
+            f"{before_core}\n\n"
+            "=== AFTER (MMAR / EXPAND) ===\n"
+            f"{after_core}\n\n"
+            "=== Δ (Diff head) ===\n"
+            f"{diff_core}\n",
+            encoding="utf-8",
+        )
+        log("[DONE] core-only output written")
+        return
     lite_after = meaningful_after_fallback(q, "LLM timeout; lite first")
     lite_before = "初期SEED生成中（lite first）"
     lite_diff = build_diff_lite(lite_before, lite_after)

@@ -353,13 +353,14 @@
     };
   }
 
-  function detailsBlock(title, fullText, previewLines, extraClass="", badgeText=""){
+  function detailsBlock(title, fullText, previewLines, extraClass="", badgeText="", actionHtml=""){
     const info = clipLines(fullText, previewLines);
     const meta = `<span class="small">(${info.total} lines, preview ${info.clippedTo})</span>`;
     const badge = badgeText ? `<span class="pillBadge">${escapeHtml(badgeText)}</span>` : "";
+    const action = actionHtml || "";
     return `
       <details class="${extraClass}" open>
-        <summary><span class="sumRow"><span class="sumLeft">${title} ${meta}</span>${badge}</span></summary>
+        <summary><span class="sumRow"><span class="sumLeft">${title} ${meta}</span><span>${action}${badge}</span></span></summary>
         <div class="preview"><pre class="subpre">${escapeHtml(info.preview)}</pre></div>
       </details>
     `;
@@ -382,14 +383,23 @@
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended")}
+        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `<button id="after-deep-btn" style="padding:2px 8px; margin-right:6px;">Deep ▸</button>`)}
         ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
       </div>
     `;
+    const deepBtn = document.getElementById("after-deep-btn");
+    if (deepBtn) {
+      deepBtn.onclick = async (e) => {
+        e.preventDefault();
+        if (mode !== "live") return;
+        await runLive("deep");
+      };
+    }
   }
 
-  async function runLive(){
+  async function runLive(forceMode){
     const apiBase = getApiBase();
+    const apiMode = forceMode || runMode;
     if (!liveReady) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
@@ -397,21 +407,21 @@
       updateCtrlPanel();
       return;
     }
-    const runSpeed = (runMode === "think") ? "1.2s" : "2.8s";
+    const runSpeed = ((apiMode === "think") || (apiMode === "deep")) ? "1.2s" : "2.8s";
     runLiveEl.disabled = true;
     stopRequested = false;
     currentJobId = "";
     updateStopButton();
     liveResultBadgeEl.style.display = "none";
-    liveHintEl.textContent = (runMode === "think") ? "Thinking..." : "Running...";
-    if (runMode === "think") liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
-    liveStatus = (runMode === "think") ? "running" : "ready";
+    liveHintEl.textContent = ((apiMode === "think") || (apiMode === "deep")) ? "Thinking..." : "Running...";
+    if ((apiMode === "think") || (apiMode === "deep")) liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
+    liveStatus = ((apiMode === "think") || (apiMode === "deep")) ? "running" : "ready";
     outEl.textContent = "Running...";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
     try {
       const w = withTimeout(30000);
-      const r = await fetch(`${apiBase}/api/triad?mode=${encodeURIComponent(runMode)}`, {
+      const r = await fetch(`${apiBase}/api/triad?mode=${encodeURIComponent(apiMode)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: qEl.value || "" }),
@@ -423,7 +433,7 @@
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         liveStatus = "error";
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
-        if (runMode === "quick") {
+        if (apiMode === "quick" || apiMode === "core") {
           liveResultBadgeEl.textContent = "Quick draft";
           liveResultBadgeEl.style.display = "inline-block";
         }
@@ -531,7 +541,7 @@
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
         liveStatus = "error";
         outEl.textContent = `Live error\n\n${short}`;
-        if (runMode === "quick") {
+        if (apiMode === "quick" || apiMode === "core") {
           liveResultBadgeEl.textContent = "Quick draft";
           liveResultBadgeEl.style.display = "inline-block";
         }

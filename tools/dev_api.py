@@ -199,15 +199,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path.startswith("/api/cancel/"):
+            job_id = path.split("/api/cancel/", 1)[1].strip()
+            with JOBS_LOCK:
+                job = JOBS.get(job_id)
+                if not job:
+                    self._send_json(404, {"ok": False, "error": "job_not_found"})
+                    return
+                if job.get("status") in ("running", "slow"):
+                    nxt = dict(job)
+                    nxt["status"] = "cancelled"
+                    nxt["hint"] = "user cancelled"
+                    JOBS[job_id] = nxt
+            self._send_json(200, {"ok": True, "status": "cancelled"})
+            return
         if path != "/api/triad":
             self._send_json(404, {"error": "not found"})
             return
 
         try:
             qs = parse_qs(parsed.query)
-            mode = (qs.get("mode", ["quick"])[0] or "quick").lower()
-            if mode not in ("quick", "think"):
-                mode = "quick"
+            mode = (qs.get("mode", ["core"])[0] or "core").lower()
+            if mode == "quick":
+                mode = "core"
+            if mode == "think":
+                mode = "deep"
+            if mode not in ("core", "deep"):
+                mode = "core"
             n = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(n)
             data = json.loads(raw.decode("utf-8"))
@@ -219,15 +237,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "input must be string"})
                 return
 
-            if mode == "think":
+            if mode == "deep":
                 job_id = _start_full_job(user_input)
-                self._send_json(202, {"ok": True, "job_id": job_id, "mode": "think"})
+                self._send_json(202, {"ok": True, "job_id": job_id, "mode": "deep"})
                 return
 
             proc = _run_ask_triad(
                 user_input,
                 timeout_s=12,
-                env_extra={"MMAR_LLM_TIMEOUT": "6", "MMAR_NO_LLM": "1"},
+                env_extra={"MMAR_CORE_ONLY": "1", "MMAR_LLM_TIMEOUT": "6"},
             )
             if proc.returncode != 0:
                 err = proc.stderr or ""
@@ -252,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **payload})
 
         except subprocess.TimeoutExpired:
-            self._send_json(504, {"ok": False, "error": "timeout", "mode": "quick"})
+            self._send_json(504, {"ok": False, "error": "timeout", "mode": "core"})
         except json.JSONDecodeError:
             self._send_json(400, {"ok": False, "error": "invalid_json"})
         except Exception as e:
