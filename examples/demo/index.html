@@ -554,6 +554,10 @@
       liveData = data;
       liveHintEl.textContent = "Live ready";
       liveStatus = "ready";
+      if (apiMode === "quick" || apiMode === "core") {
+        liveResultBadgeEl.textContent = "Quick";
+        liveResultBadgeEl.style.display = "inline-block";
+      }
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
       setTimestamp();
