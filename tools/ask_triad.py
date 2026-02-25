@@ -442,7 +442,7 @@ def tab_prompt(tab: str, q: str, seed: str, c1: str, c2: str, master: str, turn_
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tab", choices=["expand", "guard", "diff", "merge"], default="merge",
+    ap.add_argument("--tab", choices=["seed", "expand", "guard", "diff", "merge"], default="merge",
                     help="output tab view (expand/guard/diff/merge). Base triad cycle always runs.")
     ap.add_argument("question", nargs="+", help="question text")
     args = ap.parse_args()
@@ -450,6 +450,7 @@ def main():
     q = " ".join(args.question).strip()
     tab = args.tab
     core_only = os.getenv("MMAR_CORE_ONLY", "").strip() == "1"
+    seed_only = os.getenv("MMAR_SEED_ONLY", "").strip() == "1" or tab == "seed"
     no_llm = os.getenv("MMAR_NO_LLM", "").strip() == "1"
     think_mode = not no_llm
 
@@ -458,6 +459,26 @@ def main():
     # 1) triad_turn skeleton (existing generator)
     log("[1/5] generate_triad_turn_min.py -> incoming/triad_turn.json")
     subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
+    if seed_only:
+        seed = q
+        after_ph = "Deep pending..."
+        diff_ph = "- Deep pending..."
+        TAB_FILES["expand"].write_text(after_ph, encoding="utf-8")
+        TAB_FILES["diff"].write_text(diff_ph, encoding="utf-8")
+        TAB_FILES["merge"].write_text(seed, encoding="utf-8")
+        TAB_FILES["compare"].write_text(
+            "=== INPUT ===\n"
+            f"{q}\n\n"
+            "=== BEFORE (Single / seed) ===\n"
+            f"{seed}\n\n"
+            "=== AFTER (MMAR / EXPAND) ===\n"
+            f"{after_ph}\n\n"
+            "=== Δ (Diff head) ===\n"
+            f"{diff_ph}\n",
+            encoding="utf-8",
+        )
+        log("[DONE] seed-only output written")
+        return
     if core_only:
         after_core = build_after_core(q)
         before_core = q

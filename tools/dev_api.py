@@ -231,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
                 mode = "core"
             if mode == "think":
                 mode = "deep"
-            if mode not in ("core", "deep"):
+            if mode not in ("seed", "core", "deep"):
                 mode = "core"
             n = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(n)
@@ -247,6 +247,33 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "deep":
                 job_id = _start_full_job(user_input)
                 self._send_json(202, {"ok": True, "job_id": job_id, "mode": "deep"})
+                return
+
+            if mode == "seed":
+                proc = _run_ask_triad(
+                    user_input,
+                    timeout_s=8,
+                    env_extra={"MMAR_SEED_ONLY": "1", "MMAR_LLM_TIMEOUT": "4"},
+                )
+                if proc.returncode != 0:
+                    err = proc.stderr or ""
+                    if len(err) > 1200:
+                        err = err[:1200] + "..."
+                    self._send_json(
+                        500,
+                        {
+                            "ok": False,
+                            "error": "subprocess_failed",
+                            "returncode": proc.returncode,
+                            "stderr_trunc": err,
+                        },
+                    )
+                    return
+                payload, missing = _collect_outputs()
+                if missing:
+                    self._send_json(500, {"ok": False, "error": "missing_outputs", "missing": missing})
+                    return
+                self._send_json(200, {"ok": True, "mode": "seed", **payload})
                 return
 
             proc = _run_ask_triad(

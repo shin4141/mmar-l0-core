@@ -452,8 +452,42 @@
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
     try {
+      const wSeed = withTimeout(12000);
+      const rSeed = await fetch(`${apiBase}/api/triad?mode=seed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: qEl.value || "" }),
+        signal: wSeed.signal,
+      });
+      if (!rSeed.ok) {
+        const body = await rSeed.text();
+        const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
+        liveHintEl.textContent = `Live error: HTTP ${rSeed.status}`;
+        liveStatus = "error";
+        outEl.textContent = `Live error: HTTP ${rSeed.status}\n\n${short}`;
+        setRunVisual("error", "2.8s");
+        updateCtrlPanel();
+        wSeed.done();
+        return;
+      }
+      const seedData = await rSeed.json();
+      const seedOk = seedData && ["compare", "expand", "diff", "merge"].every(k => typeof seedData[k] === "string");
+      if (!seedOk) {
+        wSeed.done();
+        throw new Error("invalid seed response shape");
+      }
+      liveData = seedData;
+      if (runMode === "quick") setLeftPromptIfAllowed(buildQuickTemplate(submittedInput), "template");
+      setTimestamp();
+      loadActive();
+      wSeed.done();
+
+      liveHintEl.textContent = "Thinking...";
+      liveStatus = "running";
+      updateCtrlPanel();
+
       const w = withTimeout(30000);
-      const r = await fetch(`${apiBase}/api/triad?mode=${encodeURIComponent(apiMode)}`, {
+      const r = await fetch(`${apiBase}/api/triad?mode=deep`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: qEl.value || "" }),
@@ -465,10 +499,6 @@
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         liveStatus = "error";
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
-        if (apiMode === "quick" || apiMode === "core") {
-          liveResultBadgeEl.textContent = "Quick draft";
-          liveResultBadgeEl.style.display = "inline-block";
-        }
         setRunVisual("error", "2.8s");
         updateCtrlPanel();
         return;
