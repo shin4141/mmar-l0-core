@@ -124,9 +124,48 @@ def _detect_q_type(q: str) -> str:
         return "TYPE_HOWTO"
     return "TYPE_AB"
 
+def _qual_to_num(label: str) -> float:
+    scale = {"Very_Low": 0.05, "Low": 0.2, "Med": 0.5, "High": 0.8}
+    return scale.get(label, 0.5)
+
+def _estimate_label(text: str, default_label: str = "Med") -> str:
+    t = (text or "")
+    if re.search(r"(very[_ ]?low|極めて低|ほぼない|まずない)", t, re.IGNORECASE):
+        return "Very_Low"
+    if re.search(r"(low|低い|低め|難しい|厳しい)", t, re.IGNORECASE):
+        return "Low"
+    if re.search(r"(high|高い|高め|有望|起こる)", t, re.IGNORECASE):
+        return "High"
+    return default_label
+
+def _classify_outcome(q_type: str, q: str, weights: dict, dominant_axis: str):
+    prior_label = _estimate_label(q, "Med")
+    after_label = "High" if dominant_axis == "Growth" else ("Low" if dominant_axis == "Money" else weights.get("Time", "Med"))
+    prior = _qual_to_num(prior_label)
+    after = _qual_to_num(after_label)
+    direction_change = False
+    if q_type == "TYPE_AB":
+        prior_side = "B" if re.search(r"(B優位|B有利|Bが勝つ)", q, re.IGNORECASE) else "A"
+        after_side = "B" if dominant_axis == "Money" else "A"
+        direction_change = prior_side != after_side
+    else:
+        direction_change = (prior < 0.5 <= after) or (after < 0.5 <= prior)
+    delta = after - prior
+    abs_delta = abs(delta)
+    if direction_change:
+        outcome = "Flip"
+    elif abs_delta >= 0.30:
+        outcome = "Major_Update"
+    elif abs_delta >= 0.10:
+        outcome = "Update"
+    else:
+        outcome = "Reinforced"
+    return outcome, delta, abs_delta
+
 
 def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->str:
     q_type = _detect_q_type(q)
+    outcome, delta, abs_delta = _classify_outcome(q_type, q, weights, dominant_axis)
     qs = [
         "1) 期限はいつか（Time）",
         "2) 予算上限はいくらか（Money）",
@@ -143,6 +182,7 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
             "FLIP_CONDITIONS:\n"
             "- 反対方向の定量証拠（最新データ）が出た場合。\n"
             "- 主要前提（期限/資源/外部条件）が明確化された場合。\n\n"
+            f"OUTCOME: {outcome}\n\n"
             "NEXT_3:\n"
             "1) 予測対象の期間はいつまでか？\n"
             "2) 参照できる過去データはあるか？\n"
@@ -160,6 +200,7 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
             "- 目的未定義のまま作業し、評価不能になる。\n"
             "- 一度に広げすぎて検証不能になる。\n"
             "- 記録を残さず再現できなくなる。\n\n"
+            f"OUTCOME: {outcome}\n\n"
             "NEXT_3:\n"
             "1) 成功条件は何か？\n"
             "2) 最小実験の期間は？\n"
@@ -173,6 +214,7 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
         + ("".join([f"{a}\n" for a in assumptions]) if assumptions else "")
         + "\nFLIP_THRESHOLD:\n"
         + "\n".join((flip_threshold or [])[:2]) + "\n\n"
+        + f"OUTCOME: {outcome}\n\n"
         + "NEXT_3:\n"
         + "\n".join(qs[:3]) + "\n"
     )
