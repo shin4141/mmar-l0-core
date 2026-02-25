@@ -253,6 +253,31 @@
     stopLiveEl.style.display = (mode === "live" && !!currentJobId) ? "inline-block" : "none";
   }
 
+  function setLeftPromptIfAllowed(text, source){
+    if (!text || !String(text).trim()) return;
+    if (mode !== "live") {
+      qEl.value = String(text).trim();
+      updateCounter();
+      return;
+    }
+    if (runMode === "quick" && source === "template") {
+      qEl.value = String(text).trim();
+      updateCounter();
+    }
+  }
+
+  function buildQuickTemplate(inputText){
+    const src = (inputText || "").trim();
+    return (
+      "QUICK TEMPLATE\n"
+      + "目的:\n- 何を判断するかを1行で\n\n"
+      + "制約:\n- 期限 / 予算 / 禁止条件\n\n"
+      + "問い(整形):\n"
+      + (src ? `${src}\n\n` : "（ここに問いを1行）\n\n")
+      + "出力形式:\n- CALL\n- WHY-3\n- FLIP-2\n- NEXT-3\n"
+    );
+  }
+
   function updateCtrlPanel(){
     const thinkTxt = (liveThinkTimeEl.textContent || "").trim() || "Think time: -";
     ctrlThinkTimeEl.textContent = thinkTxt;
@@ -405,6 +430,7 @@
   async function runLive(forceMode){
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
+    const submittedInput = qEl.value || "";
     lastApiMode = apiMode;
     if (!liveReady) {
       outEl.textContent = "Live not ready";
@@ -563,6 +589,7 @@
       if (apiMode === "quick" || apiMode === "core") {
         liveResultBadgeEl.textContent = "Quick";
         liveResultBadgeEl.style.display = "inline-block";
+        setLeftPromptIfAllowed(buildQuickTemplate(submittedInput), "template");
       }
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");

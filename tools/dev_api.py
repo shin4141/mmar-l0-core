@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 HOST = "127.0.0.1"
 PORT = 8787
+MAX_THINK_SECONDS = 900
 
 REPO = Path(__file__).resolve().parents[1]
 ASK_TRIAD = REPO / "tools" / "ask_triad.py"
@@ -186,6 +187,12 @@ class Handler(BaseHTTPRequestHandler):
             # elapsed_secは表示のみ
 
             out = dict(job)
+            if out.get("status") in ("running", "slow") and elapsed_sec > MAX_THINK_SECONDS:
+                out["status"] = "error"
+                out["error"] = "timeout"
+                out["hint"] = "max think time exceeded"
+                with JOBS_LOCK:
+                    JOBS[job_id] = dict(out)
             if out.get("status") == "running" and elapsed_sec > 20:
                 out["status"] = "slow"
                 out["hint"] = "still running"
