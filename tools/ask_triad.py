@@ -303,6 +303,25 @@ def build_after_core(q: str) -> str:
         f"OUTCOME: {outcome}\n"
     )
 
+def normalize_before_seed(q: str) -> str:
+    t = " ".join((q or "").strip().split())
+    if not t:
+        t = "(no input)"
+    head = t[:180] + ("..." if len(t) > 180 else "")
+    return (
+        f"問い: {head}\n"
+        "目的: 判断に使える最小構造へ即時整形\n"
+    )
+
+def build_seed_after_core(before_text: str) -> str:
+    return (
+        "CALL: Low\n"
+        "WHY-3: 1)証拠不足を保守評価 2)主張値と事後確率を分離 3)反証条件を先に固定\n"
+        "COUNTER-2: 1)楽観バイアス混入の可能性 2)観測不足による見落としの可能性\n"
+        "FLIP-2: 1)第三者検証データ追加 2)前提条件(期限/予算/制約)の反証\n"
+        "NEXT-3: 1)判定閾値を1つ定義 2)必要データ源を特定 3)再判定時刻を設定\n"
+    )
+
 def _is_valid_after_full(text: str, min_lines: int = 10) -> bool:
     t = (text or "").strip()
     if not t or "(dummy)" in t:
@@ -457,23 +476,23 @@ def main():
     log(f"[0/5] tab={tab}")
 
     if seed_only:
-        seed = q
-        after_ph = "(Deep running...)"
-        diff_ph = "(Deep running...)"
+        before_seed = normalize_before_seed(q)
+        after_seed = build_seed_after_core(before_seed)
+        diff_seed = build_diff_lite(before_seed, after_seed, max_lines=24)
         TAB_FILES["compare"].write_text(
             "=== INPUT ===\n"
             f"{q}\n\n"
             "=== BEFORE (Single / seed) ===\n"
-            f"{seed}\n\n"
+            f"{before_seed}\n\n"
             "=== AFTER (MMAR / EXPAND) ===\n"
-            f"{after_ph}\n\n"
+            f"{after_seed}\n\n"
             "=== Δ (Diff head) ===\n"
-            f"{diff_ph}\n",
+            f"{diff_seed}\n",
             encoding="utf-8",
         )
-        TAB_FILES["expand"].write_text(after_ph + "\n", encoding="utf-8")
-        TAB_FILES["diff"].write_text(diff_ph + "\n", encoding="utf-8")
-        TAB_FILES["merge"].write_text(seed + "\n", encoding="utf-8")
+        TAB_FILES["expand"].write_text(after_seed, encoding="utf-8")
+        TAB_FILES["diff"].write_text(diff_seed, encoding="utf-8")
+        TAB_FILES["merge"].write_text(after_seed, encoding="utf-8")
         log("[seed_only] wrote out_compare placeholders and returned")
         return
 
