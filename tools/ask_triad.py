@@ -200,24 +200,26 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
         claim_pct = _extract_claim_percent(q)
         claim_txt = f"{claim_pct}%" if claim_pct is not None else "未指定"
         evidence_grade = _estimate_evidence_grade(q)
-        prior_band = "Low"
-        posterior_band = "Med" if evidence_grade == "E2" else prior_band
+        call = "Low" if evidence_grade == "E0" else ("Med" if evidence_grade == "E1" else "High")
+        if evidence_grade == "E0" and call in ("Med", "High"):
+            call = "Low"
+        direction_change = (outcome == "Flip")
+        if direction_change:
+            update = "Flip"
+        elif evidence_grade in ("E1", "E2"):
+            update = "Major_Update"
+        else:
+            update = "Reinforced"
         return (
+            f"CALL: {call}\n"
+            f"UPDATE: {update}\n\n"
             "CLAIM:\n"
             f"- ユーザー主張確率: {claim_txt}\n\n"
-            "PRIOR_BAND:\n"
-            "- 既定レンジ: Low（保守側に固定）\n"
-            "  ※ ここではユーザーの%を使わない\n\n"
-            "EVIDENCE_GRADE:\n"
-            "- E0: 証拠なし（再現可能データなし）\n"
-            "- E1: 状況証拠のみ\n"
-            "- E2: 第三者検証あり\n"
-            f"- 今回判定: {evidence_grade}\n\n"
-            "POSTERIOR_BAND:\n"
-            f"- posterior: {posterior_band}\n"
-            "- E0ならPRIOR_BANDを維持\n"
-            "- 「物理証拠」「第三者検証」「公開データ」がある場合のみ1段階上方修正\n\n"
-            "FLIP_CONDITIONS:\n"
+            "WHY:\n"
+            "- 既定レンジは保守側（Low）を基準にするため。\n"
+            "- ユーザー%は主張値であり、事後確率を直接決めないため。\n"
+            f"- 現在の証拠グレードは {evidence_grade} で、上方更新条件を満たしていないため。\n\n"
+            "EVIDENCE_GAP:\n"
             "- 第三者検証済みの公開データが追加される\n"
             "- 反証不能な物理証拠が提示される\n\n"
             f"OUTCOME: {outcome}\n\n"
@@ -225,6 +227,8 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
             "1) 予測対象の期間はいつまでか？\n"
             "2) 参照できる過去データはあるか？\n"
             "3) 成否判定の基準値は何か？\n"
+            "\nNEXT_ACTION:\n"
+            "- CALLを変更する証拠条件（第三者検証済み公開データの閾値）を1行で定義する。\n"
         )
     if q_type == "TYPE_HOWTO":
         return (
