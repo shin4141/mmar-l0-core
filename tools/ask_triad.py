@@ -519,8 +519,8 @@ def main():
         )
         log("[DONE] core-only output written")
         return
-    lite_after = meaningful_after_fallback(q, "LLM timeout; lite first")
-    lite_before = "初期SEED生成中（lite first）"
+    lite_before = normalize_before_seed(q) if no_llm else "初期SEED生成中（lite first）"
+    lite_after = build_seed_after_core(lite_before) if no_llm else meaningful_after_fallback(q, "LLM timeout; lite first")
     lite_diff = build_diff_lite(lite_before, lite_after)
     TAB_FILES["expand"].write_text(lite_after, encoding="utf-8")
     TAB_FILES["diff"].write_text(lite_diff, encoding="utf-8")
@@ -538,11 +538,11 @@ def main():
 
     # 2) LLM calls for seed/counters/master-merge
     if no_llm:
-        log("[2/5] MMAR_NO_LLM=1 -> skip OpenAI and use dummy fallback")
-        seed = dummy_fallback_text("seed")
-        c1 = dummy_fallback_text("counter-1")
-        c2 = dummy_fallback_text("counter-2")
-        master = meaningful_after_fallback(q, "LLM timeout; fallback used")
+        log("[2/5] MMAR_NO_LLM=1 -> skip OpenAI and use After-Core")
+        seed = normalize_before_seed(q)
+        c1 = "- Counter: 証拠不足/バイアスの可能性を確認"
+        c2 = "- Counter: 逆条件が成立するケースを確認"
+        master = build_seed_after_core(seed)
     else:
         log("[2/5] OpenAI seed...")
         seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}", question=q)
@@ -624,12 +624,12 @@ def main():
 
     if tab in ("expand", "guard", "diff"):
         if no_llm:
-            out = meaningful_after_fallback(q, "LLM timeout; fallback used") if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
+            out = build_seed_after_core(normalize_before_seed(q)) if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             if tab == "expand":
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, out), encoding="utf-8")
             if tab == "diff":
-                TAB_FILES["diff"].write_text(build_diff_lite(seed, meaningful_after_fallback(q, "LLM timeout; fallback used")), encoding="utf-8")
+                TAB_FILES["diff"].write_text(build_diff_lite(seed, build_seed_after_core(normalize_before_seed(q))), encoding="utf-8")
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
             out = call_openai(prompt, question=q)

@@ -108,6 +108,9 @@
         <button id="run-full" title="Thinking (deeper, may take longer)">Think</button>
         <button id="run-live" disabled>Run</button>
         <button id="stop-live" title="Stop" style="display:none; padding:8px 10px;">■</button>
+        <span id="quick-quality" class="muted"></span>
+        <span id="quick-gate-hint" class="muted"></span>
+        <button id="quick-skip" title="Skip (soon)" disabled style="padding:4px 8px;">Skip</button>
         <span id="live-result-badge" class="pillBadge" style="display:none;"></span>
         <span id="live-api-base" class="muted"></span>
         <span id="live-last-run" class="muted"></span>
@@ -164,6 +167,8 @@
   const runFullEl = document.getElementById("run-full");
   const runLiveEl = document.getElementById("run-live");
   const stopLiveEl = document.getElementById("stop-live");
+  const quickQualityEl = document.getElementById("quick-quality");
+  const quickGateHintEl = document.getElementById("quick-gate-hint");
   const liveResultBadgeEl = document.getElementById("live-result-badge");
   const liveApiBaseEl = document.getElementById("live-api-base");
   const liveLastRunEl = document.getElementById("live-last-run");
@@ -188,6 +193,7 @@
   let liveStatus = "unknown";
   let lastApiMode = "";
   let lastSubmittedInput = "";
+  const THINK_UNLOCK_THRESHOLD = 60;
 
   function currentLimit(){
     if (mode === "static") return 600;
@@ -203,9 +209,11 @@
     counterEl.className = "counter" + (left < 0 ? " warn" : "");
   }
   qEl.addEventListener("input", updateCounter);
+  qEl.addEventListener("input", updateQuickGate);
   qEl.addEventListener("focus", () => qEl.classList.add("big"));
   qEl.addEventListener("blur", () => qEl.classList.remove("big"));
   updateCounter();
+  updateQuickGate();
 
   let active = "compare";
   function setTimestamp(){ tsEl.textContent = new Date().toISOString(); }
@@ -227,6 +235,7 @@
     modeLiveEl.className = (mode === "live") ? "active" : "";
     runFastEl.className = (runMode === "quick") ? "active" : "";
     runFullEl.className = (runMode === "think") ? "active" : "";
+    updateQuickGate();
     updateRunButton();
     updateStopButton();
     liveApiBaseEl.textContent = `API: ${apiBase || "(none)"}`;
@@ -248,6 +257,29 @@
 
   function updateRunButton(){
     runLiveEl.disabled = (mode !== "live") || !liveReady;
+  }
+
+  function quickQualityPercent(text){
+    const src = String(text || "");
+    const checks = [
+      /目的:\s*\n-\s*(?!何を判断するかを1行で)(.+)/.test(src),
+      /制約:\s*\n-\s*(?!期限 \/ 予算 \/ 禁止条件)(.+)/.test(src),
+      /問い\(整形\):\s*\n(?!（ここに問いを1行）)(.+)/.test(src),
+    ];
+    const score = checks.filter(Boolean).length;
+    return Math.round((score / checks.length) * 100);
+  }
+
+  function canThink(){
+    return quickQualityPercent(qEl.value || "") >= THINK_UNLOCK_THRESHOLD;
+  }
+
+  function updateQuickGate(){
+    const q = quickQualityPercent(qEl.value || "");
+    quickQualityEl.textContent = (mode === "live") ? `Quality: ${q}%` : "";
+    const locked = (mode === "live") && !canThink();
+    runFullEl.disabled = locked;
+    quickGateHintEl.textContent = locked ? "Fill template to unlock Think" : "";
   }
 
   function updateStopButton(){
@@ -438,6 +470,10 @@
     const submittedInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
     if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
+    if ((apiMode === "think" || apiMode === "deep") && !canThink()) {
+      liveHintEl.textContent = "Fill template to unlock Think";
+      return;
+    }
     if (!liveReady) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
@@ -687,8 +723,19 @@
 
   modeStaticEl.onclick = () => { mode = "static"; renderMode(); loadActive(); };
   modeLiveEl.addEventListener("click", async () => { mode = "live"; liveHintEl.textContent = "Live clicked"; renderMode(); await checkLiveHealth(); loadActive(); });
-  runFastEl.onclick = () => { runMode = "quick"; renderMode(); };
-  runFullEl.onclick = () => { runMode = "think"; renderMode(); };
+  runFastEl.onclick = () => {
+    runMode = "quick";
+    if (mode === "live") setLeftPromptIfAllowed(buildQuickTemplate(qEl.value || lastSubmittedInput || ""), "template");
+    renderMode();
+  };
+  runFullEl.onclick = () => {
+    if (mode === "live" && !canThink()) {
+      liveHintEl.textContent = "Fill template to unlock Think";
+      return;
+    }
+    runMode = "think";
+    renderMode();
+  };
   stopLiveEl.onclick = async () => {
     if (!currentJobId) return;
     stopRequested = true;
