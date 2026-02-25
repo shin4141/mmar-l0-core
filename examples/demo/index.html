@@ -186,6 +186,7 @@
   let currentJobId = "";
   let stopRequested = false;
   let liveStatus = "unknown";
+  let lastApiMode = "";
 
   function currentLimit(){
     if (mode === "static") return 600;
@@ -374,6 +375,9 @@
     if (!before) before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
     if (!after) after = section(txt, "AFTER(?:[^\\n]*)", "(?:Δ|DIFF)(?:[^\\n]*)");
     if (!delta) delta = section(txt, "(?:Δ|DIFF)(?:[^\\n]*)", "$");
+    if ((lastApiMode === "quick" || lastApiMode === "core") && /\(seed\)|\(dummy\)/.test(before || "")) {
+      before = (qEl.value || before || "").trim();
+    }
     updateCounter();
     if (!before && !after && !delta) {
       outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
@@ -391,8 +395,9 @@
     if (deepBtn) {
       deepBtn.onclick = async (e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (mode !== "live") return;
-        await runLive("deep");
+        await runLive("think");
       };
     }
   }
@@ -400,6 +405,7 @@
   async function runLive(forceMode){
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
+    lastApiMode = apiMode;
     if (!liveReady) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
@@ -557,6 +563,10 @@
       if (apiMode === "quick" || apiMode === "core") {
         liveResultBadgeEl.textContent = "Quick";
         liveResultBadgeEl.style.display = "inline-block";
+        if (typeof data.expand === "string" && data.expand.trim()) {
+          qEl.value = data.expand.trim();
+          updateCounter();
+        }
       }
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
