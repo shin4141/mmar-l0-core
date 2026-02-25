@@ -456,16 +456,10 @@ def main():
 
     log(f"[0/5] tab={tab}")
 
-    # 1) triad_turn skeleton (existing generator)
-    log("[1/5] generate_triad_turn_min.py -> incoming/triad_turn.json")
-    subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
     if seed_only:
         seed = q
-        after_ph = "Deep pending..."
-        diff_ph = "- Deep pending..."
-        TAB_FILES["expand"].write_text(after_ph, encoding="utf-8")
-        TAB_FILES["diff"].write_text(diff_ph, encoding="utf-8")
-        TAB_FILES["merge"].write_text(seed, encoding="utf-8")
+        after_ph = "(Deep running...)"
+        diff_ph = "(Deep running...)"
         TAB_FILES["compare"].write_text(
             "=== INPUT ===\n"
             f"{q}\n\n"
@@ -477,8 +471,15 @@ def main():
             f"{diff_ph}\n",
             encoding="utf-8",
         )
-        log("[DONE] seed-only output written")
+        TAB_FILES["expand"].write_text(after_ph + "\n", encoding="utf-8")
+        TAB_FILES["diff"].write_text(diff_ph + "\n", encoding="utf-8")
+        TAB_FILES["merge"].write_text(seed + "\n", encoding="utf-8")
+        log("[seed_only] wrote out_compare placeholders and returned")
         return
+
+    # 1) triad_turn skeleton (existing generator)
+    log("[1/5] generate_triad_turn_min.py -> incoming/triad_turn.json")
+    subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
     if core_only:
         after_core = build_after_core(q)
         before_core = q
