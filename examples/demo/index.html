@@ -263,7 +263,7 @@
 
   function quickQualityPercent(text){
     const src = String(text || "");
-    const keys = ["PURPOSE", "CONSTRAINTS", "WEIGHTS", "NEXT"];
+    const keys = ["PURPOSE", "CONSTRAINTS", "WEIGHTS", "QUESTION", "NEXT"];
     const checks = keys.map((k) => {
       const re = new RegExp(`^\\s*${k}\\s*:\\s*([\\s\\S]*?)(?=^\\s*[A-Z_]+\\s*:|\\s*$)`, "m");
       const m = src.match(re);
@@ -300,11 +300,13 @@
     if (mode !== "live") {
       qEl.value = String(text).trim();
       updateCounter();
+      updateQuickGate();
       return;
     }
     if (runMode === "quick" && source === "template") {
       qEl.value = String(text).trim();
       updateCounter();
+      updateQuickGate();
     }
   }
 
@@ -312,7 +314,8 @@
     const src = (inputText || "").trim();
     return (
       "QUICK TEMPLATE\n"
-      + "PURPOSE:\n- \n\n"
+      + "PURPOSE:\n"
+      + (src ? `- ${src}\n\n` : "- \n\n")
       + "CONSTRAINTS:\n- \n\n"
       + "WEIGHTS:\n- Time:\n- Money:\n- Growth:\n\n"
       + "QUESTION:\n"
