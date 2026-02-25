@@ -399,7 +399,7 @@
 
   async function runLive(forceMode){
     const apiBase = getApiBase();
-    const apiMode = forceMode || runMode;
+    const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     if (!liveReady) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
@@ -631,7 +631,7 @@
     if (ctrlPanelEl.contains(e.target) || ctrlGearEl.contains(e.target)) return;
     ctrlPanelEl.classList.remove("open");
   });
-  runLiveEl.onclick = runLive;
+  runLiveEl.onclick = () => runLive();
   document.getElementById("reload").onclick = loadActive;
   renderMode();
   renderTabs();
