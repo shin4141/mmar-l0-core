@@ -187,6 +187,7 @@
   let stopRequested = false;
   let liveStatus = "unknown";
   let lastApiMode = "";
+  let lastSubmittedInput = "";
 
   function currentLimit(){
     if (mode === "static") return 600;
@@ -422,15 +423,20 @@
         e.preventDefault();
         e.stopPropagation();
         if (mode !== "live") return;
-        await runLive("think");
+        if (!lastSubmittedInput) {
+          liveHintEl.textContent = "No submitted input";
+          return;
+        }
+        await runLive("think", lastSubmittedInput);
       };
     }
   }
 
-  async function runLive(forceMode){
+  async function runLive(forceMode, inputOverride){
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
-    const submittedInput = qEl.value || "";
+    const submittedInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
+    if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
     if (!liveReady) {
       outEl.textContent = "Live not ready";
@@ -456,7 +462,7 @@
       const rSeed = await fetch(`${apiBase}/api/triad?mode=seed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: qEl.value || "" }),
+        body: JSON.stringify({ input: submittedInput }),
         signal: wSeed.signal,
       });
       if (!rSeed.ok) {
@@ -481,6 +487,16 @@
       setTimestamp();
       loadActive();
       wSeed.done();
+      if (apiMode === "quick" || apiMode === "core") {
+        liveHintEl.textContent = "Live ready";
+        liveStatus = "ready";
+        liveResultBadgeEl.textContent = "Quick";
+        liveResultBadgeEl.style.display = "inline-block";
+        liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
+        setRunVisual("ready", "2.8s");
+        updateCtrlPanel();
+        return;
+      }
 
       liveHintEl.textContent = "Thinking...";
       liveStatus = "running";
@@ -490,7 +506,7 @@
       const r = await fetch(`${apiBase}/api/triad?mode=deep`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: qEl.value || "" }),
+        body: JSON.stringify({ input: submittedInput }),
         signal: w.signal,
       });
       if (!r.ok) {
