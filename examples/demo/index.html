@@ -496,7 +496,7 @@
         </span>`
       : "";
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || deepLocked || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (deepLocked ? "Fill template to unlock Deep" : "")}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
     const afterTitle = `After (MMAR) [view_source=${viewSource}] [deep_status=${deepMetaStatus}] [fallback=${deepMetaReason}] [missing=${deepMetaMissing}] [timings=${deepTimings}]`;
     outEl.innerHTML = `
@@ -531,10 +531,6 @@
         e.preventDefault();
         e.stopPropagation();
         if (mode !== "live") return;
-        if (deepLocked) {
-          liveHintEl.textContent = "Fill template to unlock Deep";
-          return;
-        }
         if (!lastSubmittedInput) {
           liveHintEl.textContent = "No submitted input";
           return;
@@ -553,7 +549,7 @@
     const keepCurrentView = isDeep && !!(liveDataCore || liveDataDeep || liveData);
     if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
-    if (isDeep && !canThink()) {
+    if (isDeep && apiMode !== "deep" && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
       return;
     }
