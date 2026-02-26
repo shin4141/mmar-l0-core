@@ -80,6 +80,8 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["fallback_reason_secondary"] = meta["fallback_reason_secondary"]
                 if isinstance(meta.get("missing_stages"), list):
                     payload["missing_stages"] = meta["missing_stages"]
+                if isinstance(meta.get("judgment_point_changes"), list):
+                    payload["judgment_point_changes"] = meta["judgment_point_changes"]
                 if isinstance(meta.get("timings"), dict):
                     payload["timings"] = meta["timings"]
         except Exception:

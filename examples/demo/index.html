@@ -480,6 +480,14 @@
     return picks.slice(0, n);
   }
 
+  function strengthHintFromMissing(missingCsv){
+    const m = String(missingCsv || "");
+    if (!m || m === "-") return "目的指標・優先軸・摂取量を追加入力すると精度が上がります。";
+    if (m.includes("expand") || m.includes("diff")) return "比較軸(健康/継続/コスト)と閾値(%)を追加入力すると深掘り精度が上がります。";
+    if (m.includes("master")) return "結論条件（いつ/何をもって有効とするか）を1行で追加入力してください。";
+    return "目的指標・優先軸・摂取量を追加入力すると精度が上がります。";
+  }
+
   function renderCompare(txt){
     const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
     let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
@@ -524,19 +532,27 @@
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
-      ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "Deep incomplete" : "Deep failed"}</button>`
+      ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : "解析失敗（再実行）"}</button>`
       : "";
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
-    const keyChanges = extractKeyChanges((liveDataDeep && (liveDataDeep.merge || liveDataDeep.expand)) || after, 3);
-    const diffFallback = `Diff not available (${deepMetaStatus === "partial" ? "partial" : "incomplete"})\nreason: ${deepMetaStatus === "partial" ? "expand/diff incomplete due to timeout" : "deep run failed or timed out"}\nnext: Re-run Deep\n\nKey changes (from master)\n- ${keyChanges[0]}\n- ${keyChanges[1]}\n- ${keyChanges[2]}`;
+    const serverJpc = (liveDataDeep && Array.isArray(liveDataDeep.judgment_point_changes) && liveDataDeep.judgment_point_changes.length)
+      ? liveDataDeep.judgment_point_changes.slice(0, 3)
+      : null;
+    const keyChanges = serverJpc || extractKeyChanges((liveDataDeep && (liveDataDeep.merge || liveDataDeep.expand)) || after, 3);
+    const reasonText = (deepMetaStatus === "partial") ? "expand/diff incomplete due to timeout" : "deep run failed or timed out";
+    const diffFallback = `Diff not available (${deepMetaStatus === "partial" ? "partial" : "incomplete"})\nreason: ${reasonText}\nnext: Re-run Deep\n\nJudgment point changes\n- ${keyChanges[0]}\n- ${keyChanges[1]}\n- ${keyChanges[2]}`;
     const diffBlock = canShowDiff
       ? detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")
       : detailsBlock("Diff not available", diffFallback, 8, "deltaBox", "partial");
+    const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
+      ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(strengthHintFromMissing(deepMetaMissing))}</div>`
+      : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}`)}
+        ${rerunHint}
         ${diffBlock}
         ${debugDetails}
       </div>
@@ -815,13 +831,13 @@
             } else {
               liveDataView = "core";
               liveData = liveDataCore || liveDataDeep;
-              outEl.textContent = `Deep failed: ${deepStatus}\nreason=${fallbackReason}\ntimings=${j.timings ? JSON.stringify(j.timings) : "-"}`;
+              liveHintEl.textContent = `Deep failed (${deepStatus}; fallback=${fallbackReason})`;
             }
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");
             runBarEl.style.width = "100%";
             setTimestamp();
-            if (deepStatus === "ok" || deepStatus === "partial") loadActive();
+            loadActive();
             updateCtrlPanel();
             return;
           }
