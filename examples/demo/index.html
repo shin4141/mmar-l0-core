@@ -187,6 +187,9 @@
   let mode = "static";
   let runMode = "quick";
   let liveData = null;
+  let liveDataCore = null;
+  let liveDataDeep = null;
+  let liveDataView = "core";
   let liveReady = false;
   let currentJobId = "";
   let stopRequested = false;
@@ -326,14 +329,15 @@
   }
 
   function updateCtrlPanel(){
+    const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
     const thinkTxt = (liveThinkTimeEl.textContent || "").trim() || "Think time: -";
     ctrlThinkTimeEl.textContent = thinkTxt;
     ctrlLiveStatusEl.textContent = `Live: ${liveStatus}`;
-    const afterLike = `${(liveData && liveData.expand) || ""}\n${(liveData && liveData.compare) || ""}`;
+    const afterLike = `${(viewData && viewData.expand) || ""}\n${(viewData && viewData.compare) || ""}`;
     const llm = afterLike.includes("タイムアウト") ? "lite" : (afterLike.trim() ? "full" : "unknown");
     ctrlLlmStatusEl.textContent = `LLM: ${llm}`;
     let outcome = "Unknown";
-    const txt = `${(liveData && liveData.diff) || ""}\n${(liveData && liveData.compare) || ""}`;
+    const txt = `${(viewData && viewData.diff) || ""}\n${(viewData && viewData.compare) || ""}`;
     if (/reinforced|強化/i.test(txt)) outcome = "Reinforced";
     if (/flipped|逆転/i.test(txt)) outcome = "Flipped";
     ctrlOutcomeEl.textContent = `Outcome: ${outcome}`;
@@ -377,6 +381,7 @@
       liveHintEl.textContent = "Live ready";
       renderMode();
       setRunVisual("ready", "2.8s");
+      loadActive();
     } catch (e) {
       liveReady = false;
       liveStatus = "error";
@@ -456,18 +461,43 @@
       return;
     }
 
-    const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveData;
+    const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
+    const viewToggle = (mode === "live" && !!liveDataCore)
+      ? `<span style="display:inline-flex; gap:4px; margin-right:6px;">
+          <button id="after-view-core" ${liveDataView === "core" ? "disabled" : ""} style="padding:2px 8px;">Core</button>
+          <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
+        </span>`
+      : "";
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || deepLocked) ? "disabled" : ""} title="${deepLocked ? "Fill template to unlock Deep" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", deepAction)}
+        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}`)}
         ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
       </div>
     `;
+    const coreViewBtn = document.getElementById("after-view-core");
+    if (coreViewBtn) {
+      coreViewBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        liveDataView = "core";
+        await loadActive();
+      };
+    }
+    const deepViewBtn = document.getElementById("after-view-deep");
+    if (deepViewBtn) {
+      deepViewBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!liveDataDeep) return;
+        liveDataView = "deep";
+        await loadActive();
+      };
+    }
     const deepBtn = document.getElementById("after-deep-btn");
     if (deepBtn) {
       deepBtn.onclick = async (e) => {
@@ -492,7 +522,7 @@
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     const submittedInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
     const isDeep = (apiMode === "think" || apiMode === "deep");
-    const keepCurrentView = isDeep && !!liveData;
+    const keepCurrentView = isDeep && !!(liveDataCore || liveDataDeep || liveData);
     if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
     if (isDeep && !canThink()) {
@@ -500,7 +530,8 @@
       return;
     }
     if (isDeep) {
-      prevLiveData = liveData ? { ...liveData } : null;
+      const v = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
+      prevLiveData = v ? { ...v } : null;
       deepRunning = true;
       deepDone = false;
     }
@@ -560,6 +591,9 @@
           throw new Error("invalid core response shape");
         }
         liveData = coreData;
+        liveDataCore = coreData;
+        liveDataDeep = null;
+        liveDataView = "core";
         lastSubmittedInput = submittedInput;
         setTimestamp();
         loadActive();
@@ -616,7 +650,8 @@
           const j = await jr.json();
           if (j.status === "running") {
             if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
-              liveData = { expand: j.expand };
+              liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
+              liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
               liveResultBadgeEl.textContent = "Draft";
               liveResultBadgeEl.style.display = "inline-block";
               loadActive();
@@ -635,7 +670,8 @@
           }
           if (j.status === "slow") {
             if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
-              liveData = { expand: j.expand };
+              liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
+              liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
               liveResultBadgeEl.textContent = "Draft";
               liveResultBadgeEl.style.display = "inline-block";
               loadActive();
@@ -666,7 +702,8 @@
             return;
           }
           if (j.status === "done") {
-            liveData = j;
+            liveDataDeep = j;
+            liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
             currentJobId = "";
             updateStopButton();
             deepRunning = false;
@@ -712,7 +749,8 @@
       }
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
       if (!ok) throw new Error("invalid response shape");
-      liveData = data;
+      liveDataDeep = data;
+      liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
       liveHintEl.textContent = "Live ready";
       liveStatus = "ready";
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
@@ -738,11 +776,12 @@
     const spec = TAB_SPEC.find(x => x.key === active);
     outEl.textContent = "Loading…";
     if (mode === "live"){
-      if (!liveData){
+      const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
+      if (!viewData){
         outEl.textContent = liveReady ? "Live mode: press Run" : "Live not ready";
         return;
       }
-      const txt = (liveData[active] && liveData[active].trim()) ? liveData[active] : (liveData.expand || "");
+      const txt = (viewData[active] && viewData[active].trim()) ? viewData[active] : (viewData.expand || "");
       if (active === "compare") {
         renderCompare(txt);
       } else {
