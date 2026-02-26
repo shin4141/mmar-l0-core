@@ -190,84 +190,33 @@ def _classify_outcome(q_type: str, q: str, weights: dict, dominant_axis: str):
 
 def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->str:
     q_type = _detect_q_type(q)
-    outcome, delta, abs_delta = _classify_outcome(q_type, q, weights, dominant_axis)
-    qs = [
-        "1) 期限はいつか（Time）",
-        "2) 予算上限はいくらか（Money）",
-        "3) 成功KPIは何か（Growth）",
-    ]
-    if q_type == "TYPE_ESTIMATE":
-        claim_pct = _extract_claim_percent(q)
-        claim_txt = f"{claim_pct}%" if claim_pct is not None else "未指定"
-        evidence_grade = _estimate_evidence_grade(q)
-        call = "Low" if evidence_grade == "E0" else ("Med" if evidence_grade == "E1" else "High")
-        if evidence_grade == "E0" and call in ("Med", "High"):
-            call = "Low"
-        direction_change = (outcome == "Flip")
-        if direction_change:
-            update = "Flip"
-        elif evidence_grade in ("E1", "E2"):
-            update = "Major_Update"
+    call = "HOLD"
+    if q_type == "TYPE_AB":
+        if re.search(r"\bA\b", q, re.IGNORECASE) and re.search(r"\bB\b", q, re.IGNORECASE):
+            call = "A"
         else:
-            update = "Reinforced"
-        return (
-            f"CALL: {call}\n"
-            f"UPDATE: {update}\n\n"
-            "CLAIM:\n"
-            f"- ユーザー主張確率: {claim_txt}\n\n"
-            "WHY:\n"
-            "- 既定レンジは保守側（Low）を基準にするため。\n"
-            "- ユーザー%は主張値であり、事後確率を直接決めないため。\n"
-            f"- 現在の証拠グレードは {evidence_grade} で、上方更新条件を満たしていないため。\n\n"
-            "EVIDENCE_GAP:\n"
-            "- 第三者検証済みの公開データが追加される\n"
-            "- 反証不能な物理証拠が提示される\n\n"
-            f"OUTCOME: {outcome}\n\n"
-            "NEXT_3:\n"
-            "1) 予測対象の期間はいつまでか？\n"
-            "2) 参照できる過去データはあるか？\n"
-            "3) 成否判定の基準値は何か？\n"
-            "\nNEXT_ACTION:\n"
-            "- CALLを変更する証拠条件（第三者検証済み公開データの閾値）を1行で定義する。\n"
-        )
-    if q_type == "TYPE_HOWTO":
-        return (
-            "TENTATIVE_CALL:\n"
-            "- まず小さく試す3ステップ計画で進めるのが妥当です (lite)。\n\n"
-            "PLAN_3:\n"
-            "- Step1: 目的と成功条件を1枚に固定する。\n"
-            "- Step2: 最小実験を実行して結果を記録する。\n"
-            "- Step3: 結果に基づき次の打ち手を1つに絞る。\n\n"
-            "PITFALLS_3:\n"
-            "- 目的未定義のまま作業し、評価不能になる。\n"
-            "- 一度に広げすぎて検証不能になる。\n"
-            "- 記録を残さず再現できなくなる。\n\n"
-            f"OUTCOME: {outcome}\n\n"
-            "NEXT_3:\n"
-            "1) 成功条件は何か？\n"
-            "2) 最小実験の期間は？\n"
-            "3) 失敗時の撤退ラインは？\n"
-        )
+            call = "HOLD"
+    elif q_type == "TYPE_ESTIMATE":
+        eg = _estimate_evidence_grade(q)
+        call = "Very Low" if eg == "E0" else ("Low" if eg == "E1" else "HOLD")
     return (
-        "TENTATIVE_CALL:\n"
-        "- LLMタイムアウト時の暫定判断として、比較可能なAfter-liteを採用する (lite)。\n\n"
-        "DOMINANT_AXIS:\n"
-        f"- {dominant_axis}（Time={weights.get('Time','Med')}, Money={weights.get('Money','Med')}, Growth={weights.get('Growth','Med')}）\n"
-        + ("".join([f"{a}\n" for a in assumptions]) if assumptions else "")
-        + "\nFLIP_THRESHOLD:\n"
-        + "\n".join((flip_threshold or [])[:2]) + "\n\n"
-        + f"OUTCOME: {outcome}\n\n"
-        + "NEXT_3:\n"
-        + "\n".join(qs[:3]) + "\n"
+        f"CALL: {call}\n"
+        "WHY: 検証可能データの有無を優先し、現時点の主張は未検証扱い\n"
+        "WHY: 判定基準（期限・予算・成功条件）が未固定で比較不能な要素が残る\n"
+        "WHY: 反証条件が未定義のため、断定より保留/低確度が再現性高い\n"
+        "COUNTER: 取得データの選び方が偏ると逆結論でも同様に説明できる\n"
+        "COUNTER: 期間と母数が不足すると短期ノイズを傾向と誤認する\n"
+        "FLIP: 第三者検証データで主要仮説が再現されれば判定を引き上げる\n"
+        "FLIP: 反証データが閾値を超えれば判定を反転またはHOLDへ戻す\n"
+        "NEXT: 判定期間を数値で固定できるか（例: 90日）はい/いいえ\n"
+        "NEXT: 判定に使う公開データ源を2つ以上指定できるか（件数）\n"
+        "NEXT: 判定を変える閾値を1つ定義できるか（%または件数）\n"
     )
 
 
 def meaningful_after_fallback(q: str, note: str = "") -> str:
     weights, assumptions, dominant_axis, flip_threshold = _lite_params_from_q(q)
-    body = build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)
-    if note:
-        body = body.rstrip() + f"\n({note})\n"
-    return body
+    return build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)
 
 
 def build_diff_lite(before: str, after: str, max_lines: int = 30) -> str:
@@ -324,6 +273,8 @@ def build_seed_after_core(before_text: str) -> str:
 
 def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     t = (text or "").strip()
+    if lite:
+        return (t + "\n") if t else ""
     add = []
     if "COUNTER-2:" not in t:
         add.append(
@@ -344,16 +295,6 @@ def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
             "- 反証条件を先に定義し、判断の更新点を明確化\n"
             "- 次の取得データを限定し、再実行の質を改善"
         )
-    if lite:
-        if "OUTCOME: NO_GAIN (lite)" not in t:
-            add.append("OUTCOME: NO_GAIN (lite)")
-        if "NEXT_3:" not in t:
-            add.append(
-                "NEXT_3:\n"
-                "1) 判定を左右する証拠を1つに絞る\n"
-                "2) その証拠の取得元と期限を決める\n"
-                "3) 反証時の分岐条件を明文化する"
-            )
     if add:
         t = (t + "\n\n" + "\n\n".join(add)).strip()
     return t + "\n"
