@@ -101,7 +101,7 @@
       </div>
       <p class="muted" style="margin:10px 0 6px;">Input (static demo). Output files are loaded from this folder.</p>
       <textarea id="q" placeholder="Question (for display only)"></textarea>
-      <div class="row" style="margin-top:10px;">
+      <div class="row" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <button id="mode-static" class="active" style="display:none;">Static</button>
         <button id="mode-live" style="display:none;">Live</button>
         <button id="run-fast" class="active" title="Insert template">Template</button>
@@ -456,7 +456,7 @@
       return;
     }
 
-    const deepReady = !!(lastSubmittedInput && (before || "").trim());
+    const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveData;
     const deepLocked = (mode === "live") && !canThink();
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || deepLocked) ? "disabled" : ""} title="${deepLocked ? "Fill template to unlock Deep" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
@@ -482,7 +482,7 @@
           liveHintEl.textContent = "No submitted input";
           return;
         }
-        await runLive("think", lastSubmittedInput);
+        await runLive("deep", lastSubmittedInput);
       };
     }
   }
@@ -491,14 +491,15 @@
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     const submittedInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
-    const keepCurrentView = (apiMode === "think" || apiMode === "deep") && !!liveData;
+    const isDeep = (apiMode === "think" || apiMode === "deep");
+    const keepCurrentView = isDeep && !!liveData;
     if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
-    if ((apiMode === "think" || apiMode === "deep") && !canThink()) {
+    if (isDeep && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
       return;
     }
-    if (apiMode === "think" || apiMode === "deep") {
+    if (isDeep) {
       prevLiveData = liveData ? { ...liveData } : null;
       deepRunning = true;
       deepDone = false;
@@ -510,56 +511,53 @@
       updateCtrlPanel();
       return;
     }
-    const runSpeed = ((apiMode === "think") || (apiMode === "deep")) ? "1.2s" : "2.8s";
+    const runSpeed = isDeep ? "1.2s" : "2.8s";
     runLiveEl.disabled = true;
     stopRequested = false;
     currentJobId = "";
     updateStopButton();
     if (!keepCurrentView) liveResultBadgeEl.style.display = "none";
-    liveHintEl.textContent = ((apiMode === "think") || (apiMode === "deep")) ? "Thinking..." : "Running...";
-    if ((apiMode === "think") || (apiMode === "deep")) liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
-    liveStatus = ((apiMode === "think") || (apiMode === "deep")) ? "running" : "ready";
+    liveHintEl.textContent = isDeep ? "Thinking..." : "Running...";
+    if (isDeep) liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
+    liveStatus = isDeep ? "running" : "ready";
     if (!keepCurrentView) outEl.textContent = "Running...";
-    else liveHintEl.textContent = "(Deep running...)";
+    else if (isDeep && deepRunning) liveHintEl.textContent = "(Deep running...)";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
     if (keepCurrentView) loadActive();
     try {
-      const wSeed = withTimeout(12000);
-      const rSeed = await fetch(`${apiBase}/api/triad?mode=seed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: submittedInput }),
-        signal: wSeed.signal,
-      });
-      if (!rSeed.ok) {
-        const body = await rSeed.text();
-        const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
-        liveHintEl.textContent = `Live error: HTTP ${rSeed.status}`;
-        liveStatus = "error";
-        outEl.textContent = `Live error: HTTP ${rSeed.status}\n\n${short}`;
-        setRunVisual("error", "2.8s");
-        updateCtrlPanel();
-        wSeed.done();
-        return;
-      }
-      const seedData = await rSeed.json();
-      const seedOk = seedData && ["compare", "expand", "diff", "merge"].every(k => typeof seedData[k] === "string");
-      if (!seedOk) {
-        wSeed.done();
-        throw new Error("invalid seed response shape");
-      }
-      if (!keepCurrentView) {
-        liveData = seedData;
-        if (runMode === "quick") setLeftPromptIfAllowed(buildQuickTemplate(submittedInput), "template");
+      if (!isDeep) {
+        const wCore = withTimeout(12000);
+        const rCore = await fetch(`${apiBase}/api/triad?mode=core`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: submittedInput }),
+          signal: wCore.signal,
+        });
+        if (!rCore.ok) {
+          const body = await rCore.text();
+          const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
+          liveHintEl.textContent = `Live error: HTTP ${rCore.status}`;
+          liveStatus = "error";
+          outEl.textContent = `Live error: HTTP ${rCore.status}\n\n${short}`;
+          setRunVisual("error", "2.8s");
+          updateCtrlPanel();
+          wCore.done();
+          return;
+        }
+        const coreData = await rCore.json();
+        const okCore = coreData && ["compare", "expand", "diff", "merge"].every(k => typeof coreData[k] === "string");
+        if (!okCore) {
+          wCore.done();
+          throw new Error("invalid core response shape");
+        }
+        liveData = coreData;
         setTimestamp();
         loadActive();
-      }
-      wSeed.done();
-      if (apiMode === "quick" || apiMode === "core") {
+        wCore.done();
         liveHintEl.textContent = "Live ready";
         liveStatus = "ready";
-        liveResultBadgeEl.textContent = "Quick";
+        liveResultBadgeEl.textContent = "Core";
         liveResultBadgeEl.style.display = "inline-block";
         liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
         setRunVisual("ready", "2.8s");
@@ -698,10 +696,6 @@
         liveStatus = "error";
         deepRunning = false;
         outEl.textContent = `Live error\n\n${short}`;
-        if (apiMode === "quick" || apiMode === "core") {
-          liveResultBadgeEl.textContent = "Quick draft";
-          liveResultBadgeEl.style.display = "inline-block";
-        }
         setRunVisual("error", "2.8s");
         updateCtrlPanel();
         return;
@@ -711,11 +705,6 @@
       liveData = data;
       liveHintEl.textContent = "Live ready";
       liveStatus = "ready";
-      if (apiMode === "quick" || apiMode === "core") {
-        liveResultBadgeEl.textContent = "Quick";
-        liveResultBadgeEl.style.display = "inline-block";
-        setLeftPromptIfAllowed(buildQuickTemplate(submittedInput), "template");
-      }
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
       setTimestamp();
@@ -771,7 +760,6 @@
     runMode = "quick";
     if (mode === "live") setLeftPromptIfAllowed(buildQuickTemplate(qEl.value || lastSubmittedInput || ""), "template");
     renderMode();
-    if (mode === "live") runLive("quick", qEl.value || "");
   };
   runFullEl.onclick = () => {
     if (mode === "live" && !canThink()) {
@@ -806,7 +794,7 @@
     if (ctrlPanelEl.contains(e.target) || ctrlGearEl.contains(e.target)) return;
     ctrlPanelEl.classList.remove("open");
   });
-  runLiveEl.onclick = () => runLive();
+  runLiveEl.onclick = () => runLive("core");
   document.getElementById("reload").onclick = loadActive;
   mode = "live";
   renderMode();
