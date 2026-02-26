@@ -23,24 +23,27 @@ DEEP_META = INCOMING / "deep_meta.json"
 def log(msg: str) -> None:
     print(msg, flush=True)
 
-def call_openai(prompt: str, timeout_s: int = 20, question: str = "") -> str:
+def call_openai(prompt: str, timeout_s: int | None = None, question: str = "", max_attempts: int | None = None) -> str:
     """Hard rule: never hang.
     - try up to 2 attempts with short timeout
     - if still failing, return a dummy and continue
     """
-    env_timeout = os.getenv("MMAR_LLM_TIMEOUT", "").strip()
-    if env_timeout:
-        try:
-            timeout_s = max(1, int(env_timeout))
-        except Exception:
-            pass
-    max_attempts = 2
-    env_retries = os.getenv("MMAR_OPENAI_RETRIES", "").strip()
-    if env_retries:
-        try:
-            max_attempts = max(1, int(env_retries))
-        except Exception:
-            pass
+    if timeout_s is None:
+        timeout_s = 20
+        env_timeout = os.getenv("MMAR_LLM_TIMEOUT", "").strip()
+        if env_timeout:
+            try:
+                timeout_s = max(1, int(env_timeout))
+            except Exception:
+                pass
+    if max_attempts is None:
+        max_attempts = 2
+        env_retries = os.getenv("MMAR_OPENAI_RETRIES", "").strip()
+        if env_retries:
+            try:
+                max_attempts = max(1, int(env_retries))
+            except Exception:
+                pass
     last_err = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -52,7 +55,7 @@ def call_openai(prompt: str, timeout_s: int = 20, question: str = "") -> str:
             if attempt < max_attempts:
                 time.sleep(0.5)
 
-    log("[warn] OpenAI failed twice -> meaningful fallback (continue)")
+    log("[warn] OpenAI failed -> meaningful fallback (continue)")
     decision = _decision_sections(question) if question else (
         "\nDOMINANT_AXIS:\n"
         "- 暫定: Growth（情報不足のため仮置き）\n\n"
@@ -500,7 +503,9 @@ def main():
     no_llm = os.getenv("MMAR_NO_LLM", "").strip() == "1"
     think_mode = not no_llm
     deep_status = "ok"
-    fallback_reason = ""
+    fallback_reason_primary = ""
+    fallback_reason_secondary: list[str] = []
+    missing_stages: list[str] = []
     timings: dict[str, float] = {}
     budget_s = 85
     env_budget = os.getenv("MMAR_TIME_BUDGET_S", "").strip()
@@ -514,22 +519,63 @@ def main():
     def remaining_s() -> float:
         return max(0.0, float(budget_s) - (time.perf_counter() - started))
 
+    stage_timeout_default = {
+        "seed": 20,
+        "counter_1": 20,
+        "counter_2": 20,
+        "master": 22,
+        "expand": 30,
+        "diff": 30,
+        "guard": 22,
+    }
+
+    deep_retries = 1
+    env_retries = os.getenv("MMAR_OPENAI_RETRIES", "").strip()
+    if env_retries:
+        try:
+            deep_retries = max(1, int(env_retries))
+        except Exception:
+            pass
+
+    def set_primary_reason(reason: str) -> None:
+        nonlocal fallback_reason_primary
+        if not fallback_reason_primary:
+            fallback_reason_primary = reason
+
+    def add_secondary_reason(reason: str) -> None:
+        if reason and reason not in fallback_reason_secondary:
+            fallback_reason_secondary.append(reason)
+
+    def mark_missing(stage: str) -> None:
+        if stage not in missing_stages:
+            missing_stages.append(stage)
+
     def timed_call(stage: str, prompt: str) -> str:
-        nonlocal deep_status, fallback_reason
-        if think_mode and remaining_s() < 15.0:
+        nonlocal deep_status
+        if think_mode and remaining_s() < 12.0:
             if deep_status == "ok":
-                deep_status = "timeout"
-            if not fallback_reason:
-                fallback_reason = f"budget_exhausted_before_{stage}"
+                deep_status = "partial"
+            set_primary_reason("budget_exhausted")
+            add_secondary_reason(f"budget_exhausted_before_{stage}")
+            mark_missing(stage)
             timings[stage] = 0.0
             return ""
+        default_s = int(stage_timeout_default.get(stage, 20))
+        timeout_s = max(8, min(default_s, int(max(8.0, remaining_s() - 6.0))))
         t0 = time.perf_counter()
-        out = call_openai(prompt, question=q)
+        out = call_openai(prompt, timeout_s=timeout_s, question=q, max_attempts=deep_retries)
         timings[stage] = round(time.perf_counter() - t0, 3)
-        if "(openai_error:" in out and deep_status == "ok":
-            deep_status = "llm_error"
-            if not fallback_reason:
-                fallback_reason = "openai_timeout"
+        if "(openai_error:" in out:
+            if deep_status == "ok":
+                deep_status = "partial"
+            mark_missing(stage)
+            low = out.lower()
+            if "timed out" in low:
+                set_primary_reason("openai_timeout")
+                add_secondary_reason(f"openai_timeout:{stage}")
+            else:
+                set_primary_reason("openai_error")
+                add_secondary_reason(f"openai_error:{stage}")
         return out
 
     log(f"[0/5] tab={tab}")
@@ -709,9 +755,8 @@ def main():
             lite_used = False
             if tab == "expand" and not _is_valid_after_full(out):
                 if deep_status == "ok":
-                    deep_status = "schema_invalid"
-                if not fallback_reason:
-                    fallback_reason = "validator_mismatch"
+                    deep_status = "partial"
+                add_secondary_reason("validator_mismatch")
                 out = meaningful_after_fallback(
                     q,
                     "validator_mismatch",
@@ -757,9 +802,9 @@ def main():
         ).strip()
         Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
         if deep_status == "ok":
-            deep_status = "llm_error"
-        if not fallback_reason:
-            fallback_reason = "openai_timeout"
+            deep_status = "partial"
+        set_primary_reason("openai_timeout")
+        add_secondary_reason("expand_dummy_fallback")
 
     if TAB_FILES.get("diff") and Path(TAB_FILES["diff"]).exists():
         diff_txt = Path(TAB_FILES["diff"]).read_text(encoding="utf-8", errors="replace").strip()
@@ -770,6 +815,21 @@ def main():
     diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
     if not diff_head:
         diff_head = "- LLM timeout -> lite used"
+
+    if think_mode:
+        all_stages = ["seed", "counter_1", "counter_2", "master", "expand", "diff"]
+        if all(s in missing_stages for s in all_stages):
+            if fallback_reason_primary == "openai_timeout":
+                deep_status = "timeout"
+            else:
+                deep_status = "llm_error"
+                if not fallback_reason_primary:
+                    set_primary_reason("openai_error")
+        elif missing_stages and deep_status == "ok":
+            deep_status = "partial"
+        if deep_status == "partial" and "OUTCOME:" in expand_txt and "OUTCOME: Partial_OK" not in expand_txt:
+            expand_txt = expand_txt.rstrip() + "\nOUTCOME: Partial_OK\n"
+            Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
 
     compare = (
         "=== INPUT ===\n"
@@ -782,7 +842,9 @@ def main():
         f"{diff_head}\n\n"
         "=== DEEP META ===\n"
         f"deep_status: {deep_status}\n"
-        f"fallback_reason: {fallback_reason or '-'}\n"
+        f"fallback_reason_primary: {fallback_reason_primary or '-'}\n"
+        f"fallback_reason_secondary: {json.dumps(fallback_reason_secondary, ensure_ascii=False)}\n"
+        f"missing_stages: {json.dumps(missing_stages, ensure_ascii=False)}\n"
         f"timings: {json.dumps(timings, ensure_ascii=False)}\n"
     )
     if think_mode:
@@ -793,7 +855,10 @@ def main():
         json.dumps(
             {
                 "deep_status": deep_status,
-                "fallback_reason": fallback_reason or "",
+                "fallback_reason": fallback_reason_primary or "",
+                "fallback_reason_primary": fallback_reason_primary or "",
+                "fallback_reason_secondary": fallback_reason_secondary,
+                "missing_stages": missing_stages,
                 "timings": timings,
             },
             ensure_ascii=False,

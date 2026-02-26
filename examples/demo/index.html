@@ -483,7 +483,10 @@
     const deepLocked = (mode === "live") && !canThink();
     const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
     const deepMetaStatus = (liveDataDeep && typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "not_run";
-    const deepMetaReason = (liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-";
+    const deepMetaReason = (liveDataDeep && typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
+      ? liveDataDeep.fallback_reason_primary
+      : ((liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-");
+    const deepMetaMissing = (liveDataDeep && Array.isArray(liveDataDeep.missing_stages) && liveDataDeep.missing_stages.length) ? liveDataDeep.missing_stages.join(",") : "-";
     const deepTimings = (liveDataDeep && liveDataDeep.timings && typeof liveDataDeep.timings === "object") ? JSON.stringify(liveDataDeep.timings) : "-";
     const afterWithSource = (mode === "live") ? `[SRC=${viewSource}]\n${after}` : after;
     const viewToggle = (mode === "live" && !!liveDataCore)
@@ -495,7 +498,7 @@
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || deepLocked || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (deepLocked ? "Fill template to unlock Deep" : "")}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
-    const afterTitle = `After (MMAR) [view_source=${viewSource}] [deep_status=${deepMetaStatus}] [fallback=${deepMetaReason}] [timings=${deepTimings}]`;
+    const afterTitle = `After (MMAR) [view_source=${viewSource}] [deep_status=${deepMetaStatus}] [fallback=${deepMetaReason}] [missing=${deepMetaMissing}] [timings=${deepTimings}]`;
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
@@ -753,18 +756,21 @@
             liveStatus = "ready";
             const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
             const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
-            const noGain = (deepKind === "lite") && ((j.expand || "").indexOf("Δ_GAIN:") < 0 || (j.expand || "").indexOf("OUTCOME: NO_GAIN (lite)") >= 0);
+            const noGain = ((typeof j.deep_status === "string" ? j.deep_status : "") === "timeout");
             const deepStatus = (typeof j.deep_status === "string" && j.deep_status) ? j.deep_status : "ok";
-            const fallbackReason = (typeof j.fallback_reason === "string" && j.fallback_reason) ? j.fallback_reason : "-";
-            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}${noGain ? " NO_GAIN" : ""} [${deepStatus}]`;
+            const fallbackReason = (typeof j.fallback_reason_primary === "string" && j.fallback_reason_primary)
+              ? j.fallback_reason_primary
+              : ((typeof j.fallback_reason === "string" && j.fallback_reason) ? j.fallback_reason : "-");
+            const missing = (Array.isArray(j.missing_stages) && j.missing_stages.length) ? ` missing=${j.missing_stages.join(",")}` : "";
+            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}${noGain ? " NO_GAIN" : ""} [${deepStatus}]${missing}`;
             liveResultBadgeEl.style.display = "inline-block";
             if (j.timings && typeof j.timings === "object") {
               liveHintEl.textContent = `Live ready (${deepStatus}; fallback=${fallbackReason}; timings=${JSON.stringify(j.timings)})`;
             }
-            if (deepStatus === "ok") {
+            if (deepStatus === "ok" || deepStatus === "partial") {
               liveDataView = "deep";
               liveData = liveDataDeep;
-              liveHintEl.textContent = `Live ready (view=deep${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
+              liveHintEl.textContent = `Live ready (view=deep; status=${deepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
             } else {
               liveDataView = "core";
               liveData = liveDataCore || liveDataDeep;
@@ -774,7 +780,7 @@
             setRunVisual("ready", "2.8s");
             runBarEl.style.width = "100%";
             setTimestamp();
-            if (deepStatus === "ok") loadActive();
+            if (deepStatus === "ok" || deepStatus === "partial") loadActive();
             updateCtrlPanel();
             return;
           }

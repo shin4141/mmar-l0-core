@@ -60,6 +60,7 @@ def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.send_header("Access-Control-Allow-Private-Network", "true")
 
 
 def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
@@ -75,6 +76,10 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["deep_status"] = meta["deep_status"]
                 if isinstance(meta.get("fallback_reason"), str):
                     payload["fallback_reason"] = meta["fallback_reason"]
+                if isinstance(meta.get("fallback_reason_secondary"), list):
+                    payload["fallback_reason_secondary"] = meta["fallback_reason_secondary"]
+                if isinstance(meta.get("missing_stages"), list):
+                    payload["missing_stages"] = meta["missing_stages"]
                 if isinstance(meta.get("timings"), dict):
                     payload["timings"] = meta["timings"]
         except Exception:
@@ -189,7 +194,7 @@ def _start_full_job(user_input: str) -> str:
             proc = _run_ask_triad(
                 user_input,
                 timeout_s=MAX_THINK_SECONDS,
-                env_extra={"MMAR_LLM_TIMEOUT": "10", "MMAR_OPENAI_RETRIES": "1", "MMAR_TIME_BUDGET_S": "85"},
+                env_extra={"MMAR_LLM_TIMEOUT": "30", "MMAR_OPENAI_RETRIES": "1", "MMAR_TIME_BUDGET_S": "85"},
             )
             if proc.returncode != 0:
                 err = (proc.stderr or "")
