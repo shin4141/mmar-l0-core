@@ -343,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
             proc = _run_ask_triad(
                 user_input,
                 timeout_s=12,
-                env_extra={"MMAR_CORE_ONLY": "1", "MMAR_LLM_TIMEOUT": "6"},
+                env_extra={"MMAR_CORE_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "6"},
             )
             if proc.returncode != 0:
                 err = proc.stderr or ""
