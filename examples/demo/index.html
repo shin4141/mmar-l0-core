@@ -504,7 +504,7 @@
       deepRunning = true;
       deepDone = false;
     }
-    if (!liveReady) {
+    if (!liveReady && isDeep) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
       setRunVisual("error", "2.8s");
@@ -527,6 +527,14 @@
     if (keepCurrentView) loadActive();
     try {
       if (!isDeep) {
+        if (!apiBase) {
+          liveHintEl.textContent = "RUN: core error";
+          liveStatus = "error";
+          outEl.textContent = "Live error: API base is empty";
+          setRunVisual("error", "2.8s");
+          updateCtrlPanel();
+          return;
+        }
         const wCore = withTimeout(12000);
         const rCore = await fetch(`${apiBase}/api/triad?mode=core`, {
           method: "POST",
@@ -537,7 +545,7 @@
         if (!rCore.ok) {
           const body = await rCore.text();
           const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
-          liveHintEl.textContent = `Live error: HTTP ${rCore.status}`;
+          liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = `Live error: HTTP ${rCore.status}\n\n${short}`;
           setRunVisual("error", "2.8s");
@@ -552,15 +560,17 @@
           throw new Error("invalid core response shape");
         }
         liveData = coreData;
+        lastSubmittedInput = submittedInput;
         setTimestamp();
         loadActive();
         wCore.done();
-        liveHintEl.textContent = "Live ready";
+        liveHintEl.textContent = "RUN: core ok";
         liveStatus = "ready";
         liveResultBadgeEl.textContent = "Core";
         liveResultBadgeEl.style.display = "inline-block";
         liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
         setRunVisual("ready", "2.8s");
+        renderMode();
         updateCtrlPanel();
         return;
       }
@@ -714,7 +724,7 @@
       currentJobId = "";
       updateStopButton();
       deepRunning = false;
-      liveHintEl.textContent = `Live error: ${e}`;
+      liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
       liveStatus = "error";
       outEl.textContent = `Live run failed\n\n${e}`;
       setRunVisual("error", "2.8s");
@@ -794,7 +804,10 @@
     if (ctrlPanelEl.contains(e.target) || ctrlGearEl.contains(e.target)) return;
     ctrlPanelEl.classList.remove("open");
   });
-  runLiveEl.onclick = () => runLive("core");
+  runLiveEl.onclick = () => {
+    liveHintEl.textContent = "RUN: core requested";
+    runLive("core");
+  };
   document.getElementById("reload").onclick = loadActive;
   mode = "live";
   renderMode();
