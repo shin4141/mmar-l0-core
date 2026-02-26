@@ -179,10 +179,12 @@ def _start_full_job(user_input: str) -> str:
                 cur = JOBS.get(job_id, {})
                 if isinstance(cur.get("before_snapshot"), str):
                     snapshot = cur.get("before_snapshot", "")
-            if snapshot and isinstance(payload.get("compare"), str):
-                payload["compare"] = _restore_before_section(payload["compare"], snapshot)
-                OUT_FILES["compare"].write_text(payload["compare"], encoding="utf-8")
-                print("[deep] restored BEFORE from snapshot", flush=True)
+            if snapshot:
+                compare_now = _read_text(OUT_FILES["compare"])
+                compare_restored = _restore_before_section(compare_now, snapshot)
+                OUT_FILES["compare"].write_text(compare_restored, encoding="utf-8")
+                payload["compare"] = compare_restored
+                print("[deep] restored BEFORE snapshot", flush=True)
             with JOBS_LOCK:
                 JOBS[job_id] = {
                     "status": "done",
