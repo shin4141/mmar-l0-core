@@ -111,6 +111,7 @@ def _run_ask_triad(user_input: str, timeout_s: int | None, env_extra: dict | Non
         cwd=str(REPO),
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
         timeout=timeout_s,
         env=env,
     )
