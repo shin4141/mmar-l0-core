@@ -519,17 +519,17 @@
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
-    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\nfallback_primary=${deepMetaReason}\nfallback_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nsha=${liveBootSha || "-"}`;
+    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nsha=${liveBootSha || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
-      ? `<details><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
+      ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
-      ? `<span class="pillBadge">${deepMetaStatus === "partial" ? "Deep incomplete" : "Deep failed"}</span>`
+      ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "Deep incomplete" : "Deep failed"}</button>`
       : "";
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
     const keyChanges = extractKeyChanges((liveDataDeep && (liveDataDeep.merge || liveDataDeep.expand)) || after, 3);
-    const diffFallback = `Diff not available (${deepMetaStatus === "partial" ? "partial" : "incomplete"})\nreason: ${deepMetaStatus === "partial" ? "expand/diff incomplete due to timeout" : "deep run did not complete"}\nnext: Use Re-run Deep\n\nKey changes (from master)\n- ${keyChanges[0]}\n- ${keyChanges[1]}\n- ${keyChanges[2]}`;
+    const diffFallback = `Diff not available (${deepMetaStatus === "partial" ? "partial" : "incomplete"})\nreason: ${deepMetaStatus === "partial" ? "expand/diff incomplete due to timeout" : "deep run failed or timed out"}\nnext: Re-run Deep\n\nKey changes (from master)\n- ${keyChanges[0]}\n- ${keyChanges[1]}\n- ${keyChanges[2]}`;
     const diffBlock = canShowDiff
       ? detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")
       : detailsBlock("Diff not available", diffFallback, 8, "deltaBox", "partial");
@@ -537,10 +537,20 @@
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}`)}
-        ${debugDetails}
         ${diffBlock}
+        ${debugDetails}
       </div>
     `;
+    const statusBtn = document.getElementById("deep-status-badge");
+    const debugEl = document.getElementById("deep-debug-details");
+    if (statusBtn && debugEl) {
+      statusBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        debugEl.open = true;
+        debugEl.scrollIntoView({ block: "nearest" });
+      };
+    }
     const coreViewBtn = document.getElementById("after-view-core");
     if (coreViewBtn) {
       coreViewBtn.onclick = async (e) => {
