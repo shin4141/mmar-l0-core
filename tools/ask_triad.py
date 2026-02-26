@@ -228,9 +228,14 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
 
 def _pick_key_line(text: str, keys: tuple[str, ...], default_line: str) -> str:
     t = (text or "")
+    def _noise(s: str) -> bool:
+        low = s.lower()
+        return ("openai_error" in low) or ("タイムアウト" in s) or ("timeout" in low and "fallback" in low)
     for line in t.splitlines():
         s = line.strip()
         if not s:
+            continue
+        if _noise(s):
             continue
         up = s.upper()
         if any(up.startswith(k) for k in keys):
@@ -238,6 +243,8 @@ def _pick_key_line(text: str, keys: tuple[str, ...], default_line: str) -> str:
     for line in t.splitlines():
         s = line.strip()
         if s:
+            if _noise(s):
+                continue
             return s
     return default_line
 
@@ -270,14 +277,51 @@ def meaningful_after_fallback(q: str, note: str = "", partials: dict | None = No
         ("FLIP", "-", "COUNTER"),
         "FLIP: 第三者検証データ追加で判定を更新",
     )
-    note_line = f"WHY: fallback={note}" if note else "WHY: fallback=intermediate_best_effort"
     return (
         f"{strongest if strongest.upper().startswith('CALL:') else 'CALL: HOLD'}\n"
         f"{why if why.upper().startswith('WHY') else 'WHY: ' + why}\n"
-        f"{note_line}\n"
         f"{counter if counter.upper().startswith('COUNTER') else 'COUNTER: ' + counter}\n"
         f"{flip if flip.upper().startswith('FLIP') else 'FLIP: ' + flip}\n"
         f"{next_step if next_step.upper().startswith('NEXT') else 'NEXT: ' + next_step}\n"
+    )
+
+
+def build_after_partial(q: str, seed: str, c1: str, c2: str, master: str) -> str:
+    weights, _, dominant_axis, _ = _lite_params_from_q(q)
+    def _noise_local(s: str) -> bool:
+        low = (s or "").lower()
+        return ("openai_error" in low) or ("タイムアウト" in (s or "")) or ("timeout" in low)
+    def _find_prefixed(text: str, prefixes: tuple[str, ...]) -> str:
+        for raw in (text or "").splitlines():
+            s = raw.strip()
+            if not s or _noise_local(s):
+                continue
+            up = s.upper()
+            if any(up.startswith(p) for p in prefixes):
+                return s
+        return ""
+
+    call = _find_prefixed(master, ("CALL:", "TENTATIVE_CALL:")) or f"CALL: {weights.get('Time', 'Med')}"
+    q_short = " ".join((q or "").split())[:120] or "(no input)"
+    why_1 = f"WHY: 入力問いを基準に暫定判定を維持（{q_short}）"
+    why_2 = f"WHY: 現時点では {dominant_axis} 軸の重みが相対的に高く、他軸の証拠が不足"
+    why_3 = "WHY: expand/diff が未完了のため、反証可能性を残した部分結論として扱う"
+    ctr_1 = _find_prefixed(c1, ("COUNTER:",)) or "COUNTER: サンプル期間と母数が不足すると短期ノイズを優位差と誤認しやすい"
+    ctr_2 = _find_prefixed(c2, ("COUNTER:",)) or "COUNTER: 反対仮説に有利な公開データを含めると結論が逆転し得る"
+    if ctr_1 == ctr_2:
+        ctr_2 = "COUNTER: 判定軸が曖昧なまま比較すると逆結論を許しやすい"
+    flip = _find_prefixed(master, ("FLIP:",)) or f"FLIP: 第三者検証データで {dominant_axis} 軸の優位が崩れた場合に判定を更新"
+    nxt = _find_prefixed(master, ("NEXT:",)) or "NEXT: 取得データ源を2つ固定し、再判定期限（例: 14日）と閾値（%）を明示する"
+    return (
+        f"{call if call.upper().startswith('CALL:') else 'CALL: HOLD'}\n"
+        f"{why_1}\n"
+        f"{why_2}\n"
+        f"{why_3}\n"
+        f"{ctr_1}\n"
+        f"{ctr_2}\n"
+        f"{flip}\n"
+        f"{nxt}\n"
+        "OUTCOME: Partial_OK\n"
     )
 
 
@@ -757,11 +801,7 @@ def main():
                 if deep_status == "ok":
                     deep_status = "partial"
                 add_secondary_reason("validator_mismatch")
-                out = meaningful_after_fallback(
-                    q,
-                    "validator_mismatch",
-                    partials={"seed": seed, "counter_1": c1, "counter_2": c2, "master": master, "expand_raw": out},
-                )
+                out = build_after_partial(q, seed, c1, c2, master)
                 lite_used = True
             elif tab == "expand":
                 out = out.rstrip() + "\n(full)\n"
@@ -791,15 +831,18 @@ def main():
     if TAB_FILES.get("expand") and Path(TAB_FILES["expand"]).exists():
         expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
     if _is_pure_dummy(expand_txt):
-        expand_txt = _ensure_deep_after_sections(
-            meaningful_after_fallback(
+        if seed.strip() or c1.strip() or c2.strip() or master.strip():
+            expand_txt = build_after_partial(q, seed, c1, c2, master).strip()
+        else:
+            expand_txt = _ensure_deep_after_sections(
+                meaningful_after_fallback(
+                    q,
+                    "LLM timeout; fallback used",
+                    partials={"seed": seed, "counter_1": c1, "counter_2": c2, "master": master},
+                ),
                 q,
-                "LLM timeout; fallback used",
-                partials={"seed": seed, "counter_1": c1, "counter_2": c2, "master": master},
-            ),
-            q,
-            lite=True,
-        ).strip()
+                lite=True,
+            ).strip()
         Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
         if deep_status == "ok":
             deep_status = "partial"

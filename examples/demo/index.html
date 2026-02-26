@@ -39,8 +39,8 @@
     button{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:8px 12px;
             cursor:pointer; font-weight:700; }
     button.active{ border-color:var(--accent); box-shadow:0 0 0 4px var(--accentSoft); color:#0284C7; }
-    pre{ margin:0; white-space:pre-wrap; word-break:break-word; overflow:visible; flex:1; font-size:13px; line-height:1.45; }
-    .subpre{ margin:0; white-space:pre-wrap; word-break:break-word; overflow:visible; font-size:13px; line-height:1.45; }
+    pre{ margin:0; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; overflow:visible; max-width:100%; flex:1; font-size:13px; line-height:1.45; }
+    .subpre{ margin:0; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; overflow:visible; max-width:100%; font-size:13px; line-height:1.45; }
 
     .counter{ margin-left:auto; font-size:12px; color:var(--muted); font-weight:700; }
     .counter.warn{ color:#c2410c; }
@@ -48,7 +48,7 @@
     details{ border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:#fff; }
     summary{ cursor:pointer; font-weight:800; list-style:none; }
     summary::-webkit-details-marker{ display:none; }
-    .sumRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .sumRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; max-width:100%; }
     .sumLeft{ min-width:0; }
     .pillBadge{
       font-size:11px; font-weight:800; color:#0369A1;
@@ -487,8 +487,11 @@
       ? liveDataDeep.fallback_reason_primary
       : ((liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-");
     const deepMetaMissing = (liveDataDeep && Array.isArray(liveDataDeep.missing_stages) && liveDataDeep.missing_stages.length) ? liveDataDeep.missing_stages.join(",") : "-";
+    const deepMetaSecondary = (liveDataDeep && Array.isArray(liveDataDeep.fallback_reason_secondary) && liveDataDeep.fallback_reason_secondary.length)
+      ? liveDataDeep.fallback_reason_secondary.join(",")
+      : "-";
     const deepTimings = (liveDataDeep && liveDataDeep.timings && typeof liveDataDeep.timings === "object") ? JSON.stringify(liveDataDeep.timings) : "-";
-    const afterWithSource = (mode === "live") ? `[SRC=${viewSource}]\n${after}` : after;
+    const afterWithSource = after;
     const viewToggle = (mode === "live" && !!liveDataCore)
       ? `<span style="display:inline-flex; gap:4px; margin-right:6px;">
           <button id="after-view-core" ${liveDataView === "core" ? "disabled" : ""} style="padding:2px 8px;">Core</button>
@@ -498,11 +501,18 @@
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
-    const afterTitle = `After (MMAR) [view_source=${viewSource}] [deep_status=${deepMetaStatus}] [fallback=${deepMetaReason}] [missing=${deepMetaMissing}] [timings=${deepTimings}]`;
+    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\nfallback_primary=${deepMetaReason}\nfallback_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}`;
+    const debugDetails = (mode === "live")
+      ? `<details><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
+      : "";
+    const statusBadges = (mode === "live")
+      ? `<span class="pillBadge">SRC=${viewSource}</span><span class="pillBadge">status=${deepMetaStatus}</span><span class="pillBadge">fallback=${deepMetaReason}</span>`
+      : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock(afterTitle, afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}`)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}`)}
+        ${debugDetails}
         ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
       </div>
     `;
