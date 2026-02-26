@@ -305,16 +305,20 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
     m_rec = re.search(r"^RECOMMEND:\s*(.+)$", t, re.MULTILINE)
     m_conf = re.search(r"^CONFIDENCE:\s*(.+)$", t, re.MULTILINE)
     m_ds = re.search(r"^ΔSCORE:\s*(.+)$", t, re.MULTILINE)
-    if m_rec:
-        out.append(f"推奨案を明示: {m_rec.group(1).strip()}")
-    if m_conf:
-        out.append(f"確信度を数値化: {m_conf.group(1).strip()}")
+    score_lines = re.findall(r"^\-\s*([^:]+):\s*A=([0-5])\s*B=([0-5])", t, re.MULTILINE)
+    fals = re.search(r"^FALSIFIER:\s*\n\-\s*(.+)$", t, re.MULTILINE)
+    nxt = re.search(r"^NEXT:\s*\n\-\s*(.+)$", t, re.MULTILINE)
+    if m_rec and m_conf:
+        out.append(f"推奨案 {m_rec.group(1).strip()}（確信度 {m_conf.group(1).strip()}）を確定")
+    if score_lines:
+        axis, a, b = score_lines[0]
+        out.append(f"比較軸 {axis.strip()} を採点化（A={a}, B={b}）して判断根拠を数値化")
     if m_ds:
-        out.append(f"判断強化量を可視化: {m_ds.group(1).strip()}")
-    if "FALSIFIER:" in t:
-        out.append("反転条件を定義し、再判定基準を固定")
-    if "NEXT:" in t:
-        out.append("次の1アクションを具体化")
+        out.append(f"Before→After の判断強化量を明示（ΔSCORE {m_ds.group(1).strip()}）")
+    if fals:
+        out.append(f"反転条件を定義: {fals.group(1).strip()}")
+    if nxt:
+        out.append(f"次の一手を固定: {nxt.group(1).strip()}")
     seen = set()
     uniq = []
     for x in out:
@@ -322,8 +326,26 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
             uniq.append(x)
             seen.add(x)
     while len(uniq) < 3:
-        uniq.append("比較軸を固定して判断の再現性を向上")
+        uniq.append("比較軸と閾値を固定し、再判定の再現性を向上")
     return uniq[:5]
+
+
+def _stepa_prompt_v2(q: str) -> str:
+    a, b = _extract_ab_options(q)
+    return (
+        "Produce a decision-first answer in EXACT sections below.\n"
+        "No extra sections. Keep concise and concrete.\n\n"
+        "RECOMMEND: choose one side strictly as A or B and include label text\n"
+        "CONFIDENCE: integer 0-100 with %\n"
+        "ΔSCORE: signed integer -100..+100\n"
+        "AXES:\n- 健康効果\n- 継続性\n- コスト\n"
+        "SCORECARD:\n- 健康効果: A=x B=y\n- 継続性: A=x B=y\n- コスト: A=x B=y\n"
+        "FACTS_3:\n- fact 1 from input\n- fact 2 from input\n- fact 3 from input\n"
+        "FALSIFIER:\n- one concrete condition that flips conclusion\n"
+        "NEXT:\n- one concrete next action with source/deadline/threshold\n\n"
+        f"Input question: {q}\n"
+        f"Options hint: A={a}, B={b}\n"
+    )
 
 
 def _pick_key_line(text: str, keys: tuple[str, ...], default_line: str) -> str:
@@ -466,6 +488,8 @@ def _decision_sections(q: str) -> str:
 
 
 def _append_decision_sections(text: str, q: str) -> str:
+    if "RECOMMEND:" in (text or "") and "SCORECARD:" in (text or ""):
+        return text
     if "DOMINANT_AXIS:" in text and "FLIP_THRESHOLD:" in text:
         return text
     return (text.rstrip() + "\n\n" + _decision_sections(q)).rstrip() + "\n"
@@ -581,6 +605,7 @@ def main():
         return max(0.0, float(budget_s) - (time.perf_counter() - started))
 
     stage_timeout_default = {
+        "stepA": 40,
         "seed": 20,
         "counter_1": 20,
         "counter_2": 20,
@@ -611,7 +636,7 @@ def main():
         if stage not in missing_stages:
             missing_stages.append(stage)
 
-    def timed_call(stage: str, prompt: str) -> str:
+    def timed_call(stage: str, prompt: str, timeout_override: int | None = None) -> str:
         nonlocal deep_status
         if think_mode and remaining_s() < 12.0:
             if deep_status == "ok":
@@ -621,7 +646,7 @@ def main():
             mark_missing(stage)
             timings[stage] = 0.0
             return ""
-        default_s = int(stage_timeout_default.get(stage, 20))
+        default_s = int(timeout_override or stage_timeout_default.get(stage, 20))
         timeout_s = max(8, min(default_s, int(max(8.0, remaining_s() - 6.0))))
         t0 = time.perf_counter()
         out = call_openai(prompt, timeout_s=timeout_s, question=q, max_attempts=deep_retries)
@@ -702,7 +727,7 @@ def main():
         encoding="utf-8",
     )
 
-    # 2) LLM calls for seed/counters/master-merge
+    # 2) StepA (required): build strong After v2 first
     if no_llm:
         log("[2/5] MMAR_NO_LLM=1 -> skip OpenAI and use After-Core")
         seed = normalize_before_seed(q)
@@ -710,40 +735,21 @@ def main():
         c2 = "- Counter: 逆条件が成立するケースを確認"
         master = build_seed_after_core(seed)
     else:
-        log("[2/5] OpenAI seed...")
-        seed = timed_call("seed", f"Answer the question clearly in 6-10 lines.\nQ: {q}")
-        if not seed.strip():
-            seed = normalize_before_seed(q)
-
-        log("[2/5] OpenAI counter-1...")
-        c1 = timed_call("counter_1",
-            "Counter-1: Improve the answer by adding missing assumptions + concrete corrections.\n"
-            "Return: (a) 3 weaknesses (bullets) (b) corrected version (short).\n\n"
-            f"Q: {q}\n\nSEED:\n{seed}"
-        )
-        if not c1.strip():
-            c1 = "- Counter: データ不足で結論の頑健性が低い"
-
-        log("[2/5] OpenAI counter-2...")
-        c2 = timed_call("counter_2",
-            "Counter-2: Provide a different angle than Counter-1.\n"
-            "Return: (a) 2 alternative frames (bullets) (b) 1 failure mode.\n\n"
-            f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}"
-        )
-        if not c2.strip():
-            c2 = "- Counter: 反証条件未固定のため逆結論リスクあり"
-
-        log("[2/5] OpenAI MASTER merge...")
-        master = timed_call("master",
-            master_merge_prompt() + "\n\n" +
-            f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}\n\nCOUNTER-2:\n{c2}"
-        )
-        if not master.strip():
-            master = meaningful_after_fallback(
-                q,
-                note="budget_or_llm_before_master",
-                partials={"seed": seed, "counter_1": c1, "counter_2": c2},
-            )
+        log("[2/5] OpenAI StepA (strong after v2)...")
+        stepa_timeout = int(os.getenv("MMAR_STEPA_TIMEOUT", "40") or "40")
+        stepa = timed_call("stepA", _stepa_prompt_v2(q), timeout_override=stepa_timeout)
+        if _is_valid_after_full(stepa):
+            master = stepa.strip()
+        else:
+            if deep_status == "ok":
+                deep_status = "partial"
+            set_primary_reason("stepA_invalid_or_timeout")
+            add_secondary_reason("stepA_fallback_local_v2")
+            mark_missing("stepA")
+            master = _build_v2_after(q, recommend_side="A", confidence=49, dscore=+10, outcome="Partial_OK", missing=["stepA"])
+        seed = normalize_before_seed(q)
+        c1 = "- Counter: 比較軸を固定しないと結論が揺らぐ"
+        c2 = "- Counter: 反転条件を事前定義しないと再現性が落ちる"
     if think_mode:
         master = _append_decision_sections(master, q)
 
@@ -811,8 +817,20 @@ def main():
             if tab == "diff":
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, build_seed_after_core(normalize_before_seed(q))), encoding="utf-8")
         else:
-            prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
-            out = timed_call("expand", prompt) if tab == "expand" else timed_call(tab, prompt)
+            # StepB is optional: keep StepA(master) as default and enrich only if budget remains.
+            out = master if tab == "expand" else ""
+            do_stepb = remaining_s() >= 18.0
+            if do_stepb:
+                prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
+                out = timed_call("expand", prompt) if tab == "expand" else timed_call(tab, prompt)
+            else:
+                if deep_status == "ok":
+                    deep_status = "partial"
+                add_secondary_reason("stepB_skipped_budget")
+                if tab == "expand":
+                    mark_missing("expand")
+                if tab == "diff":
+                    mark_missing("diff")
             lite_used = False
             if tab == "expand" and not _is_valid_after_full(out):
                 if deep_status == "ok":
@@ -820,7 +838,7 @@ def main():
                 add_secondary_reason("validator_mismatch")
                 out = build_after_partial(q, seed, c1, c2, master)
                 lite_used = True
-            elif tab == "expand":
+            elif tab == "expand" and do_stepb:
                 out = out.rstrip() + "\n(full)\n"
             if tab == "expand":
                 out = _ensure_deep_after_sections(out, q, lite=lite_used)
@@ -829,13 +847,18 @@ def main():
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             # If running EXPAND, also generate DIFF in the background for compare view
             if tab == "expand":
-                diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-                diff_out = timed_call("diff", diff_prompt)
-                if _is_pure_dummy(diff_out):
-                    diff_out = build_diff_lite(seed, out)
-                if think_mode:
-                    diff_out = _append_decision_sections(diff_out, q)
-                TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
+                if remaining_s() >= 14.0:
+                    diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
+                    diff_out = timed_call("diff", diff_prompt)
+                    if _is_pure_dummy(diff_out):
+                        diff_out = build_diff_lite(seed, out)
+                    if think_mode:
+                        diff_out = _append_decision_sections(diff_out, q)
+                    TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
+                else:
+                    mark_missing("diff")
+                    add_secondary_reason("stepB_diff_skipped_budget")
+                    TAB_FILES["diff"].write_text(build_diff_lite(seed, out), encoding="utf-8")
     else:
         out = master
 
