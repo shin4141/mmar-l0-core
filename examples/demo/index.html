@@ -102,15 +102,12 @@
       <p class="muted" style="margin:10px 0 6px;">Input (static demo). Output files are loaded from this folder.</p>
       <textarea id="q" placeholder="Question (for display only)"></textarea>
       <div class="row" style="margin-top:10px;">
-        <button id="mode-static" class="active">Static</button>
-        <button id="mode-live">Live</button>
-        <button id="run-fast" class="active" title="First pass (fast)">Quick</button>
-        <button id="run-full" title="Thinking (deeper, may take longer)">Think</button>
+        <button id="mode-static" class="active" style="display:none;">Static</button>
+        <button id="mode-live" style="display:none;">Live</button>
+        <button id="run-fast" class="active" title="Insert template">Template</button>
+        <button id="run-full" title="Thinking (deeper, may take longer)" style="display:none;">Think</button>
         <button id="run-live" disabled>Run</button>
         <button id="stop-live" title="Stop" style="display:none; padding:8px 10px;">■</button>
-        <span id="quick-quality" class="muted"></span>
-        <span id="quick-gate-hint" class="muted"></span>
-        <button id="quick-skip" title="Skip (soon)" disabled style="padding:4px 8px;">Skip</button>
         <span id="live-result-badge" class="pillBadge" style="display:none;"></span>
         <span id="live-api-base" class="muted"></span>
         <span id="live-last-run" class="muted"></span>
@@ -137,6 +134,9 @@
         <div id="ctrl-live-status">Live: unknown</div>
         <div id="ctrl-llm-status">LLM: unknown</div>
         <div id="ctrl-outcome">Outcome: Unknown</div>
+        <div id="quick-quality">Quality: -</div>
+        <div id="quick-gate-hint"></div>
+        <button id="quick-skip" title="Skip (soon)" disabled style="padding:2px 8px;">Skip</button>
       </div>
       <div class="runVisual" style="margin-top:4px; margin-bottom:8px;"><div id="run-bar" class="runBar state-idle"></div></div>
       <div id="out">Loading…</div>
@@ -193,6 +193,7 @@
   let liveStatus = "unknown";
   let lastApiMode = "";
   let lastSubmittedInput = "";
+  let prevLiveData = null;
   let deepRunning = false;
   let deepDone = false;
   const THINK_UNLOCK_THRESHOLD = 60;
@@ -439,11 +440,11 @@
   }
 
   function renderCompare(txt){
-    const input  = section(txt, "INPUT", "SINGLE \\(seed\\)");
-    let before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
+    const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
+    let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
+    if (!before) before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
     let after  = section(txt, "MMAR EXPAND \\(tab output\\)", "DIFF \\(head\\)");
     let delta  = section(txt, "DIFF \\(head\\)", "$");
-    if (!before) before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
     if (!after) after = section(txt, "AFTER(?:[^\\n]*)", "(?:Δ|DIFF)(?:[^\\n]*)");
     if (!delta) delta = section(txt, "(?:Δ|DIFF)(?:[^\\n]*)", "$");
     if ((lastApiMode === "quick" || lastApiMode === "core") && /\(seed\)|\(dummy\)/.test(before || "")) {
@@ -481,6 +482,7 @@
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     const submittedInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
+    const keepCurrentView = (apiMode === "think" || apiMode === "deep") && !!liveData;
     if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
     if ((apiMode === "think" || apiMode === "deep") && !canThink()) {
@@ -488,6 +490,7 @@
       return;
     }
     if (apiMode === "think" || apiMode === "deep") {
+      prevLiveData = liveData ? { ...liveData } : null;
       deepRunning = true;
       deepDone = false;
     }
@@ -503,13 +506,15 @@
     stopRequested = false;
     currentJobId = "";
     updateStopButton();
-    liveResultBadgeEl.style.display = "none";
+    if (!keepCurrentView) liveResultBadgeEl.style.display = "none";
     liveHintEl.textContent = ((apiMode === "think") || (apiMode === "deep")) ? "Thinking..." : "Running...";
     if ((apiMode === "think") || (apiMode === "deep")) liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
     liveStatus = ((apiMode === "think") || (apiMode === "deep")) ? "running" : "ready";
-    outEl.textContent = "Running...";
+    if (!keepCurrentView) outEl.textContent = "Running...";
+    else liveHintEl.textContent = "(Deep running...)";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
+    if (keepCurrentView) loadActive();
     try {
       const wSeed = withTimeout(12000);
       const rSeed = await fetch(`${apiBase}/api/triad?mode=seed`, {
@@ -535,10 +540,12 @@
         wSeed.done();
         throw new Error("invalid seed response shape");
       }
-      liveData = seedData;
-      if (runMode === "quick") setLeftPromptIfAllowed(buildQuickTemplate(submittedInput), "template");
-      setTimestamp();
-      loadActive();
+      if (!keepCurrentView) {
+        liveData = seedData;
+        if (runMode === "quick") setLeftPromptIfAllowed(buildQuickTemplate(submittedInput), "template");
+        setTimestamp();
+        loadActive();
+      }
       wSeed.done();
       if (apiMode === "quick" || apiMode === "core") {
         liveHintEl.textContent = "Live ready";
@@ -591,7 +598,7 @@
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
           if (j.status === "running") {
-            if (j.stage === "draft" && j.expand && j.expand.trim()) {
+            if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
               liveData = { expand: j.expand };
               liveResultBadgeEl.textContent = "Draft";
               liveResultBadgeEl.style.display = "inline-block";
@@ -610,7 +617,7 @@
             continue;
           }
           if (j.status === "slow") {
-            if (j.stage === "draft" && j.expand && j.expand.trim()) {
+            if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
               liveData = { expand: j.expand };
               liveResultBadgeEl.textContent = "Draft";
               liveResultBadgeEl.style.display = "inline-block";
@@ -754,6 +761,7 @@
     runMode = "quick";
     if (mode === "live") setLeftPromptIfAllowed(buildQuickTemplate(qEl.value || lastSubmittedInput || ""), "template");
     renderMode();
+    if (mode === "live") runLive("quick", qEl.value || "");
   };
   runFullEl.onclick = () => {
     if (mode === "live" && !canThink()) {
@@ -790,8 +798,10 @@
   });
   runLiveEl.onclick = () => runLive();
   document.getElementById("reload").onclick = loadActive;
+  mode = "live";
   renderMode();
   renderTabs();
+  checkLiveHealth();
   loadActive();
 </script>
 </body>
