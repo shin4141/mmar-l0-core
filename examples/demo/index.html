@@ -456,10 +456,15 @@
       return;
     }
 
+    const deepReady = !!(lastSubmittedInput && (before || "").trim());
+    const deepLocked = (mode === "live") && !canThink();
+    const deepAction = deepReady
+      ? `<button id="after-deep-btn" ${(deepRunning || deepLocked) ? "disabled" : ""} title="${deepLocked ? "Fill template to unlock Deep" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
+      : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `<button id="after-deep-btn" ${deepRunning ? "disabled" : ""} style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`)}
+        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", deepAction)}
         ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
       </div>
     `;
@@ -469,6 +474,10 @@
         e.preventDefault();
         e.stopPropagation();
         if (mode !== "live") return;
+        if (deepLocked) {
+          liveHintEl.textContent = "Fill template to unlock Deep";
+          return;
+        }
         if (!lastSubmittedInput) {
           liveHintEl.textContent = "No submitted input";
           return;
@@ -658,7 +667,8 @@
             liveStatus = "ready";
             const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
             const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
-            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}`;
+            const noGain = (deepKind === "lite") && ((j.expand || "").indexOf("Δ_GAIN:") < 0 || (j.expand || "").indexOf("OUTCOME: NO_GAIN (lite)") >= 0);
+            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}${noGain ? " NO_GAIN" : ""}`;
             liveResultBadgeEl.style.display = "inline-block";
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");

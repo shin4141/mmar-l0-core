@@ -322,6 +322,42 @@ def build_seed_after_core(before_text: str) -> str:
         "NEXT-3: 1)判定閾値を1つ定義 2)必要データ源を特定 3)再判定時刻を設定\n"
     )
 
+def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
+    t = (text or "").strip()
+    add = []
+    if "COUNTER-2:" not in t:
+        add.append(
+            "COUNTER-2:\n"
+            "- 反対仮説: 前提が過度に単純化されていないか\n"
+            "- 反対仮説: 代替説明で同じ観測を説明できないか"
+        )
+    if "FLIP-2:" not in t:
+        add.append(
+            "FLIP-2:\n"
+            "- 第三者検証済みデータが追加される\n"
+            "- 主要前提（期限/予算/制約）が反証される"
+        )
+    if "Δ_GAIN:" not in t:
+        add.append(
+            "Δ_GAIN:\n"
+            "- 争点を2軸以上で分解して比較可能性を向上\n"
+            "- 反証条件を先に定義し、判断の更新点を明確化\n"
+            "- 次の取得データを限定し、再実行の質を改善"
+        )
+    if lite:
+        if "OUTCOME: NO_GAIN (lite)" not in t:
+            add.append("OUTCOME: NO_GAIN (lite)")
+        if "NEXT_3:" not in t:
+            add.append(
+                "NEXT_3:\n"
+                "1) 判定を左右する証拠を1つに絞る\n"
+                "2) その証拠の取得元と期限を決める\n"
+                "3) 反証時の分岐条件を明文化する"
+            )
+    if add:
+        t = (t + "\n\n" + "\n\n".join(add)).strip()
+    return t + "\n"
+
 def _is_valid_after_full(text: str, min_lines: int = 10) -> bool:
     t = (text or "").strip()
     if not t or "(dummy)" in t:
@@ -625,6 +661,8 @@ def main():
     if tab in ("expand", "guard", "diff"):
         if no_llm:
             out = build_seed_after_core(normalize_before_seed(q)) if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
+            if tab == "expand":
+                out = _ensure_deep_after_sections(out, q, lite=True)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             if tab == "expand":
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, out), encoding="utf-8")
@@ -633,10 +671,14 @@ def main():
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
             out = call_openai(prompt, question=q)
+            lite_used = False
             if tab == "expand" and not _is_valid_after_full(out):
                 out = meaningful_after_fallback(q, "LLM timeout; lite used")
+                lite_used = True
             elif tab == "expand":
                 out = out.rstrip() + "\n(full)\n"
+            if tab == "expand":
+                out = _ensure_deep_after_sections(out, q, lite=lite_used)
             if think_mode:
                 out = _append_decision_sections(out, q)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
@@ -670,7 +712,11 @@ def main():
     if TAB_FILES.get("expand") and Path(TAB_FILES["expand"]).exists():
         expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
     if _is_pure_dummy(expand_txt):
-        expand_txt = meaningful_after_fallback(q, "LLM timeout; fallback used").strip()
+        expand_txt = _ensure_deep_after_sections(
+            meaningful_after_fallback(q, "LLM timeout; fallback used"),
+            q,
+            lite=True,
+        ).strip()
         Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
 
     if TAB_FILES.get("diff") and Path(TAB_FILES["diff"]).exists():
