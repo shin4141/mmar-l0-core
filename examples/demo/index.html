@@ -199,6 +199,7 @@
   let prevLiveData = null;
   let deepRunning = false;
   let deepDone = false;
+  let deepSessionId = 0;
   const THINK_UNLOCK_THRESHOLD = 60;
 
   function currentLimit(){
@@ -530,11 +531,13 @@
       return;
     }
     if (isDeep) {
+      deepSessionId += 1;
       const v = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       prevLiveData = v ? { ...v } : null;
       deepRunning = true;
       deepDone = false;
     }
+    const myDeepSession = deepSessionId;
     if (!liveReady && isDeep) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
@@ -594,6 +597,12 @@
         liveDataCore = coreData;
         liveDataDeep = null;
         liveDataView = "core";
+        deepSessionId += 1;
+        deepRunning = false;
+        deepDone = false;
+        currentJobId = "";
+        stopRequested = false;
+        updateStopButton();
         lastSubmittedInput = submittedInput;
         setTimestamp();
         loadActive();
@@ -648,6 +657,9 @@
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
+          if (myDeepSession !== deepSessionId) {
+            return;
+          }
           if (j.status === "running") {
             if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
               liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
@@ -689,6 +701,7 @@
             continue;
           }
           if (j.status === "error") {
+            if (myDeepSession !== deepSessionId) return;
             currentJobId = "";
             updateStopButton();
             deepRunning = false;
@@ -702,6 +715,7 @@
             return;
           }
           if (j.status === "done") {
+            if (myDeepSession !== deepSessionId) return;
             liveDataDeep = j;
             liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
             currentJobId = "";
@@ -724,6 +738,7 @@
             return;
           }
           if (j.status === "cancelled") {
+            if (myDeepSession !== deepSessionId) return;
             currentJobId = "";
             updateStopButton();
             deepRunning = false;
@@ -737,6 +752,7 @@
         }
       }
       if (data && data.ok === false) {
+        if (myDeepSession !== deepSessionId) return;
         const detail = JSON.stringify(data);
         const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
@@ -749,6 +765,7 @@
       }
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
       if (!ok) throw new Error("invalid response shape");
+      if (myDeepSession !== deepSessionId) return;
       liveDataDeep = data;
       liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
       liveHintEl.textContent = "Live ready";
@@ -759,6 +776,7 @@
       loadActive();
       updateCtrlPanel();
     } catch (e) {
+      if (isDeep && myDeepSession !== deepSessionId) return;
       currentJobId = "";
       updateStopButton();
       deepRunning = false;
