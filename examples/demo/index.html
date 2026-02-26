@@ -735,8 +735,13 @@
             const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
             const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
             const noGain = (deepKind === "lite") && ((j.expand || "").indexOf("Δ_GAIN:") < 0 || (j.expand || "").indexOf("OUTCOME: NO_GAIN (lite)") >= 0);
-            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}${noGain ? " NO_GAIN" : ""}`;
+            const deepStatus = (typeof j.deep_status === "string" && j.deep_status) ? j.deep_status : "ok";
+            const fallbackReason = (typeof j.fallback_reason === "string" && j.fallback_reason) ? j.fallback_reason : "-";
+            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}${noGain ? " NO_GAIN" : ""} [${deepStatus}]`;
             liveResultBadgeEl.style.display = "inline-block";
+            if (j.timings && typeof j.timings === "object") {
+              liveHintEl.textContent = `Live ready (${deepStatus}; fallback=${fallbackReason}; timings=${JSON.stringify(j.timings)})`;
+            }
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");
             runBarEl.style.width = "100%";

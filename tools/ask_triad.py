@@ -18,6 +18,7 @@ TAB_FILES = {
     "diff":   INCOMING / "out_diff.txt",
     "merge":  INCOMING / "out_merge.txt",
 }
+DEEP_META = INCOMING / "deep_meta.json"
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -33,15 +34,23 @@ def call_openai(prompt: str, timeout_s: int = 20, question: str = "") -> str:
             timeout_s = max(1, int(env_timeout))
         except Exception:
             pass
+    max_attempts = 2
+    env_retries = os.getenv("MMAR_OPENAI_RETRIES", "").strip()
+    if env_retries:
+        try:
+            max_attempts = max(1, int(env_retries))
+        except Exception:
+            pass
     last_err = None
-    for attempt in range(1, 3):
+    for attempt in range(1, max_attempts + 1):
         try:
             from providers.openai_min import responses_create
             return responses_create(prompt, timeout_s=timeout_s)
         except Exception as e:
             last_err = e
-            log(f"[warn] OpenAI attempt {attempt}/2 failed: {e}")
-            time.sleep(0.5)
+            log(f"[warn] OpenAI attempt {attempt}/{max_attempts} failed: {e}")
+            if attempt < max_attempts:
+                time.sleep(0.5)
 
     log("[warn] OpenAI failed twice -> meaningful fallback (continue)")
     decision = _decision_sections(question) if question else (
@@ -214,9 +223,59 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
     )
 
 
-def meaningful_after_fallback(q: str, note: str = "") -> str:
+def _pick_key_line(text: str, keys: tuple[str, ...], default_line: str) -> str:
+    t = (text or "")
+    for line in t.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        up = s.upper()
+        if any(up.startswith(k) for k in keys):
+            return s
+    for line in t.splitlines():
+        s = line.strip()
+        if s:
+            return s
+    return default_line
+
+
+def meaningful_after_fallback(q: str, note: str = "", partials: dict | None = None) -> str:
+    p = partials or {}
     weights, assumptions, dominant_axis, flip_threshold = _lite_params_from_q(q)
-    return build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)
+    strongest = _pick_key_line(
+        p.get("master") or p.get("expand_raw") or "",
+        ("CALL:", "TENTATIVE_CALL:", "WOW_DELIVERABLES:", "NEXT:", "SSOT:"),
+        "CALL: HOLD",
+    )
+    counter = _pick_key_line(
+        p.get("counter_1") or p.get("counter_2") or "",
+        ("COUNTER", "-", "WHY"),
+        "COUNTER: 反証データ不足のため現時点の結論は脆弱",
+    )
+    why = _pick_key_line(
+        p.get("master") or p.get("seed") or "",
+        ("WHY", "SSOT", "-", "CALL"),
+        "WHY: 入力制約が未固定のため断定は避ける",
+    )
+    next_step = _pick_key_line(
+        p.get("master") or "",
+        ("NEXT", "-", "FLIP"),
+        "NEXT: 判定閾値（%または件数）を1つ固定する",
+    )
+    flip = _pick_key_line(
+        p.get("master") or "",
+        ("FLIP", "-", "COUNTER"),
+        "FLIP: 第三者検証データ追加で判定を更新",
+    )
+    note_line = f"WHY: fallback={note}" if note else "WHY: fallback=intermediate_best_effort"
+    return (
+        f"{strongest if strongest.upper().startswith('CALL:') else 'CALL: HOLD'}\n"
+        f"{why if why.upper().startswith('WHY') else 'WHY: ' + why}\n"
+        f"{note_line}\n"
+        f"{counter if counter.upper().startswith('COUNTER') else 'COUNTER: ' + counter}\n"
+        f"{flip if flip.upper().startswith('FLIP') else 'FLIP: ' + flip}\n"
+        f"{next_step if next_step.upper().startswith('NEXT') else 'NEXT: ' + next_step}\n"
+    )
 
 
 def build_diff_lite(before: str, after: str, max_lines: int = 30) -> str:
@@ -289,12 +348,13 @@ def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
         t = (t + "\n\n" + "\n\n".join(add)).strip()
     return t + "\n"
 
-def _is_valid_after_full(text: str, min_lines: int = 10) -> bool:
+def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
     t = (text or "").strip()
     if not t or "(dummy)" in t:
         return False
-    required = ("TENTATIVE_CALL:", "DOMINANT_AXIS:", "FLIP_THRESHOLD:", "NEXT_3:")
-    if not all(h in t for h in required):
+    has_modern = all(k in t for k in ("CALL:", "WHY", "COUNTER", "FLIP", "NEXT"))
+    has_wow = ("WOW_DELIVERABLES" in t and ("Next 3 experiments" in t or "NEXT" in t))
+    if not (has_modern or has_wow):
         return False
     return len(t.splitlines()) >= min_lines
 
@@ -439,6 +499,38 @@ def main():
     seed_only = os.getenv("MMAR_SEED_ONLY", "").strip() == "1" or tab == "seed"
     no_llm = os.getenv("MMAR_NO_LLM", "").strip() == "1"
     think_mode = not no_llm
+    deep_status = "ok"
+    fallback_reason = ""
+    timings: dict[str, float] = {}
+    budget_s = 85
+    env_budget = os.getenv("MMAR_TIME_BUDGET_S", "").strip()
+    if env_budget:
+        try:
+            budget_s = max(20, int(env_budget))
+        except Exception:
+            pass
+    started = time.perf_counter()
+
+    def remaining_s() -> float:
+        return max(0.0, float(budget_s) - (time.perf_counter() - started))
+
+    def timed_call(stage: str, prompt: str) -> str:
+        nonlocal deep_status, fallback_reason
+        if think_mode and remaining_s() < 15.0:
+            if deep_status == "ok":
+                deep_status = "timeout"
+            if not fallback_reason:
+                fallback_reason = f"budget_exhausted_before_{stage}"
+            timings[stage] = 0.0
+            return ""
+        t0 = time.perf_counter()
+        out = call_openai(prompt, question=q)
+        timings[stage] = round(time.perf_counter() - t0, 3)
+        if "(openai_error:" in out and deep_status == "ok":
+            deep_status = "llm_error"
+            if not fallback_reason:
+                fallback_reason = "openai_timeout"
+        return out
 
     log(f"[0/5] tab={tab}")
 
@@ -512,27 +604,39 @@ def main():
         master = build_seed_after_core(seed)
     else:
         log("[2/5] OpenAI seed...")
-        seed = call_openai(f"Answer the question clearly in 6-10 lines.\nQ: {q}", question=q)
+        seed = timed_call("seed", f"Answer the question clearly in 6-10 lines.\nQ: {q}")
+        if not seed.strip():
+            seed = normalize_before_seed(q)
 
         log("[2/5] OpenAI counter-1...")
-        c1 = call_openai(
+        c1 = timed_call("counter_1",
             "Counter-1: Improve the answer by adding missing assumptions + concrete corrections.\n"
             "Return: (a) 3 weaknesses (bullets) (b) corrected version (short).\n\n"
             f"Q: {q}\n\nSEED:\n{seed}"
-        , question=q)
+        )
+        if not c1.strip():
+            c1 = "- Counter: データ不足で結論の頑健性が低い"
 
         log("[2/5] OpenAI counter-2...")
-        c2 = call_openai(
+        c2 = timed_call("counter_2",
             "Counter-2: Provide a different angle than Counter-1.\n"
             "Return: (a) 2 alternative frames (bullets) (b) 1 failure mode.\n\n"
             f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}"
-        , question=q)
+        )
+        if not c2.strip():
+            c2 = "- Counter: 反証条件未固定のため逆結論リスクあり"
 
         log("[2/5] OpenAI MASTER merge...")
-        master = call_openai(
+        master = timed_call("master",
             master_merge_prompt() + "\n\n" +
             f"Q: {q}\n\nSEED:\n{seed}\n\nCOUNTER-1:\n{c1}\n\nCOUNTER-2:\n{c2}"
-        , question=q)
+        )
+        if not master.strip():
+            master = meaningful_after_fallback(
+                q,
+                note="budget_or_llm_before_master",
+                partials={"seed": seed, "counter_1": c1, "counter_2": c2},
+            )
     if think_mode:
         master = _append_decision_sections(master, q)
 
@@ -601,10 +705,18 @@ def main():
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, build_seed_after_core(normalize_before_seed(q))), encoding="utf-8")
         else:
             prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
-            out = call_openai(prompt, question=q)
+            out = timed_call("expand", prompt) if tab == "expand" else timed_call(tab, prompt)
             lite_used = False
             if tab == "expand" and not _is_valid_after_full(out):
-                out = meaningful_after_fallback(q, "LLM timeout; lite used")
+                if deep_status == "ok":
+                    deep_status = "schema_invalid"
+                if not fallback_reason:
+                    fallback_reason = "validator_mismatch"
+                out = meaningful_after_fallback(
+                    q,
+                    "validator_mismatch",
+                    partials={"seed": seed, "counter_1": c1, "counter_2": c2, "master": master, "expand_raw": out},
+                )
                 lite_used = True
             elif tab == "expand":
                 out = out.rstrip() + "\n(full)\n"
@@ -616,16 +728,7 @@ def main():
             # If running EXPAND, also generate DIFF in the background for compare view
             if tab == "expand":
                 diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-                diff_out = call_openai(diff_prompt, question=q)
-                if _is_pure_dummy(diff_out):
-                    diff_out = build_diff_lite(seed, out)
-                if think_mode:
-                    diff_out = _append_decision_sections(diff_out, q)
-                TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
-            # If running EXPAND, also generate DIFF in the background for compare view
-            if tab == "expand":
-                diff_prompt = tab_prompt("diff", q, seed, c1, c2, master, turn_after)
-                diff_out = call_openai(diff_prompt, question=q)
+                diff_out = timed_call("diff", diff_prompt)
                 if _is_pure_dummy(diff_out):
                     diff_out = build_diff_lite(seed, out)
                 if think_mode:
@@ -644,11 +747,19 @@ def main():
         expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
     if _is_pure_dummy(expand_txt):
         expand_txt = _ensure_deep_after_sections(
-            meaningful_after_fallback(q, "LLM timeout; fallback used"),
+            meaningful_after_fallback(
+                q,
+                "LLM timeout; fallback used",
+                partials={"seed": seed, "counter_1": c1, "counter_2": c2, "master": master},
+            ),
             q,
             lite=True,
         ).strip()
         Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
+        if deep_status == "ok":
+            deep_status = "llm_error"
+        if not fallback_reason:
+            fallback_reason = "openai_timeout"
 
     if TAB_FILES.get("diff") and Path(TAB_FILES["diff"]).exists():
         diff_txt = Path(TAB_FILES["diff"]).read_text(encoding="utf-8", errors="replace").strip()
@@ -668,12 +779,28 @@ def main():
         "=== AFTER (MMAR / EXPAND) ===\n"
         f"{expand_txt}\n\n"
         "=== Δ (Diff head) ===\n"
-        f"{diff_head}\n"
+        f"{diff_head}\n\n"
+        "=== DEEP META ===\n"
+        f"deep_status: {deep_status}\n"
+        f"fallback_reason: {fallback_reason or '-'}\n"
+        f"timings: {json.dumps(timings, ensure_ascii=False)}\n"
     )
     if think_mode:
         compare = _append_decision_sections(compare, q)
     Path(TAB_FILES["compare"]).write_text(compare, encoding="utf-8")
     TURNP.write_text(json.dumps(turn_after, ensure_ascii=False, indent=2), encoding="utf-8")
+    DEEP_META.write_text(
+        json.dumps(
+            {
+                "deep_status": deep_status,
+                "fallback_reason": fallback_reason or "",
+                "timings": timings,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     # minimal summary (same as before)
     rec = turn_after.get("recommended_mode_auto") or turn_after.get("recommended_mode") or "triad"

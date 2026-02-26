@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 HOST = "127.0.0.1"
 PORT = 8787
-MAX_THINK_SECONDS = 900
+MAX_THINK_SECONDS = 90
 
 REPO = Path(__file__).resolve().parents[1]
 ASK_TRIAD = REPO / "tools" / "ask_triad.py"
@@ -27,6 +27,7 @@ OUT_FILES = {
     "diff": INCOMING / "out_diff.txt",
     "merge": INCOMING / "out_merge.txt",
 }
+DEEP_META = INCOMING / "deep_meta.json"
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -44,11 +45,24 @@ def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
 
 
-def _collect_outputs() -> tuple[dict, list[str]]:
+def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
     missing = [k for k, p in OUT_FILES.items() if not p.exists()]
     if missing:
         return {}, missing
-    return {k: _read_text(p) for k, p in OUT_FILES.items()}, []
+    payload = {k: _read_text(p) for k, p in OUT_FILES.items()}
+    if with_meta and DEEP_META.exists():
+        try:
+            meta = json.loads(DEEP_META.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(meta, dict):
+                if isinstance(meta.get("deep_status"), str):
+                    payload["deep_status"] = meta["deep_status"]
+                if isinstance(meta.get("fallback_reason"), str):
+                    payload["fallback_reason"] = meta["fallback_reason"]
+                if isinstance(meta.get("timings"), dict):
+                    payload["timings"] = meta["timings"]
+        except Exception:
+            pass
+    return payload, []
 
 def _extract_section(text: str, start_marker: str, end_marker: str) -> str:
     txt = text or ""
@@ -149,7 +163,11 @@ def _start_full_job(user_input: str) -> str:
         monitor_thread = threading.Thread(target=_monitor_expand, daemon=True)
         monitor_thread.start()
         try:
-            proc = _run_ask_triad(user_input, timeout_s=None, env_extra=None)
+            proc = _run_ask_triad(
+                user_input,
+                timeout_s=MAX_THINK_SECONDS,
+                env_extra={"MMAR_LLM_TIMEOUT": "10", "MMAR_OPENAI_RETRIES": "1", "MMAR_TIME_BUDGET_S": "85"},
+            )
             if proc.returncode != 0:
                 err = (proc.stderr or "")
                 if len(err) > 1200:
@@ -162,9 +180,12 @@ def _start_full_job(user_input: str) -> str:
                         "error": "subprocess_failed",
                         "returncode": proc.returncode,
                         "stderr_trunc": err,
+                        "deep_status": "timeout" if "timed out" in err.lower() else "llm_error",
+                        "fallback_reason": "ask_triad_timeout_or_error",
+                        "timings": {},
                     }
                 return
-            payload, missing = _collect_outputs()
+            payload, missing = _collect_outputs(with_meta=True)
             if missing:
                 with JOBS_LOCK:
                     JOBS[job_id] = {
@@ -173,6 +194,9 @@ def _start_full_job(user_input: str) -> str:
                         "started_at": started_at,
                         "error": "missing_outputs",
                         "missing": missing,
+                        "deep_status": "schema_invalid",
+                        "fallback_reason": "missing_outputs",
+                        "timings": {},
                     }
                 return
             snapshot = before_snapshot
@@ -196,9 +220,29 @@ def _start_full_job(user_input: str) -> str:
                     "before_snapshot": snapshot,
                     **payload,
                 }
+        except subprocess.TimeoutExpired:
+            with JOBS_LOCK:
+                JOBS[job_id] = {
+                    "status": "error",
+                    "mode": "think",
+                    "started_at": started_at,
+                    "error": "timeout",
+                    "hint": "ask_triad timeout",
+                    "deep_status": "timeout",
+                    "fallback_reason": "ask_triad_timeout",
+                    "timings": {},
+                }
         except Exception as e:
             with JOBS_LOCK:
-                JOBS[job_id] = {"status": "error", "mode": "think", "started_at": started_at, "error": str(e)}
+                JOBS[job_id] = {
+                    "status": "error",
+                    "mode": "think",
+                    "started_at": started_at,
+                    "error": str(e),
+                    "deep_status": "llm_error",
+                    "fallback_reason": "exception",
+                    "timings": {},
+                }
         finally:
             stop_monitor.set()
 
@@ -255,6 +299,9 @@ class Handler(BaseHTTPRequestHandler):
                 out["status"] = "error"
                 out["error"] = "timeout"
                 out["hint"] = "max think time exceeded"
+                out["deep_status"] = "timeout"
+                out["fallback_reason"] = "max_think_exceeded"
+                out["timings"] = out.get("timings") or {}
                 with JOBS_LOCK:
                     JOBS[job_id] = dict(out)
             if out.get("status") == "running" and elapsed_sec > 20:
