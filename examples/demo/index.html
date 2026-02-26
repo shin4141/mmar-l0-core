@@ -329,6 +329,13 @@
     );
   }
 
+  function extractQuestion(text){
+    const src = String(text || "");
+    if (!/QUICK TEMPLATE/i.test(src)) return src.trim();
+    const q = src.match(/^\s*QUESTION:\s*\n([\s\S]*?)(?=^\s*NEXT:\s*|$)/mi);
+    return q ? String(q[1] || "").trim() : src.trim();
+  }
+
   function updateCtrlPanel(){
     const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
     const thinkTxt = (liveThinkTimeEl.textContent || "").trim() || "Think time: -";
@@ -521,7 +528,8 @@
   async function runLive(forceMode, inputOverride){
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
-    const submittedInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
+    const rawInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
+    const submittedInput = extractQuestion(rawInput);
     const isDeep = (apiMode === "think" || apiMode === "deep");
     const keepCurrentView = isDeep && !!(liveDataCore || liveDataDeep || liveData);
     if (submittedInput) lastSubmittedInput = submittedInput;
