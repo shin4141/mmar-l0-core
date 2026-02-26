@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 HOST = "127.0.0.1"
 PORT = 8787
 MAX_THINK_SECONDS = 90
+BOOT_AT = datetime.now(timezone.utc).isoformat()
 
 REPO = Path(__file__).resolve().parents[1]
 ASK_TRIAD = REPO / "tools" / "ask_triad.py"
@@ -31,6 +32,22 @@ DEEP_META = INCOMING / "deep_meta.json"
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
+
+
+def _git_sha_short() -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(REPO),
+            text=True,
+            timeout=2,
+        )
+        return out.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+GIT_SHA = _git_sha_short()
 
 
 def _read_text(path: Path) -> str:
@@ -62,6 +79,12 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["timings"] = meta["timings"]
         except Exception:
             pass
+    if with_meta:
+        if not isinstance(payload.get("deep_status"), str) or not payload.get("deep_status"):
+            payload["deep_status"] = "schema_invalid"
+            payload["fallback_reason"] = payload.get("fallback_reason") or "missing_deep_meta"
+            payload["timings"] = payload.get("timings") if isinstance(payload.get("timings"), dict) else {}
+            payload["warning"] = "build_or_version_mismatch"
     return payload, []
 
 def _extract_section(text: str, start_marker: str, end_marker: str) -> str:
@@ -216,6 +239,7 @@ def _start_full_job(user_input: str) -> str:
                     "stage": "final",
                     "mode": "think",
                     "llm_mode": _derive_llm_mode(payload),
+                    "after_mode": _derive_llm_mode(payload),
                     "started_at": started_at,
                     "before_snapshot": snapshot,
                     **payload,
@@ -276,6 +300,9 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "time": datetime.now(timezone.utc).isoformat(),
                     "cwd": str(REPO),
+                    "boot_at": BOOT_AT,
+                    "sha": GIT_SHA,
+                    "mmar_core_only": os.getenv("MMAR_CORE_ONLY", "").strip() == "1",
                 },
             )
             return
@@ -425,6 +452,10 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[dev_api] listening on http://{HOST}:{PORT}")
+    print(
+        f"[dev_api] SERVER_BOOT sha={GIT_SHA} boot_at={BOOT_AT} "
+        f"MMAR_CORE_ONLY={os.getenv('MMAR_CORE_ONLY', '').strip() or '0'}"
+    )
     print("[dev_api] POST /api/triad  body: {\"input\": \"...\"}")
     try:
         server.serve_forever()

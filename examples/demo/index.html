@@ -112,6 +112,7 @@
         <span id="live-api-base" class="muted"></span>
         <span id="live-last-run" class="muted"></span>
         <span id="live-think-time" class="muted" style="display:none;"></span>
+        <span id="core-only-badge" class="pillBadge" style="display:none; background:#fee2e2; border-color:#fca5a5; color:#991b1b;">CORE ONLY MODE</span>
         <span id="live-hint" class="muted"></span>
       </div>
       <div class="row" style="margin-top:10px;">
@@ -173,6 +174,7 @@
   const liveApiBaseEl = document.getElementById("live-api-base");
   const liveLastRunEl = document.getElementById("live-last-run");
   const liveThinkTimeEl = document.getElementById("live-think-time");
+  const coreOnlyBadgeEl = document.getElementById("core-only-badge");
   const liveHintEl = document.getElementById("live-hint");
   const runBarEl = document.getElementById("run-bar");
   const ctrlGearEl = document.getElementById("ctrl-gear");
@@ -194,6 +196,9 @@
   let currentJobId = "";
   let stopRequested = false;
   let liveStatus = "unknown";
+  let liveCoreOnly = false;
+  let liveBootSha = "";
+  let liveBootAt = "";
   let lastApiMode = "";
   let lastSubmittedInput = "";
   let prevLiveData = null;
@@ -253,6 +258,7 @@
     if (!apiBase && mode === "live" && !liveHintEl.textContent) {
       liveHintEl.textContent = "Live error: API base is empty";
     }
+    coreOnlyBadgeEl.style.display = (mode === "live" && liveCoreOnly) ? "inline-block" : "none";
   }
 
   function formatThinkTime(sec){
@@ -384,9 +390,13 @@
     try {
       const r = await fetch(`${apiBase}/api/health`, { signal: w.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const health = await r.json();
       liveReady = true;
+      liveCoreOnly = !!(health && health.mmar_core_only);
+      liveBootSha = (health && typeof health.sha === "string") ? health.sha : "";
+      liveBootAt = (health && typeof health.boot_at === "string") ? health.boot_at : "";
       liveStatus = "ready";
-      liveHintEl.textContent = "Live ready";
+      liveHintEl.textContent = `Live ready${liveCoreOnly ? " (CORE ONLY)" : ""}${liveBootSha ? ` [sha:${liveBootSha}]` : ""}`;
       renderMode();
       setRunVisual("ready", "2.8s");
       loadActive();
@@ -471,6 +481,11 @@
 
     const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
+    const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
+    const deepMetaStatus = (liveDataDeep && typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "not_run";
+    const deepMetaReason = (liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-";
+    const deepTimings = (liveDataDeep && liveDataDeep.timings && typeof liveDataDeep.timings === "object") ? JSON.stringify(liveDataDeep.timings) : "-";
+    const afterWithSource = (mode === "live") ? `[SRC=${viewSource}]\n${after}` : after;
     const viewToggle = (mode === "live" && !!liveDataCore)
       ? `<span style="display:inline-flex; gap:4px; margin-right:6px;">
           <button id="after-view-core" ${liveDataView === "core" ? "disabled" : ""} style="padding:2px 8px;">Core</button>
@@ -478,12 +493,13 @@
         </span>`
       : "";
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || deepLocked) ? "disabled" : ""} title="${deepLocked ? "Fill template to unlock Deep" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || deepLocked || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (deepLocked ? "Fill template to unlock Deep" : "")}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
+    const afterTitle = `After (MMAR) [view_source=${viewSource}] [deep_status=${deepMetaStatus}] [fallback=${deepMetaReason}] [timings=${deepTimings}]`;
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", after, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}`)}
+        ${detailsBlock(afterTitle, afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}`)}
         ${detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")}
       </div>
     `;
@@ -536,6 +552,11 @@
     lastApiMode = apiMode;
     if (isDeep && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
+      return;
+    }
+    if (isDeep && liveCoreOnly) {
+      liveHintEl.textContent = "Deep disabled: CORE ONLY MODE";
+      outEl.textContent = "Deep disabled by server setting: MMAR_CORE_ONLY=1";
       return;
     }
     if (isDeep) {
@@ -725,12 +746,10 @@
           if (j.status === "done") {
             if (myDeepSession !== deepSessionId) return;
             liveDataDeep = j;
-            liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
             currentJobId = "";
             updateStopButton();
             deepRunning = false;
             deepDone = true;
-            liveHintEl.textContent = "Live ready";
             liveStatus = "ready";
             const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
             const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
@@ -742,11 +761,20 @@
             if (j.timings && typeof j.timings === "object") {
               liveHintEl.textContent = `Live ready (${deepStatus}; fallback=${fallbackReason}; timings=${JSON.stringify(j.timings)})`;
             }
+            if (deepStatus === "ok") {
+              liveDataView = "deep";
+              liveData = liveDataDeep;
+              liveHintEl.textContent = `Live ready (view=deep${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
+            } else {
+              liveDataView = "core";
+              liveData = liveDataCore || liveDataDeep;
+              outEl.textContent = `Deep failed: ${deepStatus}\nreason=${fallbackReason}\ntimings=${j.timings ? JSON.stringify(j.timings) : "-"}`;
+            }
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");
             runBarEl.style.width = "100%";
             setTimestamp();
-            loadActive();
+            if (deepStatus === "ok") loadActive();
             updateCtrlPanel();
             return;
           }
