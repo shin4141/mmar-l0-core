@@ -449,9 +449,13 @@
     };
   }
 
-  function detailsBlock(title, fullText, previewLines, extraClass="", badgeText="", actionHtml=""){
-    const info = clipLines(fullText, previewLines);
-    const meta = `<span class="small">(${info.total} lines, preview ${info.clippedTo})</span>`;
+  function detailsBlock(title, fullText, previewLines, extraClass="", badgeText="", actionHtml="", fullView=false){
+    const info = fullView
+      ? { preview: (fullText || "(empty)"), total: (String(fullText || "(empty)").replace(/\r\n/g, "\n").split("\n").length), clippedTo: "full" }
+      : clipLines(fullText, previewLines);
+    const meta = fullView
+      ? `<span class="small">(${info.total} lines, full)</span>`
+      : `<span class="small">(${info.total} lines, preview ${info.clippedTo})</span>`;
     const badge = badgeText ? `<span class="pillBadge">${escapeHtml(badgeText)}</span>` : "";
     const action = actionHtml || "";
     return `
@@ -551,7 +555,7 @@
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}`)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}`, true)}
         ${rerunHint}
         ${diffBlock}
         ${debugDetails}

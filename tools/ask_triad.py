@@ -264,7 +264,6 @@ def _facts3_from_q(q: str) -> list[str]:
 def _build_v2_after(
     q: str,
     recommend_side: str,
-    confidence: int,
     dscore: int,
     outcome: str,
     missing: list[str] | None = None,
@@ -277,11 +276,17 @@ def _build_v2_after(
     base_b = {"健康効果": 3, "継続性": 3, "コスト": 2}
     if recommend_side == "B":
         base_a, base_b = base_b, base_a
+    sum_a = sum(base_a.values())
+    sum_b = sum(base_b.values())
+    delta = abs(sum_a - sum_b)
+    is_partial = outcome.lower().startswith("partial")
+    cap = 75 if is_partial else 85
+    confidence = max(50, min(cap, 50 + 8 * delta))
     facts = _facts3_from_q(q)
     miss = ",".join(missing or []) if missing else "-"
     return (
         f"RECOMMEND: {rec} ({recommend_side})\n"
-        f"CONFIDENCE: {max(0, min(100, int(confidence)))}%\n"
+        f"CONFIDENCE: {int(confidence)}%\n"
         f"ΔSCORE: {int(dscore):+d}\n"
         "AXES:\n"
         f"- {axes[0]}\n- {axes[1]}\n- {axes[2]}\n"
@@ -301,33 +306,13 @@ def _build_v2_after(
 
 def _judgment_point_changes_from_after(after: str) -> list[str]:
     t = after or ""
-    out: list[str] = []
-    m_rec = re.search(r"^RECOMMEND:\s*(.+)$", t, re.MULTILINE)
-    m_conf = re.search(r"^CONFIDENCE:\s*(.+)$", t, re.MULTILINE)
-    m_ds = re.search(r"^ΔSCORE:\s*(.+)$", t, re.MULTILINE)
-    score_lines = re.findall(r"^\-\s*([^:]+):\s*A=([0-5])\s*B=([0-5])", t, re.MULTILINE)
-    fals = re.search(r"^FALSIFIER:\s*\n\-\s*(.+)$", t, re.MULTILINE)
-    nxt = re.search(r"^NEXT:\s*\n\-\s*(.+)$", t, re.MULTILINE)
-    if m_rec and m_conf:
-        out.append(f"推奨案 {m_rec.group(1).strip()}（確信度 {m_conf.group(1).strip()}）を確定")
-    if score_lines:
-        axis, a, b = score_lines[0]
-        out.append(f"比較軸 {axis.strip()} を採点化（A={a}, B={b}）して判断根拠を数値化")
-    if m_ds:
-        out.append(f"Before→After の判断強化量を明示（ΔSCORE {m_ds.group(1).strip()}）")
-    if fals:
-        out.append(f"反転条件を定義: {fals.group(1).strip()}")
-    if nxt:
-        out.append(f"次の一手を固定: {nxt.group(1).strip()}")
-    seen = set()
-    uniq = []
-    for x in out:
-        if x not in seen:
-            uniq.append(x)
-            seen.add(x)
-    while len(uniq) < 3:
-        uniq.append("比較軸と閾値を固定し、再判定の再現性を向上")
-    return uniq[:5]
+    has_axes = ("AXES:" in t and "SCORECARD:" in t)
+    has_falsifier = ("FALSIFIER:" in t)
+    has_next = ("NEXT:" in t)
+    c1 = "比較軸を宣言し、A/Bを軸採点で可視化した（健康/継続/コスト）。" if has_axes else "比較軸を固定し、A/B判定の根拠を数値化した。"
+    c2 = "反転条件（FALSIFIER）を定義し、結論が変わる条件を明確化した。" if has_falsifier else "反転条件を定義し、再判定トリガーを明確化した。"
+    c3 = "次の一手（NEXT）を“取得データ/期限/閾値”で固定した。" if has_next else "次の一手を具体化し、追加データ収集の方向を固定した。"
+    return [c1, c2, c3]
 
 
 def _stepa_prompt_v2(q: str) -> str:
@@ -372,11 +357,11 @@ def _pick_key_line(text: str, keys: tuple[str, ...], default_line: str) -> str:
 
 
 def meaningful_after_fallback(q: str, note: str = "", partials: dict | None = None) -> str:
-    return _build_v2_after(q, recommend_side="A", confidence=38, dscore=+6, outcome="Fallback")
+    return _build_v2_after(q, recommend_side="A", dscore=+6, outcome="Fallback")
 
 
 def build_after_partial(q: str, seed: str, c1: str, c2: str, master: str) -> str:
-    return _build_v2_after(q, recommend_side="A", confidence=52, dscore=+12, outcome="Partial_OK", missing=["expand", "diff"])
+    return _build_v2_after(q, recommend_side="A", dscore=+12, outcome="Partial_OK", missing=["expand", "diff"])
 
 
 def build_diff_lite(before: str, after: str, max_lines: int = 30) -> str:
@@ -389,7 +374,7 @@ def build_diff_lite(before: str, after: str, max_lines: int = 30) -> str:
     return f"Δ (lite):\n{head}\n"
 
 def build_after_core(q: str) -> str:
-    return _build_v2_after(q, recommend_side="A", confidence=64, dscore=+18, outcome="Core_OK")
+    return _build_v2_after(q, recommend_side="A", dscore=+18, outcome="Core_OK")
 
 def normalize_before_seed(q: str) -> str:
     t = " ".join((q or "").strip().split())
@@ -402,7 +387,7 @@ def normalize_before_seed(q: str) -> str:
     )
 
 def build_seed_after_core(before_text: str) -> str:
-    return _build_v2_after(before_text, recommend_side="A", confidence=45, dscore=+8, outcome="Seed_OK")
+    return _build_v2_after(before_text, recommend_side="A", dscore=+8, outcome="Seed_OK")
 
 def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     t = (text or "").strip()
@@ -746,7 +731,7 @@ def main():
             set_primary_reason("stepA_invalid_or_timeout")
             add_secondary_reason("stepA_fallback_local_v2")
             mark_missing("stepA")
-            master = _build_v2_after(q, recommend_side="A", confidence=49, dscore=+10, outcome="Partial_OK", missing=["stepA"])
+            master = _build_v2_after(q, recommend_side="A", dscore=+10, outcome="Partial_OK", missing=["stepA"])
         seed = normalize_before_seed(q)
         c1 = "- Counter: 比較軸を固定しないと結論が揺らぐ"
         c2 = "- Counter: 反転条件を事前定義しないと再現性が落ちる"
