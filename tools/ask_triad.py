@@ -269,6 +269,11 @@ def _extract_user_axes(q: str) -> list[str]:
         ("趣味", "趣味適性"),
         ("待ち", "制限"),
         ("継続性", "継続性"),
+        ("治安", "治安"),
+        ("夜移動", "移動リスク"),
+        ("移動", "移動リスク"),
+        ("医療", "医療アクセス"),
+        ("情勢", "情勢変動"),
         ("健康", "健康効果"),
         ("栄養", "健康効果"),
         ("価格", "価格"),
@@ -301,6 +306,10 @@ def _extract_metrics(q: str) -> list[str]:
         m.append("利用時間")
     if "仕事" in t:
         m.append("仕事比率")
+    if "治安" in t:
+        m.append("安全度")
+    if "夜移動" in t:
+        m.append("夜間移動リスク")
     return m[:3]
 
 
@@ -339,6 +348,11 @@ def _canonicalize_question(q: str) -> dict:
         missing_fields.append("options_list")
     if domain_conf < 0.55:
         missing_fields.extend(["goal_metric", "priority_axis"])
+    elif domain == "travel_safety":
+        if not any(k in (q or "") for k in ("都市", "市", "地域")):
+            missing_fields.append("city")
+        if not any(k in (q or "") for k in ("夜移動", "夜", "深夜")):
+            missing_fields.append("night_move")
     elif domain == "subscription_pricing":
         if not any(k in (q or "") for k in ("予算", "上限", "課金", "円", "万円")):
             missing_fields.append("budget_cap")
@@ -401,6 +415,9 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str]) -> str:
             return "予算上限を1つ指定してください（例: 月額3,000円）"
         if "work_ratio" in missing_fields:
             return "仕事利用の比率（%）を指定してください"
+    if domain == "travel_safety":
+        if "city" in missing_fields or "night_move" in missing_fields:
+            return "行く都市（候補）と夜移動の有無を1行で指定してください"
     return "目的指標を1つ固定し、再判定条件を明確化"
 
 
@@ -553,6 +570,11 @@ def _is_long_horizon(q: str) -> bool:
     if any(k in t for k in ("2030", "2035", "2040", "将来", "今後", "長期")):
         return True
     return any(k in q_l for k in ("future", "long-term", "uncertainty"))
+
+
+def _has_external_evidence(q: str) -> bool:
+    t = (q or "")
+    return any(k in t for k in ("外務省", "渡航情報", "統計", "犯罪率", "公式", "最新データ", "レポート"))
 
 
 def _has_explicit_goal(q: str) -> bool:
@@ -728,6 +750,11 @@ def _build_v2_after(
     evidence_completeness = max(0.5, min(1.0, filled_slots / float(total_slots)))
     if unknown_count > 0:
         evidence_completeness = max(0.45, evidence_completeness - 0.1 * min(2, unknown_count))
+    axes_quality = 1.0 if len(axes) >= 3 else 0.6
+    facts_quality = 1.0 if any("期間=" in f or "対象年=" in f or "論点=" in f or "比較対象=" in f for f in _facts3_from_q(q)) else 0.6
+    external_evidence_needed = (domain == "travel_safety")
+    has_external_evidence = _has_external_evidence(q)
+    basis_ok = (option_quality >= 0.55 and axes_quality >= 0.6 and facts_quality >= 0.6 and (not external_evidence_needed or has_external_evidence))
     partial_penalty = 0.85 if is_partial else 1.0
     adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
     adjusted = adjusted * max(0.4, domain_conf)
@@ -754,11 +781,13 @@ def _build_v2_after(
         lines.append("- 候補を箇条書きで指定してください（最大5）")
     if domain_conf < 0.55:
         lines.append("MODE: HOLD")
+    elif external_evidence_needed and not has_external_evidence:
+        lines.append("MODE: HOLD")
     elif long_horizon:
         lines.append("MODE: CONDITIONAL")
     else:
         lines.append("MODE: NORMAL")
-    if domain_conf < 0.55 or (long_horizon and margin <= 1) or (not decision_context_ok) or len(axes) < 2:
+    if (not basis_ok) or domain_conf < 0.55 or (long_horizon and margin <= 1) or (not decision_context_ok) or len(axes) < 2:
         lines.append("CALL: HOLD")
     else:
         lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
@@ -802,7 +831,6 @@ def _build_v2_after(
             f"- {_falsifier_line(domain, top_label, runner_label, 'A')}",
             "NEXT:",
             f"- {_next_hint_from_missing(domain, missing_fields)}",
-            f"- 不足データ(stage={miss_stage}; fields={miss_fields})を1つ埋め、14日以内に再判定",
             f"OUTCOME: {outcome}",
         ]
     )
@@ -991,7 +1019,7 @@ def _decision_sections(q: str) -> str:
 
 
 def _append_decision_sections(text: str, q: str) -> str:
-    if "RECOMMEND:" in (text or "") and "SCORECARD:" in (text or ""):
+    if (("RECOMMEND:" in (text or "")) or ("RECOMMEND_TOP:" in (text or "")) or ("CALL: HOLD" in (text or ""))) and "SCORECARD:" in (text or ""):
         return text
     if "DOMINANT_AXIS:" in text and "FLIP_THRESHOLD:" in text:
         return text

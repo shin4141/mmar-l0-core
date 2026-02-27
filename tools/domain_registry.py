@@ -61,6 +61,16 @@ DOMAIN_REGISTRY: dict[str, dict] = {
         "next_question_candidates": ["予算上限は？", "日程は？", "優先体験は？"],
         "banned_axes": [],
     },
+    "travel_safety": {
+        "keywords": ["旅行", "治安", "安全", "危険", "渡航", "夜移動", "犯罪", "一人旅", "カンボジア", "ラオス"],
+        "axes_candidates": ["治安", "移動リスク", "医療アクセス", "情勢変動", "コスト"],
+        "falsifier_templates": [
+            "都市・時間帯の条件次第で結論が反転",
+            "最新の安全情報で危険度が更新されたら反転",
+        ],
+        "next_question_candidates": ["行く都市（候補）と夜移動の有無は？", "滞在期間は？", "移動手段は？"],
+        "banned_axes": ["健康効果"],
+    },
     "food": {
         "keywords": ["りんご", "納豆", "食", "栄養", "血糖", "体重", "摂取量", "カロリー"],
         "axes_candidates": ["健康効果", "価格", "継続可能性"],
