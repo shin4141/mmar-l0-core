@@ -29,6 +29,7 @@ OUT_FILES = {
     "merge": INCOMING / "out_merge.txt",
 }
 DEEP_META = INCOMING / "deep_meta.json"
+DECISION_CARD_LATEST = INCOMING / "decision_card_latest.json"
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -48,12 +49,34 @@ def _git_sha_short() -> str:
 
 
 GIT_SHA = _git_sha_short()
+DEV_LOG = Path("/tmp/dev_api.log")
+
+
+def _append_dev_log(msg: str) -> None:
+    try:
+        DEV_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with DEV_LOG.open("a", encoding="utf-8") as f:
+            f.write(msg.rstrip() + "\n")
+    except Exception:
+        pass
 
 
 def _read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _read_latest_quality() -> tuple[dict, int]:
+    try:
+        if not DECISION_CARD_LATEST.exists():
+            return {}, 0
+        card = json.loads(DECISION_CARD_LATEST.read_text(encoding="utf-8", errors="replace"))
+        q = card.get("quality") if isinstance(card, dict) and isinstance(card.get("quality"), dict) else {}
+        total = int(q.get("total", 0) or 0)
+        return q, total
+    except Exception:
+        return {}, 0
 
 
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
@@ -90,6 +113,12 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["domain_confidence"] = float(meta["domain_confidence"])
                 if isinstance(meta.get("judgment_point_changes"), list):
                     payload["judgment_point_changes"] = meta["judgment_point_changes"]
+                if isinstance(meta.get("quality"), dict):
+                    payload["quality"] = meta["quality"]
+                if isinstance(meta.get("quality_total"), (int, float)):
+                    payload["quality_total"] = int(meta["quality_total"])
+                if isinstance(meta.get("decision_card_path"), str):
+                    payload["decision_card_path"] = meta["decision_card_path"]
                 if isinstance(meta.get("timings"), dict):
                     payload["timings"] = meta["timings"]
         except Exception:
@@ -259,6 +288,12 @@ def _start_full_job(user_input: str) -> str:
                     "before_snapshot": snapshot,
                     **payload,
                 }
+            q = payload.get("quality") if isinstance(payload.get("quality"), dict) else {}
+            _append_dev_log(
+                f"{datetime.now(timezone.utc).isoformat()} mode=deep status={payload.get('deep_status','-')} "
+                f"quality_total={int(q.get('total', payload.get('quality_total', 0) or 0))} "
+                f"quality={json.dumps(q, ensure_ascii=False)}"
+            )
         except subprocess.TimeoutExpired:
             with JOBS_LOCK:
                 JOBS[job_id] = {
@@ -426,6 +461,10 @@ class Handler(BaseHTTPRequestHandler):
                 if missing:
                     self._send_json(500, {"ok": False, "error": "missing_outputs", "missing": missing})
                     return
+                q, total = _read_latest_quality()
+                _append_dev_log(
+                    f"{datetime.now(timezone.utc).isoformat()} mode=seed status=ok quality_total={total} quality={json.dumps(q, ensure_ascii=False)}"
+                )
                 self._send_json(200, {"ok": True, "mode": "seed", **payload})
                 return
 
@@ -453,6 +492,10 @@ class Handler(BaseHTTPRequestHandler):
             if missing:
                 self._send_json(500, {"ok": False, "error": "missing_outputs", "missing": missing})
                 return
+            q, total = _read_latest_quality()
+            _append_dev_log(
+                f"{datetime.now(timezone.utc).isoformat()} mode=core status=ok quality_total={total} quality={json.dumps(q, ensure_ascii=False)}"
+            )
 
             self._send_json(200, {"ok": True, **payload})
 

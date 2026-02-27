@@ -509,6 +509,29 @@
     return "目的指標・優先軸・期限を追加入力すると精度が上がります。";
   }
 
+  function qualityFromAfter(afterText){
+    const t = String(afterText || "");
+    const pickLines = (name) => {
+      const m = t.match(new RegExp(`(?:^|\\n)\\s*${name}:\\s*\\n([\\s\\S]*?)(?=\\n[A-Z_]+\\s*:|$)`, "i"));
+      if (!m) return [];
+      return String(m[1] || "").split("\n").map(s => s.trim()).filter(s => s.startsWith("-")).map(s => s.replace(/^-+\s*/, ""));
+    };
+    const options = pickLines("OPTIONS");
+    const axes = pickLines("AXES");
+    const facts = pickLines("FACTS_3");
+    const falsifier = pickLines("FALSIFIER").join(" ");
+    const nexts = pickLines("NEXT").join(" ");
+    const options_ok = (options.length >= 2 && !options.some(o => o.includes("(unresolved)")) && !t.includes("(unresolved)")) ? 1 : 0;
+    const axes_ok = (axes.length >= 3) ? 1 : 0;
+    const facts_ok = (facts.length >= 3 && !facts.some(f => /判定条件=未固定|入力語=/.test(f))) ? 1 : 0;
+    const falsifier_ok = (falsifier && /(なら|場合|条件|if|when)/i.test(falsifier)) ? 1 : 0;
+    const next_ok = (nexts && /(職種|予算|都市|期限|比率|摂取量|期間|移動)/.test(nexts)) ? 1 : 0;
+    return {
+      options_ok, axes_ok, facts_ok, falsifier_ok, next_ok,
+      total: options_ok + axes_ok + facts_ok + falsifier_ok + next_ok,
+    };
+  }
+
   function renderCompare(txt){
     const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
     let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
@@ -542,6 +565,10 @@
       ? liveDataDeep.fallback_reason_secondary.join(",")
       : "-";
     const deepTimings = (liveDataDeep && liveDataDeep.timings && typeof liveDataDeep.timings === "object") ? JSON.stringify(liveDataDeep.timings) : "-";
+    const serverQuality = (liveDataDeep && liveDataDeep.quality && typeof liveDataDeep.quality === "object") ? liveDataDeep.quality : null;
+    const localQuality = qualityFromAfter(after || "");
+    const quality = serverQuality || localQuality;
+    const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
     const afterWithSource = after;
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
@@ -554,7 +581,7 @@
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
-    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nsha=${liveBootSha || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
+    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nsha=${liveBootSha || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
@@ -566,6 +593,7 @@
     const sourceBadge = (mode === "live")
       ? `<span class="pillBadge">Source: ${viewSource === "deep" ? "Deep" : "Core"}</span>`
       : "";
+    const qualityBadge = `<span class="pillBadge">Quality: ${qualityTotal}/5</span>`;
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
     const serverJpc = (liveDataDeep && Array.isArray(liveDataDeep.judgment_point_changes) && liveDataDeep.judgment_point_changes.length)
@@ -583,7 +611,7 @@
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
         ${rerunHint}
         ${diffBlock}
         ${debugDetails}

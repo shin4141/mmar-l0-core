@@ -21,6 +21,9 @@ TAB_FILES = {
     "merge":  INCOMING / "out_merge.txt",
 }
 DEEP_META = INCOMING / "deep_meta.json"
+DECISION_CARDS_DIR = INCOMING / "decision_cards"
+DECISION_CARDS_DIR.mkdir(exist_ok=True)
+DECISION_CARD_LATEST = INCOMING / "decision_card_latest.json"
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -976,6 +979,127 @@ def _pick_key_line(text: str, keys: tuple[str, ...], default_line: str) -> str:
     return default_line
 
 
+def _section_lines(after_text: str, section: str) -> list[str]:
+    t = after_text or ""
+    lines = t.splitlines()
+    out: list[str] = []
+    collecting = False
+    for ln in lines:
+        s = ln.rstrip()
+        if s.strip().startswith(section):
+            collecting = True
+            continue
+        if collecting and re.match(r"^[A-Z_]+(?:\s*[A-Z_]+)?:", s.strip()):
+            break
+        if collecting and s.strip().startswith("-"):
+            out.append(s.strip()[1:].strip())
+    return out
+
+
+def _section_value(after_text: str, key: str) -> str:
+    for ln in (after_text or "").splitlines():
+        s = ln.strip()
+        if s.startswith(f"{key}:"):
+            return s.split(":", 1)[1].strip()
+    return ""
+
+
+def _scorecard_from_after(after_text: str) -> dict:
+    rows = _section_lines(after_text, "SCORECARD:")
+    scorecard: dict[str, dict[str, int]] = {}
+    for r in rows:
+        if ":" not in r:
+            continue
+        axis, rest = r.split(":", 1)
+        axis = axis.strip()
+        scorecard[axis] = {}
+        for kv in rest.strip().split():
+            if "=" not in kv:
+                continue
+            k, v = kv.split("=", 1)
+            try:
+                scorecard[axis][k.strip()] = int(v.strip())
+            except Exception:
+                continue
+    return scorecard
+
+
+def _quality_from_after(after_text: str, domain: str = "", input_text: str = "") -> dict:
+    options = _section_lines(after_text, "OPTIONS:")
+    axes = _section_lines(after_text, "AXES:")
+    facts = _section_lines(after_text, "FACTS_3:")
+    falsifier = " ".join(_section_lines(after_text, "FALSIFIER:"))
+    next_lines = _section_lines(after_text, "NEXT:")
+    banned = set(get_domain_spec(domain or "general").get("banned_axes", []))
+
+    options_ok = int(len(options) >= 2 and all("(unresolved)" not in o for o in options) and all(len(o) <= 32 for o in options))
+    axes_ok = int(len(axes) >= 3 and all(a not in banned for a in axes))
+    generic_fact_markers = ("判定条件=未固定", "入力語=")
+    facts_ok = int(len(facts) >= 3 and all(not any(g in f for g in generic_fact_markers) for f in facts))
+    falsifier_ok = int(bool(falsifier) and any(k in falsifier for k in ("なら", "場合", "条件", "if", "when")))
+    next_txt = " ".join(next_lines)
+    next_ok = int(bool(next_lines) and any(k in next_txt for k in ("職種", "予算", "都市", "期限", "比率", "摂取量", "期間", "移動")))
+
+    total = options_ok + axes_ok + facts_ok + falsifier_ok + next_ok
+    return {
+        "options_ok": options_ok,
+        "axes_ok": axes_ok,
+        "facts_ok": facts_ok,
+        "falsifier_ok": falsifier_ok,
+        "next_ok": next_ok,
+        "total": total,
+    }
+
+
+def _write_decision_card(
+    case_id: str,
+    input_text: str,
+    after_text: str,
+    domain_guess: dict,
+    deep_status: str,
+    missing_stages: list[str],
+    fallback_reason_primary: str,
+) -> tuple[dict, Path]:
+    options = _section_lines(after_text, "OPTIONS:")
+    axes = _section_lines(after_text, "AXES:")
+    facts = _section_lines(after_text, "FACTS_3:")
+    scorecard = _scorecard_from_after(after_text)
+    recommend = {
+        "top": _section_value(after_text, "RECOMMEND_TOP") or _section_value(after_text, "RECOMMEND"),
+        "runner_up": _section_value(after_text, "RECOMMEND_RUNNER_UP"),
+    }
+    confidence = 0
+    m_conf = re.search(r"CONFIDENCE:\s*([0-9]+)", after_text or "")
+    if m_conf:
+        try:
+            confidence = int(m_conf.group(1))
+        except Exception:
+            confidence = 0
+    card = {
+        "input_text": input_text,
+        "domain_guess": domain_guess or {"name": "general", "confidence": 0.0},
+        "deep_status": deep_status,
+        "options": options,
+        "axes": axes,
+        "scorecard": scorecard,
+        "facts_3": facts,
+        "recommend": recommend,
+        "confidence": confidence,
+        "falsifier": " ".join(_section_lines(after_text, "FALSIFIER:")),
+        "next": " ".join(_section_lines(after_text, "NEXT:")),
+        "meta": {
+            "missing_stages": missing_stages or [],
+            "fallback_reason_primary": fallback_reason_primary or "",
+        },
+    }
+    card["quality"] = _quality_from_after(after_text, domain=str((domain_guess or {}).get("name") or "general"), input_text=input_text)
+    ts = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+    out_path = DECISION_CARDS_DIR / f"{ts}_{case_id}.json"
+    out_path.write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8")
+    DECISION_CARD_LATEST.write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8")
+    return card, out_path
+
+
 def meaningful_after_fallback(q: str, note: str = "", partials: dict | None = None) -> str:
     return _build_v2_after(q, recommend_side="A", dscore=+6, outcome="Fallback")
 
@@ -1179,6 +1303,7 @@ def main():
     args = ap.parse_args()
 
     q = " ".join(args.question).strip()
+    case_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", (q[:48] or "case")).strip("_") or "case"
     tab = args.tab
     core_only = os.getenv("MMAR_CORE_ONLY", "").strip() == "1"
     seed_only = os.getenv("MMAR_SEED_ONLY", "").strip() == "1" or tab == "seed"
@@ -1261,6 +1386,9 @@ def main():
                 add_secondary_reason(f"openai_error:{stage}")
         return out
 
+    latest_card: dict = {}
+    latest_card_path: Path | None = None
+
     log(f"[0/5] tab={tab}")
 
     if seed_only:
@@ -1281,6 +1409,16 @@ def main():
         TAB_FILES["expand"].write_text(after_seed, encoding="utf-8")
         TAB_FILES["diff"].write_text(diff_seed, encoding="utf-8")
         TAB_FILES["merge"].write_text(before_seed, encoding="utf-8")
+        g = guess_domain(q or "")
+        _write_decision_card(
+            case_id=case_id,
+            input_text=q,
+            after_text="OPTIONS:\n- 候補を箇条書きで指定してください（最大5）\nMODE: HOLD\nCALL: HOLD\nCONFIDENCE: 25%\nΔSCORE: +0\nAXES:\n- コスト\n- リスク\n- 柔軟性\nSCORECARD:\n- コスト: 候補指定後に採点\nFACTS_3:\n- 入力語=比較\n- 入力語=目的\n- 入力語=条件\nFALSIFIER:\n- 候補確定で再計算\nNEXT:\n- 候補を箇条書きで指定してください（最大5）\nOUTCOME: Seed_Placeholder\n",
+            domain_guess={"name": str(g.get("name") or "general"), "confidence": float(g.get("confidence") or 0.0)},
+            deep_status="seed",
+            missing_stages=["seed"],
+            fallback_reason_primary="seed_only",
+        )
         log("[seed_only] wrote out_compare placeholders and returned")
         return
 
@@ -1304,6 +1442,16 @@ def main():
             "=== Δ (Diff head) ===\n"
             f"{diff_core}\n",
             encoding="utf-8",
+        )
+        g = guess_domain(q or "")
+        _write_decision_card(
+            case_id=case_id,
+            input_text=q,
+            after_text=after_core,
+            domain_guess={"name": str(g.get("name") or "general"), "confidence": float(g.get("confidence") or 0.0)},
+            deep_status="core",
+            missing_stages=[],
+            fallback_reason_primary="",
         )
         log("[DONE] core-only output written")
         return
@@ -1349,6 +1497,15 @@ def main():
         c2 = "- Counter: 反転条件を事前定義しないと再現性が落ちる"
     canonical = _canonicalize_question(q)
     domain_guess = canonical.get("domain_guess") or {}
+    latest_card, latest_card_path = _write_decision_card(
+        case_id=case_id,
+        input_text=q,
+        after_text=master,
+        domain_guess=domain_guess,
+        deep_status=deep_status,
+        missing_stages=missing_stages,
+        fallback_reason_primary=fallback_reason_primary,
+    )
     if think_mode:
         master = _append_decision_sections(master, q)
 
@@ -1517,6 +1674,15 @@ def main():
         if deep_status == "partial" and "OUTCOME:" in expand_txt and "OUTCOME: Partial_OK" not in expand_txt:
             expand_txt = expand_txt.rstrip() + "\nOUTCOME: Partial_OK\n"
             Path(TAB_FILES["expand"]).write_text(expand_txt, encoding="utf-8")
+    latest_card, latest_card_path = _write_decision_card(
+        case_id=case_id,
+        input_text=q,
+        after_text=expand_txt or master,
+        domain_guess=domain_guess,
+        deep_status=deep_status,
+        missing_stages=missing_stages,
+        fallback_reason_primary=fallback_reason_primary,
+    )
     judgment_point_changes = _judgment_point_changes_from_after(expand_txt)
 
     compare = (
@@ -1538,6 +1704,7 @@ def main():
         f"fallback_reason_secondary: {json.dumps(fallback_reason_secondary, ensure_ascii=False)}\n"
         f"missing_stages: {json.dumps(missing_stages, ensure_ascii=False)}\n"
         f"judgment_point_changes: {json.dumps(judgment_point_changes, ensure_ascii=False)}\n"
+        f"quality: {json.dumps((latest_card or {}).get('quality', {}), ensure_ascii=False)}\n"
         f"timings: {json.dumps(timings, ensure_ascii=False)}\n"
     )
     if think_mode:
@@ -1557,6 +1724,9 @@ def main():
                 "fallback_reason_secondary": fallback_reason_secondary,
                 "missing_stages": missing_stages,
                 "judgment_point_changes": judgment_point_changes,
+                "quality": (latest_card or {}).get("quality", {}),
+                "quality_total": int(((latest_card or {}).get("quality") or {}).get("total") or 0),
+                "decision_card_path": str(latest_card_path) if latest_card_path else "",
                 "timings": timings,
             },
             ensure_ascii=False,
