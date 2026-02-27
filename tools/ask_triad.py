@@ -7,6 +7,17 @@ sys.path.insert(0, str(REPO))  # providers import safety
 sys.path.insert(0, str(REPO / "tools"))
 from domain_registry import get_domain_spec, guess_domain
 
+
+def _git_sha_short() -> str:
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=str(REPO), text=True, timeout=2)
+        return out.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+RUN_SHA = _git_sha_short()
+
 INCOMING = REPO / "incoming"
 INCOMING.mkdir(exist_ok=True)
 
@@ -698,6 +709,7 @@ def _build_v2_after(
             + listed + "\n"
             "MODE: HOLD\n"
             "CALL: HOLD\n"
+            "WHY_TOP2: 1) 選択肢定義が未確定 2) 評価軸は仮置き（候補確定後に再採点）\n"
             "CONFIDENCE: 25%\n"
             f"ΔSCORE: {int(dscore):+d}\n"
             "AXES:\n"
@@ -847,21 +859,27 @@ def _build_v2_after(
     can_conditional_proceed = (
         option_quality >= 0.55 and len(axes) >= 3 and facts_quality >= 0.6 and decision_context_ok
     )
+    why_top2 = f"1) {axes[0]} で {top_label} が優位 2) {axes[min(1, len(axes)-1)]} で差が出る"
+    why_gap = f"1位と2位の合計差={margin}"
     if domain_conf < 0.55 or len(axes) < 2:
         lines.append("CALL: HOLD")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}")
     elif external_evidence_needed and not has_external_evidence and can_conditional_proceed:
         lines.append("CALL: PROCEED_WITH_CONDITIONS")
         lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
         lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
-        lines.append(f"WHY_TOP2: 1) {axes[0]} で {top_label} が優位 2) {axes[min(1, len(axes)-1)]} で差が出る")
-        lines.append(f"WHY_GAP: 1位と2位の合計差={margin}（都市/夜移動条件で反転余地）")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}（都市/夜移動条件で反転余地）")
     elif (not basis_ok) or (long_horizon and margin <= 1) or (not decision_context_ok):
         lines.append("CALL: HOLD")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}")
     else:
         lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
         lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
-        lines.append(f"WHY_TOP2: 1) {axes[0]} で {top_label} が優位 2) {axes[min(1, len(axes)-1)]} で差が出る")
-        lines.append(f"WHY_GAP: 1位と2位の合計差={margin}")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}")
     lines.extend(
         [
             f"CONFIDENCE: {int(confidence)}%",
@@ -1136,7 +1154,7 @@ def build_seed_after_core(before_text: str) -> str:
 def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     t = (text or "").strip()
     # Always keep After as v3 complete shape for partial/timeout paths.
-    if _is_valid_after_full(t):
+    if _is_valid_after_full(t) and "WHY_TOP2:" in t:
         return t + "\n"
     rebuilt = _build_v2_after(
         q,
@@ -1727,6 +1745,7 @@ def main():
                 "quality": (latest_card or {}).get("quality", {}),
                 "quality_total": int(((latest_card or {}).get("quality") or {}).get("total") or 0),
                 "decision_card_path": str(latest_card_path) if latest_card_path else "",
+                "build_sha": RUN_SHA,
                 "timings": timings,
             },
             ensure_ascii=False,

@@ -17,6 +17,7 @@ HOST = "127.0.0.1"
 PORT = 8787
 MAX_THINK_SECONDS = 90
 BOOT_AT = datetime.now(timezone.utc).isoformat()
+PID = os.getpid()
 
 REPO = Path(__file__).resolve().parents[1]
 ASK_TRIAD = REPO / "tools" / "ask_triad.py"
@@ -79,6 +80,11 @@ def _read_latest_quality() -> tuple[dict, int]:
         return {}, 0
 
 
+def _runtime_env_snapshot() -> dict:
+    keys = ["MMAR_CORE_ONLY", "MMAR_LLM_TIMEOUT", "MMAR_OPENAI_RETRIES", "MMAR_TIME_BUDGET_S"]
+    return {k: (os.getenv(k, "").strip() or "-") for k in keys}
+
+
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -119,6 +125,8 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["quality_total"] = int(meta["quality_total"])
                 if isinstance(meta.get("decision_card_path"), str):
                     payload["decision_card_path"] = meta["decision_card_path"]
+                if isinstance(meta.get("build_sha"), str):
+                    payload["build_sha"] = meta["build_sha"]
                 if isinstance(meta.get("timings"), dict):
                     payload["timings"] = meta["timings"]
         except Exception:
@@ -351,7 +359,11 @@ class Handler(BaseHTTPRequestHandler):
                     "time": datetime.now(timezone.utc).isoformat(),
                     "cwd": str(REPO),
                     "boot_at": BOOT_AT,
+                    "boot_time": BOOT_AT,
                     "sha": GIT_SHA,
+                    "build_sha": GIT_SHA,
+                    "pid": PID,
+                    "env": _runtime_env_snapshot(),
                     "mmar_core_only": os.getenv("MMAR_CORE_ONLY", "").strip() == "1",
                 },
             )
@@ -511,8 +523,8 @@ def main() -> int:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[dev_api] listening on http://{HOST}:{PORT}")
     print(
-        f"[dev_api] SERVER_BOOT sha={GIT_SHA} boot_at={BOOT_AT} "
-        f"MMAR_CORE_ONLY={os.getenv('MMAR_CORE_ONLY', '').strip() or '0'}"
+        f"[dev_api] SERVER_BOOT build_sha={GIT_SHA} boot_at={BOOT_AT} pid={PID} "
+        f"env={json.dumps(_runtime_env_snapshot(), ensure_ascii=False)}"
     )
     print("[dev_api] POST /api/triad  body: {\"input\": \"...\"}")
     try:

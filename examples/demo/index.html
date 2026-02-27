@@ -199,6 +199,7 @@
   let liveCoreOnly = false;
   let liveBootSha = "";
   let liveBootAt = "";
+  let liveShaMismatch = false;
   let lastApiMode = "";
   let lastSubmittedInput = "";
   let prevLiveData = null;
@@ -342,6 +343,14 @@
     return q ? String(q[1] || "").trim() : src.trim();
   }
 
+  function normalizeSubmittedInput(text){
+    return String(text || "")
+      .replace(/…/g, " ")
+      .replace(/\.{3,}/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   function updateCtrlPanel(){
     const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
     const thinkTxt = (liveThinkTimeEl.textContent || "").trim() || "Think time: -";
@@ -393,8 +402,12 @@
       const health = await r.json();
       liveReady = true;
       liveCoreOnly = !!(health && health.mmar_core_only);
-      liveBootSha = (health && typeof health.sha === "string") ? health.sha : "";
-      liveBootAt = (health && typeof health.boot_at === "string") ? health.boot_at : "";
+      liveBootSha = (health && typeof health.build_sha === "string" && health.build_sha)
+        ? health.build_sha
+        : ((health && typeof health.sha === "string") ? health.sha : "");
+      liveBootAt = (health && typeof health.boot_time === "string" && health.boot_time)
+        ? health.boot_time
+        : ((health && typeof health.boot_at === "string") ? health.boot_at : "");
       liveStatus = "ready";
       liveHintEl.textContent = `Live ready${liveCoreOnly ? " (CORE ONLY)" : ""}${liveBootSha ? ` [sha:${liveBootSha}]` : ""}`;
       renderMode();
@@ -553,6 +566,8 @@
     const deepLocked = (mode === "live") && !canThink();
     const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
     const deepMetaStatus = (liveDataDeep && typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "not_run";
+    const deepRunSha = (liveDataDeep && typeof liveDataDeep.build_sha === "string" && liveDataDeep.build_sha) ? liveDataDeep.build_sha : "";
+    liveShaMismatch = !!(deepRunSha && liveBootSha && deepRunSha !== liveBootSha);
     const deepMetaReason = (liveDataDeep && typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
       ? liveDataDeep.fallback_reason_primary
       : ((liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-");
@@ -581,7 +596,7 @@
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
-    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nsha=${liveBootSha || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
+    const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nhealth_sha=${liveBootSha || "-"}\nrun_sha=${deepRunSha || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
@@ -592,6 +607,9 @@
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
     const sourceBadge = (mode === "live")
       ? `<span class="pillBadge">Source: ${viewSource === "deep" ? "Deep" : "Core"}</span>`
+      : "";
+    const shaWarnBadge = (mode === "live" && liveShaMismatch)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Old server running (sha mismatch)</span>`
       : "";
     const qualityBadge = `<span class="pillBadge">Quality: ${qualityTotal}/5</span>`;
     const hasDiff = !!String(delta || "").trim();
@@ -611,7 +629,7 @@
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
         ${rerunHint}
         ${diffBlock}
         ${debugDetails}
@@ -665,7 +683,7 @@
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     const rawInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
-    const submittedInput = extractQuestion(rawInput);
+    const submittedInput = normalizeSubmittedInput(extractQuestion(rawInput));
     const isDeep = (apiMode === "think" || apiMode === "deep");
     const keepCurrentView = isDeep && !!(liveDataCore || liveDataDeep || liveData);
     if (submittedInput) lastSubmittedInput = submittedInput;
