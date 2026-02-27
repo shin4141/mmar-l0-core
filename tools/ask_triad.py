@@ -264,6 +264,11 @@ def _extract_user_axes(q: str) -> list[str]:
         ("地域", "地域適合"),
         ("地域適合", "地域適合"),
         ("柔軟性", "柔軟性"),
+        ("制限", "制限"),
+        ("仕事", "仕事適性"),
+        ("趣味", "趣味適性"),
+        ("待ち", "制限"),
+        ("継続性", "継続性"),
         ("健康", "健康効果"),
         ("栄養", "健康効果"),
         ("価格", "価格"),
@@ -292,6 +297,10 @@ def _extract_metrics(q: str) -> list[str]:
         m.append("収入見込み")
     if "効果" in t:
         m.append("効果指標")
+    if "週" in t and "時間" in t:
+        m.append("利用時間")
+    if "仕事" in t:
+        m.append("仕事比率")
     return m[:3]
 
 
@@ -312,7 +321,8 @@ def _canonicalize_question(q: str) -> dict:
     g = guess_domain(q or "")
     domain = str(g.get("name") or "general")
     domain_conf = float(g.get("confidence") or 0.0)
-    a, b, ok, quality = _extract_ab_options(q)
+    options, quality = _extract_options_nway(q)
+    ok = len(options) >= 2
     user_axes = _extract_user_axes(q)
     metrics = _extract_metrics(q)
     constraints = _extract_constraints(q)
@@ -325,8 +335,15 @@ def _canonicalize_question(q: str) -> dict:
         except Exception:
             year = None
     missing_fields: list[str] = []
+    if not ok:
+        missing_fields.append("options_list")
     if domain_conf < 0.55:
         missing_fields.extend(["goal_metric", "priority_axis"])
+    elif domain == "subscription_pricing":
+        if not any(k in (q or "") for k in ("予算", "上限", "課金", "円", "万円")):
+            missing_fields.append("budget_cap")
+        if not any(k in (q or "") for k in ("仕事", "業務", "収益")):
+            missing_fields.append("work_ratio")
     elif domain == "education_career":
         if not any(k in (q or "") for k in ("職種", "志望職", "就きたい")):
             missing_fields.append("job_type")
@@ -343,7 +360,9 @@ def _canonicalize_question(q: str) -> dict:
         if not _has_explicit_goal(q):
             missing_fields.append("goal_metric")
     return {
-        "options": {"A": a, "B": b, "ok": ok, "quality": quality},
+        "options": options,
+        "option_count": len(options),
+        "option_quality": quality,
         "axes": user_axes,
         "metrics": metrics,
         "constraints": constraints,
@@ -377,6 +396,11 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str]) -> str:
             return "1日の摂取量を数値で指定し、比較を再実行"
         if "target_metric" in missing_fields:
             return "目的指標（血糖/体重/便通など）を1つ選択"
+    if domain == "subscription_pricing":
+        if "budget_cap" in missing_fields:
+            return "予算上限を1つ指定してください（例: 月額3,000円）"
+        if "work_ratio" in missing_fields:
+            return "仕事利用の比率（%）を指定してください"
     return "目的指標を1つ固定し、再判定条件を明確化"
 
 
@@ -390,44 +414,101 @@ def _falsifier_line(domain: str, a_label: str, b_label: str, side: str) -> str:
     return f"{opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転"
 
 
-def _option_quality(a: str, b: str, q: str) -> float:
-    if not a or not b or a == b:
+def _options_quality(options: list[dict], q: str) -> float:
+    if len(options) < 2:
         return 0.0
     score = 1.0
-    for s in (a, b):
-        if len(s) > 22:
-            score -= 0.25
-        if re.search(r"(どっち|どちら|と思う|方がいい|のか|べき|[?？])", s):
-            score -= 0.35
     t = " ".join((q or "").split())
-    if len(a) >= max(14, int(len(t) * 0.6)) or len(b) >= max(14, int(len(t) * 0.6)):
-        score -= 0.5
+    for o in options[:5]:
+        s = str(o.get("label") or "")
+        if not s:
+            score -= 0.4
+            continue
+        if len(s) > 24:
+            score -= 0.2
+        if re.search(r"(どっち|どちら|と思う|方がいい|のか|べき|[?？])", s):
+            score -= 0.3
+        if len(s) >= max(14, int(len(t) * 0.65)):
+            score -= 0.25
     return max(0.0, min(1.0, score))
 
 
-def _extract_ab_options(q: str) -> tuple[str, str, bool, float]:
+def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], float]:
     t = " ".join((q or "").split())
     domain = _detect_domain(t)
+    options: list[dict] = []
+    low = t.lower()
+
+    # Explicit pricing/subscription names.
+    if any(k in low for k in ("free", "plus", "pro")) or any(k in t for k in ("無料", "プラス", "プロ")):
+        plan_map = [("free", ["free", "無料"]), ("plus", ["plus", "プラス"]), ("pro", ["pro", "プロ"])]
+        for oid, keys in plan_map:
+            if any(k in low for k in [x.lower() for x in keys]) or any(k in t for k in keys):
+                label = {"free": "無料", "plus": "Plus", "pro": "Pro"}[oid]
+                options.append({"id": oid, "label": label})
+        if len(options) >= 2:
+            return options[:max_options], 0.95
+
     if domain == "education_career" and any(k in t for k in ("大学", "進学")) and any(k in t for k in ("専門", "スキル", "実務", "資格")):
-        return "大学進学（学歴ルート）", "専門スキル直行（実務→就職）", True, 0.95
-    patterns = [
-        r"(.+?)と(.+?)どちら",
-        r"(.+?)と(.+?)どっち",
-        r"(.+?)\s+vs\.?\s+(.+)",
-        r"(.+?)\s+[Vv][Ss]\s+(.+)",
-        r"(.+?)\s+or\s+(.+)",
-        r"(.+?)か(.+?)か",
-    ]
-    for pat in patterns:
-        m = re.search(pat, t, re.IGNORECASE)
-        if not m:
+        return ([
+            {"id": "a", "label": "大学進学（学歴ルート）"},
+            {"id": "b", "label": "専門スキル直行（実務→就職）"},
+        ], 0.95)
+
+    # Generic split by conjunction-like separators.
+    seps = ["と", "、", ",", "/", " vs ", " VS ", " or ", "または", "か"]
+    candidates: list[str] = [t]
+    for sep in seps:
+        if sep in t:
+            pieces = [p.strip() for p in t.split(sep) if p.strip()]
+            if len(pieces) >= 2:
+                candidates = pieces
+                break
+    for c in candidates:
+        label = _clean_option_label(c)
+        if not label:
             continue
-        a = _clean_option_label(m.group(1))
-        b = _clean_option_label(m.group(2))
-        if a and b and a != b:
-            quality = _option_quality(a, b, q)
-            return a, b, (quality >= 0.55), quality
-    return "", "", False, 0.0
+        if label in [str(o.get("label")) for o in options]:
+            continue
+        options.append({"id": f"o{len(options)+1}", "label": label})
+        if len(options) >= max_options:
+            break
+
+    # Pattern fallback for binary phrasing.
+    if len(options) < 2:
+        patterns = [
+            r"(.+?)と(.+?)どちら",
+            r"(.+?)と(.+?)どっち",
+            r"(.+?)\s+vs\.?\s+(.+)",
+            r"(.+?)\s+[Vv][Ss]\s+(.+)",
+            r"(.+?)\s+or\s+(.+)",
+            r"(.+?)か(.+?)か",
+        ]
+        for pat in patterns:
+            m = re.search(pat, t, re.IGNORECASE)
+            if not m:
+                continue
+            a = _clean_option_label(m.group(1))
+            b = _clean_option_label(m.group(2))
+            opts = []
+            if a:
+                opts.append({"id": "a", "label": a})
+            if b and b != a:
+                opts.append({"id": "b", "label": b})
+            if len(opts) >= 2:
+                options = opts
+                break
+    quality = _options_quality(options, q)
+    return options[:max_options], quality
+
+
+def _extract_ab_options(q: str) -> tuple[str, str, bool, float]:
+    options, quality = _extract_options_nway(q, max_options=2)
+    if len(options) < 2:
+        return "", "", False, quality
+    a = str(options[0].get("label") or "")
+    b = str(options[1].get("label") or "")
+    return a, b, (quality >= 0.55), quality
 
 
 def _infer_axes(q: str) -> list[str]:
@@ -469,14 +550,14 @@ def _infer_axes(q: str) -> list[str]:
 def _is_long_horizon(q: str) -> bool:
     t = (q or "")
     q_l = t.lower()
-    return any(k in t for k in ("2030", "2035", "2040", "将来", "今後", "長期")) or any(
-        k in q_l for k in ("future", "long-term", "uncertainty", "ai")
-    )
+    if any(k in t for k in ("2030", "2035", "2040", "将来", "今後", "長期")):
+        return True
+    return any(k in q_l for k in ("future", "long-term", "uncertainty"))
 
 
 def _has_explicit_goal(q: str) -> bool:
     t = (q or "")
-    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "リスク", "合格", "勝率"))
+    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間"))
 
 
 def _facts3_from_q(q: str) -> list[str]:
@@ -518,10 +599,10 @@ def _build_v2_after(
     missing: list[str] | None = None,
 ) -> str:
     c = _canonicalize_question(q)
-    a = c["options"]["A"]
-    b = c["options"]["B"]
-    ok = bool(c["options"]["ok"])
-    option_quality = float(c["options"]["quality"])
+    options = list(c.get("options") or [])
+    option_count = int(c.get("option_count") or len(options))
+    option_quality = float(c.get("option_quality") or 0.0)
+    ok = option_count >= 2
     domain = str(c["domain"])
     domain_conf = float((c.get("domain_guess") or {}).get("confidence") or 0.0)
     user_axes = list(c.get("axes") or [])
@@ -534,18 +615,21 @@ def _build_v2_after(
             break
     long_horizon = str((c.get("horizon") or {}).get("type") or "") == "long"
     goal_defined = _has_explicit_goal(q)
+    decision_context_ok = goal_defined or (domain == "subscription_pricing" and option_count >= 3 and any(k in q for k in ("仕事", "趣味", "週", "時間")))
     missing_fields = list(c.get("missing_fields") or [])
     if not ok or option_quality < 0.55:
         fallback_axes = _prior_axes(domain)
         fallback_facts = _facts3_from_q(q)
-        fallback_scores = "\n".join([f"- {ax}: A=3 B=3" for ax in fallback_axes[:3]])
+        fallback_scores = "\n".join([f"- {ax}: 候補指定後に採点" for ax in fallback_axes[:3]])
+        listed = "\n".join([f"- {str(o.get('label') or '').strip()}" for o in options if str(o.get("label") or "").strip()])
+        if not listed:
+            listed = "- 候補を箇条書きで指定してください（最大5）"
         return (
             "OPTIONS:\n"
-            "- A: (unresolved)\n"
-            "- B: (unresolved)\n"
+            + listed + "\n"
             "MODE: HOLD\n"
             "CALL: HOLD\n"
-            "CONFIDENCE: 40%\n"
+            "CONFIDENCE: 25%\n"
             f"ΔSCORE: {int(dscore):+d}\n"
             "AXES:\n"
             + "\n".join([f"- {ax}" for ax in fallback_axes[:3]]) + "\n"
@@ -555,71 +639,82 @@ def _build_v2_after(
             + f"- {fallback_facts[0]}\n- {fallback_facts[1]}\n- {fallback_facts[2]}\n"
             + "FALSIFIER:\n- 選択肢定義が確定し次第、結論を再計算\n"
             "NEXT:\n"
-            "- 選択肢A/Bを1行で指定してください（例: A=大学進学, B=専門スキル直行）\n"
+            "- 候補を箇条書きで指定してください（最大5）\n"
             f"OUTCOME: {outcome}\n"
         )
 
-    score_map = {
-        "初期コスト": (2, 4),
-        "回収期間": (2, 4),
-        "就職確率": (3, 4),
-        "AI耐性": (4, 3),
-        "AI代替耐性": (4, 3),
-        "機会費用": (2, 4),
-        "安全性": (3, 3),
-        "継続可能性": (3, 3),
-        "コスト": (2, 4),
-        "リスク": (3, 3),
-        "地域適合": (3, 3),
-        "柔軟性": (3, 4),
-        "怪我リスク": (3, 3),
-        "費用": (2, 4),
-        "価格": (3, 2),
-        "健康効果": (4, 3),
-        "期待リターン": (3, 4),
-        "最大損失": (4, 2),
-        "流動性": (4, 3),
-        "手数料": (4, 2),
-        "税効率": (4, 3),
-        "総コスト": (2, 4),
-        "性能": (3, 4),
-        "耐久性": (3, 3),
-        "保証": (3, 3),
-        "納期": (3, 3),
-    }
-    scores: dict[str, tuple[int, int]] = {}
+    plan_options = [str(o.get("label") or "").strip() for o in options if str(o.get("label") or "").strip()]
+    option_ids = [str(o.get("id") or f"o{i+1}") for i, o in enumerate(options[:5])]
+    plan_options = plan_options[:5]
+    option_ids = option_ids[: len(plan_options)]
+    options_map = {option_ids[i]: plan_options[i] for i in range(len(plan_options))}
+
+    def _is_pricing_triplet(labels: list[str]) -> bool:
+        s = " ".join(labels).lower()
+        return ("free" in s or "無料" in s) and ("plus" in s or "プラス" in s) and ("pro" in s or "プロ" in s)
+
+    def _score_axis_option(axis: str, oid: str, label: str, idx: int, n: int) -> int:
+        ll = label.lower()
+        is_free = ("free" in ll) or ("無料" in label)
+        is_plus = "plus" in ll or "プラス" in label
+        is_pro = "pro" in ll or "プロ" in label
+        if _is_pricing_triplet(plan_options):
+            if axis in ("コスト", "初期コスト", "費用", "総コスト", "価格"):
+                if is_free:
+                    return 5
+                if is_plus:
+                    return 3
+                if is_pro:
+                    return 1
+            if axis in ("制限", "仕事適性", "期待リターン"):
+                if is_pro:
+                    return 5
+                if is_plus:
+                    return 4
+                if is_free:
+                    return 2
+            if axis in ("趣味適性", "継続性", "継続可能性"):
+                if is_plus:
+                    return 5
+                if is_pro:
+                    return 4
+                if is_free:
+                    return 3
+        # generic fallback by rank position
+        if axis in ("コスト", "初期コスト", "費用", "総コスト", "価格"):
+            return max(1, 5 - idx)
+        return max(1, 5 - abs(idx - min(1, n - 1)))
+
+    scores: dict[str, dict[str, int]] = {}
     unknown_count = 0
     for ax in axes:
-        base = score_map.get(ax, (2, 2))
-        if ax not in score_map:
+        if ax not in prior_axes and ax not in _prior_axes(domain):
             unknown_count += 1
-        a0, b0 = base
-        # Light keyword bias to avoid static scores across prompts.
-        if "学費" in q and ax in ("初期コスト", "費用", "総コスト"):
-            b0 = min(5, b0 + 1)
-        if "就職率" in q and ax == "就職確率":
-            a0, b0 = 3, 4
-        if "AI" in q and ax in ("AI耐性", "AI代替耐性"):
-            a0 = min(5, a0 + 1)
-        if "レバ" in q and ax == "期待リターン":
-            b0 = min(5, b0 + 1)
-        if "レバ" in q and ax == "最大損失":
-            a0 = min(5, a0 + 1)
-            b0 = max(0, b0 - 1)
-        scores[ax] = (a0, b0)
-    sum_a = sum(v[0] for v in scores.values())
-    sum_b = sum(v[1] for v in scores.values())
-    margin = abs(sum_a - sum_b)
-    side = "A" if sum_a > sum_b else "B"
-    if margin == 0:
-        side = recommend_side
-    rec = a if side == "A" else b
-    opp = b if side == "A" else a
+        scores[ax] = {}
+        for i, oid in enumerate(option_ids):
+            base = _score_axis_option(ax, oid, options_map[oid], i, len(option_ids))
+            if "学費" in q and ax in ("初期コスト", "費用", "総コスト") and i > 0:
+                base = min(5, base + 1)
+            if "就職率" in q and ax == "就職確率" and i > 0:
+                base = min(5, base + 1)
+            if "AI" in q and ax in ("AI耐性", "AI代替耐性") and i == 0:
+                base = min(5, base + 1)
+            if "レバ" in q and ax == "最大損失" and ("レバ" in options_map[oid].lower() or "レバ" in options_map[oid]):
+                base = max(1, base - 1)
+            scores[ax][oid] = base
+
+    totals = {oid: sum(scores[ax].get(oid, 0) for ax in axes[:5]) for oid in option_ids}
+    ranked = sorted(option_ids, key=lambda oid: totals.get(oid, 0), reverse=True)
+    top_id = ranked[0]
+    runner_id = ranked[1] if len(ranked) > 1 else ranked[0]
+    top_label = options_map[top_id]
+    runner_label = options_map[runner_id]
+    margin = max(0, totals.get(top_id, 0) - totals.get(runner_id, 0))
     is_partial = outcome.lower().startswith("partial")
-    cap = 65 if is_partial else 85
+    cap = 70 if is_partial else 80
     if long_horizon:
         cap = min(cap, 60)
-    conf_raw = max(50, min(85, 50 + 8 * margin))
+    conf_raw = max(35, min(80, 45 + 10 * margin))
     total_slots = 4
     filled_slots = 0
     if c.get("axes"):
@@ -636,30 +731,39 @@ def _build_v2_after(
     partial_penalty = 0.85 if is_partial else 1.0
     adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
     adjusted = adjusted * max(0.4, domain_conf)
-    low_floor = 40
+    adjusted = adjusted * max(0.65, 1.0 - (0.06 * max(0, option_count - 2)))
+    low_floor = 35
     if long_horizon or unknown_count > 0 or option_quality < 0.7:
         low_floor = 30
     if domain_conf < 0.55:
         low_floor = 25
     confidence = int(max(low_floor, min(cap, adjusted)))
     facts = _facts3_from_q(q)
+    if option_count >= 3:
+        facts = [f for f in facts if "比較対象=2案" not in f]
+        while len(facts) < 3:
+            facts.append("判定条件=未固定")
+        facts[2] = f"比較対象={','.join(plan_options[:3])}"
     miss_stage = ",".join(missing or []) if missing else "-"
     miss_fields = ",".join(missing_fields) if missing_fields else "-"
     lines = [
         "OPTIONS:",
-        f"- A: {a}",
-        f"- B: {b}",
     ]
+    lines.extend([f"- {label}" for label in plan_options])
+    if not plan_options:
+        lines.append("- 候補を箇条書きで指定してください（最大5）")
     if domain_conf < 0.55:
         lines.append("MODE: HOLD")
     elif long_horizon:
         lines.append("MODE: CONDITIONAL")
     else:
         lines.append("MODE: NORMAL")
-    if domain_conf < 0.55 or (long_horizon and margin <= 1) or (not goal_defined) or len(axes) < 2:
+    if domain_conf < 0.55 or (long_horizon and margin <= 1) or (not decision_context_ok) or len(axes) < 2:
         lines.append("CALL: HOLD")
     else:
-        lines.append(f"RECOMMEND: {rec} ({side})")
+        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
+        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
+        lines.append(f"WHY: {axes[0]} と {axes[min(1, len(axes)-1)]} の合計差で {top_label} が上位")
     lines.extend(
         [
             f"CONFIDENCE: {int(confidence)}%",
@@ -670,8 +774,12 @@ def _build_v2_after(
     lines.extend([f"- {ax}" for ax in axes[:5]])
     lines.append("SCORECARD:")
     for ax in axes[:5]:
-        sa, sb = scores.get(ax, (3, 3))
-        lines.append(f"- {ax}: A={sa} B={sb}")
+        row = " ".join([f"{oid}={scores.get(ax, {}).get(oid, 2)}" for oid in option_ids])
+        lines.append(f"- {ax}: {row}")
+    lines.append("AXIS_WINNERS_3:")
+    for ax in axes[:3]:
+        winner = max(option_ids, key=lambda oid: scores.get(ax, {}).get(oid, 0))
+        lines.append(f"- {ax}={winner}")
     lines.extend(
         [
             "FACTS_3:",
@@ -684,14 +792,14 @@ def _build_v2_after(
         lines.extend(
             [
                 "SCENARIOS:",
-                f"- AI加速: {rec} の優位が維持されるかを就職/収益データで検証",
-                f"- AI停滞: {opp} 側の中長期リターン再評価で結論が逆転し得る",
+                f"- AI加速: {top_label} の優位が維持されるかを検証",
+                f"- AI停滞: {runner_label} の中長期リターン再評価で逆転し得る",
             ]
         )
     lines.extend(
         [
             "FALSIFIER:",
-            f"- {_falsifier_line(domain, a, b, side)}",
+            f"- {_falsifier_line(domain, top_label, runner_label, 'A')}",
             "NEXT:",
             f"- {_next_hint_from_missing(domain, missing_fields)}",
             f"- 不足データ(stage={miss_stage}; fields={miss_fields})を1つ埋め、14日以内に再判定",
@@ -706,7 +814,7 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
     has_axes = ("AXES:" in t and "SCORECARD:" in t)
     has_falsifier = ("FALSIFIER:" in t)
     has_next = ("NEXT:" in t)
-    c1 = "比較軸を宣言し、A/Bを軸採点で可視化した（入力文脈に合わせて推定）。" if has_axes else "比較軸を固定し、A/B判定の根拠を数値化した。"
+    c1 = "比較軸を宣言し、候補を軸採点で可視化した（入力文脈に合わせて推定）。" if has_axes else "比較軸を固定し、候補判定の根拠を数値化した。"
     c2 = "反転条件（FALSIFIER）を定義し、結論が変わる条件を明確化した。" if has_falsifier else "反転条件を定義し、再判定トリガーを明確化した。"
     c3 = "次の一手（NEXT）を“取得データ/期限/閾値”で固定した。" if has_next else "次の一手を具体化し、追加データ収集の方向を固定した。"
     return [c1, c2, c3]
@@ -714,30 +822,32 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
 
 def _stepa_prompt_v2(q: str) -> str:
     c = _canonicalize_question(q)
-    a, b = c["options"]["A"], c["options"]["B"]
-    ok = bool(c["options"]["ok"])
-    quality = float(c["options"]["quality"])
+    options = list(c.get("options") or [])
+    ok = (int(c.get("option_count") or len(options)) >= 2)
+    quality = float(c.get("option_quality") or 0.0)
+    option_hint = ", ".join([str(o.get("label") or "").strip() for o in options if str(o.get("label") or "").strip()][:5]) or "(need options list)"
     long_hint = str((c.get("horizon") or {}).get("type") or "") == "long"
     domain = str(c["domain"])
     domain_conf = float((c.get("domain_guess") or {}).get("confidence") or 0.0)
     return (
         "Produce a decision-first answer in EXACT sections below.\n"
         "No extra sections. Keep concise and concrete.\n\n"
-        "OPTIONS:\n- A: <label>\n- B: <label>\n"
-        "If options cannot be extracted, do NOT output RECOMMEND; output CALL: HOLD and NEXT only.\n"
+        "OPTIONS:\n- <option 1>\n- <option 2> ... (max 5)\n"
+        "If options cannot be extracted, do NOT output recommendation; output MODE/CALL HOLD and NEXT only.\n"
         "Do not emit long sentence fragments as options.\n"
-        "RECOMMEND: choose one side strictly as A or B and include label text\n"
+        "RECOMMEND_TOP: top1 option\n"
+        "RECOMMEND_RUNNER_UP: second best option\n"
         "CALL: HOLD is allowed when uncertainty is high or options unresolved\n"
         "CONFIDENCE: integer 0-100 with %\n"
         "ΔSCORE: signed integer -100..+100\n"
         "AXES:\n- infer 3-5 axes from input domain\n"
-        "SCORECARD:\n- <axis>: A=x B=y\n"
+        "SCORECARD:\n- <axis>: <option_id>=x ...\n"
         "FACTS_3:\n- fact 1 from input\n- fact 2 from input\n- fact 3 from input\n"
         "SCENARIOS: only when long-horizon/future uncertainty appears\n"
         "FALSIFIER:\n- one concrete condition that flips conclusion\n"
         "NEXT:\n- one concrete next action with source/deadline/threshold\n\n"
         f"Input question: {q}\n"
-        f"Options hint: A={a if ok else '(unresolved)'}, B={b if ok else '(unresolved)'}\n"
+        f"Options hint: {option_hint}\n"
         f"Options quality hint: {quality:.2f}\n"
         f"Canonical axes hint: {json.dumps(c.get('axes') or [], ensure_ascii=False)}\n"
         f"Canonical metrics hint: {json.dumps(c.get('metrics') or [], ensure_ascii=False)}\n"
@@ -825,13 +935,13 @@ def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
         return False
     if "OPTIONS:" not in t or "NEXT:" not in t:
         return False
-    unresolved = ("- A: (unresolved)" in t and "- B: (unresolved)" in t)
-    if unresolved:
-        return ("CALL: HOLD" in t and "NEXT:" in t and len(t.splitlines()) >= 5)
+    if "(unresolved)" in t:
+        return False
     required = ("CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:", "NEXT:")
     if not all(k in t for k in required):
         return False
-    if not (("RECOMMEND:" in t) or ("CALL: HOLD" in t)):
+    has_recommend = ("RECOMMEND:" in t) or ("RECOMMEND_TOP:" in t and "RECOMMEND_RUNNER_UP:" in t)
+    if not (has_recommend or ("CALL: HOLD" in t)):
         return False
     if "MODE: CONDITIONAL" in t and "SCENARIOS:" not in t:
         return False

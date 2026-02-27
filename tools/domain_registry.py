@@ -31,6 +31,16 @@ DOMAIN_REGISTRY: dict[str, dict] = {
         "next_question_candidates": ["予算上限は？", "最重要用途は？", "納期制約は？"],
         "banned_axes": [],
     },
+    "subscription_pricing": {
+        "keywords": ["無料", "free", "plus", "Plus", "pro", "Pro", "プラン", "サブスク", "料金", "課金"],
+        "axes_candidates": ["コスト", "制限", "仕事適性", "趣味適性", "継続性"],
+        "falsifier_templates": [
+            "仕事利用の比率が高いならProへ反転",
+            "予算上限を超えるならfree/plusへ反転",
+        ],
+        "next_question_candidates": ["予算上限は？", "仕事利用の比率は？", "待ち時間許容は？"],
+        "banned_axes": [],
+    },
     "fitness": {
         "keywords": ["運動", "筋トレ", "体脂肪", "減量", "増量", "ランニング", "持久力"],
         "axes_candidates": ["効果", "ケガリスク", "継続可能性", "時間コスト", "費用"],

@@ -471,8 +471,8 @@
     const lines = src.split("\n").map(s => s.trim()).filter(Boolean);
     const picks = [];
     for (const s of lines){
-      if (/^(CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)/i.test(s)){
-        picks.push(s.replace(/^(CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)\s*/i, ""));
+      if (/^(RECOMMEND_TOP:|RECOMMEND_RUNNER_UP:|CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)/i.test(s)){
+        picks.push(s.replace(/^(RECOMMEND_TOP:|RECOMMEND_RUNNER_UP:|CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)\s*/i, ""));
       } else if (s.startsWith("- ")) {
         picks.push(s.replace(/^-+\s*/, ""));
       }
@@ -501,6 +501,9 @@
     }
     if (d === "investing"){
       return "投資期間 / 許容DD / 目的（増やすor守る）を追加入力すると精度が上がります。";
+    }
+    if (d === "subscription_pricing"){
+      return "予算上限 / 仕事利用比率 / 待ち時間許容 を追加入力すると精度が上がります。";
     }
     if (stages.includes("expand") || stages.includes("diff")) return "優先軸と閾値(%)を追加入力すると深掘り精度が上がります。";
     return "目的指標・優先軸・期限を追加入力すると精度が上がります。";
