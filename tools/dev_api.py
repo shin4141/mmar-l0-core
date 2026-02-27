@@ -84,6 +84,10 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["missing_fields"] = meta["missing_fields"]
                 if isinstance(meta.get("domain"), str):
                     payload["domain"] = meta["domain"]
+                if isinstance(meta.get("domain_guess"), dict):
+                    payload["domain_guess"] = meta["domain_guess"]
+                if isinstance(meta.get("domain_confidence"), (float, int)):
+                    payload["domain_confidence"] = float(meta["domain_confidence"])
                 if isinstance(meta.get("judgment_point_changes"), list):
                     payload["judgment_point_changes"] = meta["judgment_point_changes"]
                 if isinstance(meta.get("timings"), dict):

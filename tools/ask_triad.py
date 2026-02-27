@@ -4,6 +4,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))  # providers import safety
+sys.path.insert(0, str(REPO / "tools"))
+from domain_registry import get_domain_spec, guess_domain
 
 INCOMING = REPO / "incoming"
 INCOMING.mkdir(exist_ok=True)
@@ -241,14 +243,7 @@ def _clean_option_label(raw: str) -> str:
 
 
 def _detect_domain(q: str) -> str:
-    t = (q or "")
-    if any(k in t for k in ("大学", "進学", "学費", "就職", "就職率", "専門", "資格", "AI", "2030", "2035", "2040")):
-        return "education_career"
-    if any(k in t for k in ("りんご", "納豆", "食", "栄養", "カロリー", "血糖")):
-        return "food"
-    if any(k in t for k in ("野球", "サッカー", "テニス", "スポーツ", "運動")):
-        return "sports"
-    return "general"
+    return str((guess_domain(q or "") or {}).get("name") or "general")
 
 
 def _extract_user_axes(q: str) -> list[str]:
@@ -266,6 +261,8 @@ def _extract_user_axes(q: str) -> list[str]:
         ("機会費用", "機会費用"),
         ("時間", "機会費用"),
         ("リスク", "リスク"),
+        ("地域", "地域適合"),
+        ("地域適合", "地域適合"),
         ("柔軟性", "柔軟性"),
         ("健康", "健康効果"),
         ("栄養", "健康効果"),
@@ -278,6 +275,9 @@ def _extract_user_axes(q: str) -> list[str]:
     for k, axis in ordered:
         if k in t and axis not in out:
             out.append(axis)
+    domain = _detect_domain(t)
+    banned = set(get_domain_spec(domain).get("banned_axes", []))
+    out = [a for a in out if a not in banned]
     return out[:5]
 
 
@@ -309,7 +309,9 @@ def _extract_constraints(q: str) -> dict:
 
 
 def _canonicalize_question(q: str) -> dict:
-    domain = _detect_domain(q)
+    g = guess_domain(q or "")
+    domain = str(g.get("name") or "general")
+    domain_conf = float(g.get("confidence") or 0.0)
     a, b, ok, quality = _extract_ab_options(q)
     user_axes = _extract_user_axes(q)
     metrics = _extract_metrics(q)
@@ -323,7 +325,9 @@ def _canonicalize_question(q: str) -> dict:
         except Exception:
             year = None
     missing_fields: list[str] = []
-    if domain == "education_career":
+    if domain_conf < 0.55:
+        missing_fields.extend(["goal_metric", "priority_axis"])
+    elif domain == "education_career":
         if not any(k in (q or "") for k in ("職種", "志望職", "就きたい")):
             missing_fields.append("job_type")
         if not constraints.get("budget"):
@@ -345,23 +349,22 @@ def _canonicalize_question(q: str) -> dict:
         "constraints": constraints,
         "horizon": {"type": "long" if long_horizon else "normal", "year": year},
         "domain": domain,
+        "domain_guess": {"name": domain, "confidence": domain_conf},
         "missing_fields": missing_fields,
     }
 
 
 def _prior_axes(domain: str) -> list[str]:
-    if domain == "education_career":
-        return ["初期コスト", "回収期間", "就職確率", "AI代替耐性", "柔軟性"]
-    if domain == "sports":
-        return ["怪我リスク", "費用", "継続可能性"]
-    if domain == "food":
-        return ["健康効果", "価格", "継続可能性"]
-    return ["コスト", "リスク", "柔軟性"]
+    return list(get_domain_spec(domain).get("axes_candidates", ["コスト", "リスク", "柔軟性"]))[:5]
 
 
 def _next_hint_from_missing(domain: str, missing_fields: list[str]) -> str:
+    spec = get_domain_spec(domain)
     if not missing_fields:
-        return "不足データを1つ埋め、14日以内に再判定"
+        cands = list(spec.get("next_question_candidates", []))
+        return cands[0] if cands else "不足データを1つ埋め、14日以内に再判定"
+    if "goal_metric" in missing_fields or "priority_axis" in missing_fields:
+        return "目的/優先軸を1つ選択（例: 収益/リスク/楽しさ/健康/学費/就職）"
     if domain == "education_career":
         if "job_type" in missing_fields:
             return "志望職種を1つ固定し、職種別の就職率を取得"
@@ -375,6 +378,16 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str]) -> str:
         if "target_metric" in missing_fields:
             return "目的指標（血糖/体重/便通など）を1つ選択"
     return "目的指標を1つ固定し、再判定条件を明確化"
+
+
+def _falsifier_line(domain: str, a_label: str, b_label: str, side: str) -> str:
+    spec = get_domain_spec(domain)
+    templates = list(spec.get("falsifier_templates", []))
+    if templates:
+        t = templates[0].replace("A", a_label).replace("B", b_label)
+        return t
+    opp = b_label if side == "A" else a_label
+    return f"{opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転"
 
 
 def _option_quality(a: str, b: str, q: str) -> float:
@@ -510,17 +523,31 @@ def _build_v2_after(
     ok = bool(c["options"]["ok"])
     option_quality = float(c["options"]["quality"])
     domain = str(c["domain"])
+    domain_conf = float((c.get("domain_guess") or {}).get("confidence") or 0.0)
     user_axes = list(c.get("axes") or [])
     axes = user_axes[:] if user_axes else _prior_axes(domain)
     long_horizon = str((c.get("horizon") or {}).get("type") or "") == "long"
     goal_defined = _has_explicit_goal(q)
     missing_fields = list(c.get("missing_fields") or [])
     if not ok or option_quality < 0.55:
+        fallback_axes = _prior_axes(domain)
+        fallback_facts = _facts3_from_q(q)
+        fallback_scores = "\n".join([f"- {ax}: A=3 B=3" for ax in fallback_axes[:3]])
         return (
             "OPTIONS:\n"
             "- A: (unresolved)\n"
             "- B: (unresolved)\n"
+            "MODE: HOLD\n"
             "CALL: HOLD\n"
+            "CONFIDENCE: 40%\n"
+            f"ΔSCORE: {int(dscore):+d}\n"
+            "AXES:\n"
+            + "\n".join([f"- {ax}" for ax in fallback_axes[:3]]) + "\n"
+            + "SCORECARD:\n"
+            + fallback_scores + "\n"
+            + "FACTS_3:\n"
+            + f"- {fallback_facts[0]}\n- {fallback_facts[1]}\n- {fallback_facts[2]}\n"
+            + "FALSIFIER:\n- 選択肢定義が確定し次第、結論を再計算\n"
             "NEXT:\n"
             "- 選択肢A/Bを1行で指定してください（例: A=大学進学, B=専門スキル直行）\n"
             f"OUTCOME: {outcome}\n"
@@ -537,6 +564,7 @@ def _build_v2_after(
         "継続可能性": (3, 3),
         "コスト": (2, 4),
         "リスク": (3, 3),
+        "地域適合": (3, 3),
         "柔軟性": (3, 4),
         "怪我リスク": (3, 3),
         "費用": (2, 4),
@@ -570,6 +598,7 @@ def _build_v2_after(
     evidence_completeness = max(0.5, min(1.0, filled_slots / float(total_slots)))
     partial_penalty = 0.85 if is_partial else 1.0
     adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
+    adjusted = adjusted * max(0.4, domain_conf)
     confidence = int(max(40, min(cap, adjusted)))
     facts = _facts3_from_q(q)
     miss_stage = ",".join(missing or []) if missing else "-"
@@ -579,9 +608,13 @@ def _build_v2_after(
         f"- A: {a}",
         f"- B: {b}",
     ]
-    if long_horizon:
+    if domain_conf < 0.55:
+        lines.append("MODE: HOLD")
+    elif long_horizon:
         lines.append("MODE: CONDITIONAL")
-    if (long_horizon and margin <= 1) or (not goal_defined) or len(axes) < 2:
+    else:
+        lines.append("MODE: NORMAL")
+    if domain_conf < 0.55 or (long_horizon and margin <= 1) or (not goal_defined) or len(axes) < 2:
         lines.append("CALL: HOLD")
     else:
         lines.append(f"RECOMMEND: {rec} ({side})")
@@ -616,7 +649,7 @@ def _build_v2_after(
     lines.extend(
         [
             "FALSIFIER:",
-            f"- {opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転",
+            f"- {_falsifier_line(domain, a, b, side)}",
             "NEXT:",
             f"- {_next_hint_from_missing(domain, missing_fields)}",
             f"- 不足データ(stage={miss_stage}; fields={miss_fields})を1つ埋め、14日以内に再判定",
@@ -644,6 +677,7 @@ def _stepa_prompt_v2(q: str) -> str:
     quality = float(c["options"]["quality"])
     long_hint = str((c.get("horizon") or {}).get("type") or "") == "long"
     domain = str(c["domain"])
+    domain_conf = float((c.get("domain_guess") or {}).get("confidence") or 0.0)
     return (
         "Produce a decision-first answer in EXACT sections below.\n"
         "No extra sections. Keep concise and concrete.\n\n"
@@ -668,6 +702,7 @@ def _stepa_prompt_v2(q: str) -> str:
         f"Canonical constraints hint: {json.dumps(c.get('constraints') or {}, ensure_ascii=False)}\n"
         f"Missing fields hint: {json.dumps(c.get('missing_fields') or [], ensure_ascii=False)}\n"
         f"Domain hint: {domain}\n"
+        f"Domain confidence hint: {domain_conf:.2f}\n"
         f"Long horizon hint: {'yes' if long_hint else 'no'}\n"
     )
 
@@ -1067,6 +1102,7 @@ def main():
         c1 = "- Counter: 比較軸を固定しないと結論が揺らぐ"
         c2 = "- Counter: 反転条件を事前定義しないと再現性が落ちる"
     canonical = _canonicalize_question(q)
+    domain_guess = canonical.get("domain_guess") or {}
     if think_mode:
         master = _append_decision_sections(master, q)
 
@@ -1244,6 +1280,8 @@ def main():
         "=== DEEP META ===\n"
         f"deep_status: {deep_status}\n"
         f"domain: {canonical.get('domain')}\n"
+        f"domain_guess: {json.dumps(domain_guess, ensure_ascii=False)}\n"
+        f"domain_confidence: {float(domain_guess.get('confidence') or 0.0):.2f}\n"
         f"missing_fields: {json.dumps(canonical.get('missing_fields') or [], ensure_ascii=False)}\n"
         f"fallback_reason_primary: {fallback_reason_primary or '-'}\n"
         f"fallback_reason_secondary: {json.dumps(fallback_reason_secondary, ensure_ascii=False)}\n"
@@ -1260,6 +1298,8 @@ def main():
             {
                 "deep_status": deep_status,
                 "domain": canonical.get("domain"),
+                "domain_guess": domain_guess,
+                "domain_confidence": float(domain_guess.get("confidence") or 0.0),
                 "missing_fields": canonical.get("missing_fields") or [],
                 "fallback_reason": fallback_reason_primary or "",
                 "fallback_reason_primary": fallback_reason_primary or "",
