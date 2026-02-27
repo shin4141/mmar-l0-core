@@ -525,7 +525,13 @@ def _build_v2_after(
     domain = str(c["domain"])
     domain_conf = float((c.get("domain_guess") or {}).get("confidence") or 0.0)
     user_axes = list(c.get("axes") or [])
-    axes = user_axes[:] if user_axes else _prior_axes(domain)
+    prior_axes = _prior_axes(domain)
+    axes = user_axes[:]
+    for ax in prior_axes:
+        if ax not in axes:
+            axes.append(ax)
+        if len(axes) >= 5:
+            break
     long_horizon = str((c.get("horizon") or {}).get("type") or "") == "long"
     goal_defined = _has_explicit_goal(q)
     missing_fields = list(c.get("missing_fields") or [])
@@ -570,8 +576,37 @@ def _build_v2_after(
         "費用": (2, 4),
         "価格": (3, 2),
         "健康効果": (4, 3),
+        "期待リターン": (3, 4),
+        "最大損失": (4, 2),
+        "流動性": (4, 3),
+        "手数料": (4, 2),
+        "税効率": (4, 3),
+        "総コスト": (2, 4),
+        "性能": (3, 4),
+        "耐久性": (3, 3),
+        "保証": (3, 3),
+        "納期": (3, 3),
     }
-    scores: dict[str, tuple[int, int]] = {ax: score_map.get(ax, (3, 3)) for ax in axes}
+    scores: dict[str, tuple[int, int]] = {}
+    unknown_count = 0
+    for ax in axes:
+        base = score_map.get(ax, (2, 2))
+        if ax not in score_map:
+            unknown_count += 1
+        a0, b0 = base
+        # Light keyword bias to avoid static scores across prompts.
+        if "学費" in q and ax in ("初期コスト", "費用", "総コスト"):
+            b0 = min(5, b0 + 1)
+        if "就職率" in q and ax == "就職確率":
+            a0, b0 = 3, 4
+        if "AI" in q and ax in ("AI耐性", "AI代替耐性"):
+            a0 = min(5, a0 + 1)
+        if "レバ" in q and ax == "期待リターン":
+            b0 = min(5, b0 + 1)
+        if "レバ" in q and ax == "最大損失":
+            a0 = min(5, a0 + 1)
+            b0 = max(0, b0 - 1)
+        scores[ax] = (a0, b0)
     sum_a = sum(v[0] for v in scores.values())
     sum_b = sum(v[1] for v in scores.values())
     margin = abs(sum_a - sum_b)
@@ -596,10 +631,17 @@ def _build_v2_after(
     if goal_defined:
         filled_slots += 1
     evidence_completeness = max(0.5, min(1.0, filled_slots / float(total_slots)))
+    if unknown_count > 0:
+        evidence_completeness = max(0.45, evidence_completeness - 0.1 * min(2, unknown_count))
     partial_penalty = 0.85 if is_partial else 1.0
     adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
     adjusted = adjusted * max(0.4, domain_conf)
-    confidence = int(max(40, min(cap, adjusted)))
+    low_floor = 40
+    if long_horizon or unknown_count > 0 or option_quality < 0.7:
+        low_floor = 30
+    if domain_conf < 0.55:
+        low_floor = 25
+    confidence = int(max(low_floor, min(cap, adjusted)))
     facts = _facts3_from_q(q)
     miss_stage = ",".join(missing or []) if missing else "-"
     miss_fields = ",".join(missing_fields) if missing_fields else "-"
@@ -1172,6 +1214,7 @@ def main():
         else:
             # StepB is optional: keep StepA(master) as default and enrich only if budget remains.
             out = master if tab == "expand" else ""
+            master_after = master if tab == "expand" else ""
             do_stepb = remaining_s() >= 18.0
             if do_stepb:
                 prompt = tab_prompt(tab, q, seed, c1, c2, master, turn_after)
@@ -1188,9 +1231,11 @@ def main():
             if tab == "expand" and not _is_valid_after_full(out):
                 if deep_status == "ok":
                     deep_status = "partial"
-                add_secondary_reason("validator_mismatch")
-                out = build_after_partial(q, seed, c1, c2, master)
-                lite_used = True
+                mark_missing("expand")
+                add_secondary_reason("expand_invalid_kept_master")
+                # Sticky StepA: keep master result instead of replacing with generic partial text.
+                out = master_after if _is_valid_after_full(master_after) else build_after_partial(q, seed, c1, c2, master)
+                lite_used = not _is_valid_after_full(master_after)
             elif tab == "expand" and do_stepb:
                 out = out.rstrip() + "\n(full)\n"
             if tab == "expand":
@@ -1224,7 +1269,9 @@ def main():
     if TAB_FILES.get("expand") and Path(TAB_FILES["expand"]).exists():
         expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
     if _is_pure_dummy(expand_txt):
-        if seed.strip() or c1.strip() or c2.strip() or master.strip():
+        if _is_valid_after_full(master):
+            expand_txt = master.strip()
+        elif seed.strip() or c1.strip() or c2.strip() or master.strip():
             expand_txt = build_after_partial(q, seed, c1, c2, master).strip()
         else:
             expand_txt = _ensure_deep_after_sections(
