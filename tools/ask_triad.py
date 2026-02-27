@@ -579,18 +579,39 @@ def _has_external_evidence(q: str) -> bool:
 
 def _has_explicit_goal(q: str) -> bool:
     t = (q or "")
-    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間"))
+    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "安全", "治安"))
 
 
 def _facts3_from_q(q: str) -> list[str]:
     t = " ".join((q or "").split())
     facts: list[str] = []
+    m_pair = re.search(r"(.+?)と(.+?)(どちら|どっち)", t)
+    if m_pair:
+        p1 = _clean_option_label(m_pair.group(1))
+        p2 = _clean_option_label(m_pair.group(2))
+        if p1 and p2 and p1 != p2:
+            facts.append(f"比較対象={p1}/{p2}")
+    if "野球" in t and "サッカー" in t:
+        facts.append("比較対象=野球/サッカー")
+    m_hours = re.search(r"週\s*([0-9０-９]+)\s*時間", t)
+    if m_hours:
+        facts.append(f"利用時間=週{m_hours.group(1)}時間")
     m_period = re.search(r"(\d+\s*年)", t)
     if m_period:
         facts.append(f"期間={m_period.group(1)}")
     m_year = re.search(r"(20\d{2})", t)
     if m_year:
         facts.append(f"対象年={m_year.group(1)}")
+    if "来月" in t:
+        facts.append("時期=来月")
+    if "一人" in t:
+        facts.append("同行条件=一人")
+    if "仕事" in t and "趣味" in t:
+        facts.append("用途=仕事+趣味")
+    elif "仕事" in t:
+        facts.append("用途=仕事")
+    elif "趣味" in t:
+        facts.append("用途=趣味")
     if "男性" in t:
         facts.append("対象=男性")
     elif "女性" in t:
@@ -605,11 +626,30 @@ def _facts3_from_q(q: str) -> list[str]:
         facts.append("頻度=毎日")
     if "効果" in t:
         facts.append("目的=効果比較")
+    # Extract concrete tokens from input to avoid generic placeholder facts.
+    tokens = re.findall(r"[A-Za-z0-9０-９一-龠ぁ-んァ-ヴー]{2,12}", t)
+    for tk in tokens:
+        if len(facts) >= 3:
+            break
+        if tk in ("どちら", "どっち", "相応しい", "比較", "プラン"):
+            continue
+        candidate = f"入力語={tk}"
+        if candidate not in facts:
+            facts.append(candidate)
     if not facts:
-        facts.append(f"問い={t[:60]}")
+        facts.append("入力語=比較")
+    dedup: list[str] = []
+    for f in facts:
+        if f not in dedup:
+            dedup.append(f)
+    facts = dedup
+    fillers = ["入力語=比較", "入力語=目的", "入力語=条件"]
+    i = 0
     while len(facts) < 3:
-        defaults = ["比較対象=2案", "判定条件=未固定", "追加データで更新可能"]
-        facts.append(defaults[len(facts) - 1])
+        add = fillers[i % len(fillers)]
+        if add not in facts:
+            facts.append(add)
+        i += 1
     return facts[:3]
 
 
@@ -637,7 +677,11 @@ def _build_v2_after(
             break
     long_horizon = str((c.get("horizon") or {}).get("type") or "") == "long"
     goal_defined = _has_explicit_goal(q)
-    decision_context_ok = goal_defined or (domain == "subscription_pricing" and option_count >= 3 and any(k in q for k in ("仕事", "趣味", "週", "時間")))
+    decision_context_ok = goal_defined or (
+        domain == "subscription_pricing" and option_count >= 3 and any(k in q for k in ("仕事", "趣味", "週", "時間"))
+    ) or (
+        domain == "travel_safety" and option_count >= 2 and any(k in q for k in ("来月", "一人", "費用", "安全", "治安"))
+    )
     missing_fields = list(c.get("missing_fields") or [])
     if not ok or option_quality < 0.55:
         fallback_axes = _prior_axes(domain)
@@ -736,7 +780,7 @@ def _build_v2_after(
     cap = 70 if is_partial else 80
     if long_horizon:
         cap = min(cap, 60)
-    conf_raw = max(35, min(80, 45 + 10 * margin))
+    conf_raw = max(35, min(85, 55 + 8 * margin))
     total_slots = 4
     filled_slots = 0
     if c.get("axes"):
@@ -754,17 +798,27 @@ def _build_v2_after(
     facts_quality = 1.0 if any("期間=" in f or "対象年=" in f or "論点=" in f or "比較対象=" in f for f in _facts3_from_q(q)) else 0.6
     external_evidence_needed = (domain == "travel_safety")
     has_external_evidence = _has_external_evidence(q)
-    basis_ok = (option_quality >= 0.55 and axes_quality >= 0.6 and facts_quality >= 0.6 and (not external_evidence_needed or has_external_evidence))
-    partial_penalty = 0.85 if is_partial else 1.0
-    adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
-    adjusted = adjusted * max(0.4, domain_conf)
-    adjusted = adjusted * max(0.65, 1.0 - (0.06 * max(0, option_count - 2)))
-    low_floor = 35
+    basis_ok = (option_quality >= 0.55 and axes_quality >= 0.6 and facts_quality >= 0.6)
+    partial_penalty = 10 if is_partial else 0
+    unknown_penalty = min(15, unknown_count * 5)
+    domain_penalty = int(round(max(0.0, 0.7 - domain_conf) * 20))
+    evidence_penalty = 12 if (external_evidence_needed and not has_external_evidence) else 0
+    nway_penalty = max(0, option_count - 2) * 3
+    adjusted = conf_raw - partial_penalty - unknown_penalty - domain_penalty - evidence_penalty - nway_penalty
+    adjusted = adjusted + int(round((evidence_completeness - 0.5) * 20))
+    low_floor = 40 if basis_ok else 30
     if long_horizon or unknown_count > 0 or option_quality < 0.7:
         low_floor = 30
     if domain_conf < 0.55:
         low_floor = 25
+    if external_evidence_needed and not has_external_evidence:
+        low_floor = max(25, low_floor - 5)
     confidence = int(max(low_floor, min(cap, adjusted)))
+    likely_hold = (
+        domain_conf < 0.55 or (long_horizon and margin <= 1) or (not decision_context_ok) or len(axes) < 2 or (not basis_ok)
+    )
+    if likely_hold:
+        confidence = min(confidence, 55)
     facts = _facts3_from_q(q)
     if option_count >= 3:
         facts = [f for f in facts if "比較対象=2案" not in f]
@@ -782,17 +836,29 @@ def _build_v2_after(
     if domain_conf < 0.55:
         lines.append("MODE: HOLD")
     elif external_evidence_needed and not has_external_evidence:
-        lines.append("MODE: HOLD")
+        lines.append("MODE: CONDITIONAL")
     elif long_horizon:
         lines.append("MODE: CONDITIONAL")
     else:
         lines.append("MODE: NORMAL")
-    if (not basis_ok) or domain_conf < 0.55 or (long_horizon and margin <= 1) or (not decision_context_ok) or len(axes) < 2:
+    can_conditional_proceed = (
+        option_quality >= 0.55 and len(axes) >= 3 and facts_quality >= 0.6 and decision_context_ok
+    )
+    if domain_conf < 0.55 or len(axes) < 2:
+        lines.append("CALL: HOLD")
+    elif external_evidence_needed and not has_external_evidence and can_conditional_proceed:
+        lines.append("CALL: PROCEED_WITH_CONDITIONS")
+        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
+        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
+        lines.append(f"WHY_TOP2: 1) {axes[0]} で {top_label} が優位 2) {axes[min(1, len(axes)-1)]} で差が出る")
+        lines.append(f"WHY_GAP: 1位と2位の合計差={margin}（都市/夜移動条件で反転余地）")
+    elif (not basis_ok) or (long_horizon and margin <= 1) or (not decision_context_ok):
         lines.append("CALL: HOLD")
     else:
         lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
         lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
-        lines.append(f"WHY: {axes[0]} と {axes[min(1, len(axes)-1)]} の合計差で {top_label} が上位")
+        lines.append(f"WHY_TOP2: 1) {axes[0]} で {top_label} が優位 2) {axes[min(1, len(axes)-1)]} で差が出る")
+        lines.append(f"WHY_GAP: 1位と2位の合計差={margin}")
     lines.extend(
         [
             f"CONFIDENCE: {int(confidence)}%",
