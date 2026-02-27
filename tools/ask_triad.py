@@ -251,6 +251,132 @@ def _detect_domain(q: str) -> str:
     return "general"
 
 
+def _extract_user_axes(q: str) -> list[str]:
+    t = (q or "")
+    ordered: list[tuple[str, str]] = [
+        ("学費", "初期コスト"),
+        ("予算", "初期コスト"),
+        ("回収期間", "回収期間"),
+        ("就職率", "就職確率"),
+        ("就職", "就職確率"),
+        ("収入", "就職確率"),
+        ("年収", "就職確率"),
+        ("AI", "AI代替耐性"),
+        ("陳腐化", "AI代替耐性"),
+        ("機会費用", "機会費用"),
+        ("時間", "機会費用"),
+        ("リスク", "リスク"),
+        ("柔軟性", "柔軟性"),
+        ("健康", "健康効果"),
+        ("栄養", "健康効果"),
+        ("価格", "価格"),
+        ("費用", "費用"),
+        ("継続", "継続可能性"),
+        ("怪我", "怪我リスク"),
+    ]
+    out: list[str] = []
+    for k, axis in ordered:
+        if k in t and axis not in out:
+            out.append(axis)
+    return out[:5]
+
+
+def _extract_metrics(q: str) -> list[str]:
+    t = (q or "")
+    m: list[str] = []
+    if "就職率" in t:
+        m.append("就職率")
+    if "回収期間" in t:
+        m.append("回収期間")
+    if "年収" in t or "収入" in t:
+        m.append("収入見込み")
+    if "効果" in t:
+        m.append("効果指標")
+    return m[:3]
+
+
+def _extract_constraints(q: str) -> dict:
+    t = (q or "")
+    budget = None
+    deadline = None
+    m_budget = re.search(r"(予算|学費上限)\s*[:：]?\s*([0-9０-９]+[万円円]?)", t)
+    if m_budget:
+        budget = m_budget.group(2)
+    m_deadline = re.search(r"(期限|まで)\s*[:：]?\s*([0-9０-９]+(日|ヶ月|か月|年))", t)
+    if m_deadline:
+        deadline = m_deadline.group(2)
+    return {"budget": budget, "deadline": deadline}
+
+
+def _canonicalize_question(q: str) -> dict:
+    domain = _detect_domain(q)
+    a, b, ok, quality = _extract_ab_options(q)
+    user_axes = _extract_user_axes(q)
+    metrics = _extract_metrics(q)
+    constraints = _extract_constraints(q)
+    long_horizon = _is_long_horizon(q)
+    year = None
+    m_year = re.search(r"(20\d{2})", q or "")
+    if m_year:
+        try:
+            year = int(m_year.group(1))
+        except Exception:
+            year = None
+    missing_fields: list[str] = []
+    if domain == "education_career":
+        if not any(k in (q or "") for k in ("職種", "志望職", "就きたい")):
+            missing_fields.append("job_type")
+        if not constraints.get("budget"):
+            missing_fields.append("budget_cap")
+        if not constraints.get("deadline"):
+            missing_fields.append("deadline")
+    elif domain == "food":
+        if not any(k in (q or "") for k in ("摂取量", "量")):
+            missing_fields.append("intake_amount")
+        if not any(k in (q or "") for k in ("目的", "効果", "血糖", "体重")):
+            missing_fields.append("target_metric")
+    else:
+        if not _has_explicit_goal(q):
+            missing_fields.append("goal_metric")
+    return {
+        "options": {"A": a, "B": b, "ok": ok, "quality": quality},
+        "axes": user_axes,
+        "metrics": metrics,
+        "constraints": constraints,
+        "horizon": {"type": "long" if long_horizon else "normal", "year": year},
+        "domain": domain,
+        "missing_fields": missing_fields,
+    }
+
+
+def _prior_axes(domain: str) -> list[str]:
+    if domain == "education_career":
+        return ["初期コスト", "回収期間", "就職確率", "AI代替耐性", "柔軟性"]
+    if domain == "sports":
+        return ["怪我リスク", "費用", "継続可能性"]
+    if domain == "food":
+        return ["健康効果", "価格", "継続可能性"]
+    return ["コスト", "リスク", "柔軟性"]
+
+
+def _next_hint_from_missing(domain: str, missing_fields: list[str]) -> str:
+    if not missing_fields:
+        return "不足データを1つ埋め、14日以内に再判定"
+    if domain == "education_career":
+        if "job_type" in missing_fields:
+            return "志望職種を1つ固定し、職種別の就職率を取得"
+        if "budget_cap" in missing_fields:
+            return "学費上限を金額で指定し、回収期間を再計算"
+        if "deadline" in missing_fields:
+            return "意思決定期限を日付で固定し、比較条件を確定"
+    if domain == "food":
+        if "intake_amount" in missing_fields:
+            return "1日の摂取量を数値で指定し、比較を再実行"
+        if "target_metric" in missing_fields:
+            return "目的指標（血糖/体重/便通など）を1つ選択"
+    return "目的指標を1つ固定し、再判定条件を明確化"
+
+
 def _option_quality(a: str, b: str, q: str) -> float:
     if not a or not b or a == b:
         return 0.0
@@ -378,11 +504,17 @@ def _build_v2_after(
     outcome: str,
     missing: list[str] | None = None,
 ) -> str:
-    a, b, ok, option_quality = _extract_ab_options(q)
-    domain = _detect_domain(q)
-    axes = _infer_axes(q)
-    long_horizon = _is_long_horizon(q)
+    c = _canonicalize_question(q)
+    a = c["options"]["A"]
+    b = c["options"]["B"]
+    ok = bool(c["options"]["ok"])
+    option_quality = float(c["options"]["quality"])
+    domain = str(c["domain"])
+    user_axes = list(c.get("axes") or [])
+    axes = user_axes[:] if user_axes else _prior_axes(domain)
+    long_horizon = str((c.get("horizon") or {}).get("type") or "") == "long"
     goal_defined = _has_explicit_goal(q)
+    missing_fields = list(c.get("missing_fields") or [])
     if not ok or option_quality < 0.55:
         return (
             "OPTIONS:\n"
@@ -425,26 +557,23 @@ def _build_v2_after(
     if long_horizon:
         cap = min(cap, 60)
     conf_raw = max(50, min(85, 50 + 8 * margin))
-    evidence_completeness = 0.65
-    if domain == "education_career":
-        if "学費" in q:
-            evidence_completeness += 0.1
-        if "就職" in q:
-            evidence_completeness += 0.1
-        if "AI" in q:
-            evidence_completeness += 0.1
-    elif domain == "food":
-        if any(k in q for k in ("効果", "血糖", "栄養", "体重")):
-            evidence_completeness += 0.15
-    else:
-        if _has_explicit_goal(q):
-            evidence_completeness += 0.15
-    evidence_completeness = max(0.5, min(1.0, evidence_completeness))
+    total_slots = 4
+    filled_slots = 0
+    if c.get("axes"):
+        filled_slots += 1
+    if c.get("metrics"):
+        filled_slots += 1
+    if (c.get("constraints") or {}).get("budget") or (c.get("constraints") or {}).get("deadline"):
+        filled_slots += 1
+    if goal_defined:
+        filled_slots += 1
+    evidence_completeness = max(0.5, min(1.0, filled_slots / float(total_slots)))
     partial_penalty = 0.85 if is_partial else 1.0
     adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
     confidence = int(max(40, min(cap, adjusted)))
     facts = _facts3_from_q(q)
-    miss = ",".join(missing or []) if missing else "-"
+    miss_stage = ",".join(missing or []) if missing else "-"
+    miss_fields = ",".join(missing_fields) if missing_fields else "-"
     lines = [
         "OPTIONS:",
         f"- A: {a}",
@@ -452,7 +581,7 @@ def _build_v2_after(
     ]
     if long_horizon:
         lines.append("MODE: CONDITIONAL")
-    if (long_horizon and margin <= 1) or (not goal_defined):
+    if (long_horizon and margin <= 1) or (not goal_defined) or len(axes) < 2:
         lines.append("CALL: HOLD")
     else:
         lines.append(f"RECOMMEND: {rec} ({side})")
@@ -489,8 +618,8 @@ def _build_v2_after(
             "FALSIFIER:",
             f"- {opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転",
             "NEXT:",
-            "- 目的が未指定なら、評価目的を1つ選択（例: 収益最大化/安全性/学習効率）",
-            f"- 不足データ({miss})を1つ埋め、14日以内に再判定",
+            f"- {_next_hint_from_missing(domain, missing_fields)}",
+            f"- 不足データ(stage={miss_stage}; fields={miss_fields})を1つ埋め、14日以内に再判定",
             f"OUTCOME: {outcome}",
         ]
     )
@@ -509,9 +638,12 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
 
 
 def _stepa_prompt_v2(q: str) -> str:
-    a, b, ok, quality = _extract_ab_options(q)
-    long_hint = _is_long_horizon(q)
-    domain = _detect_domain(q)
+    c = _canonicalize_question(q)
+    a, b = c["options"]["A"], c["options"]["B"]
+    ok = bool(c["options"]["ok"])
+    quality = float(c["options"]["quality"])
+    long_hint = str((c.get("horizon") or {}).get("type") or "") == "long"
+    domain = str(c["domain"])
     return (
         "Produce a decision-first answer in EXACT sections below.\n"
         "No extra sections. Keep concise and concrete.\n\n"
@@ -531,6 +663,10 @@ def _stepa_prompt_v2(q: str) -> str:
         f"Input question: {q}\n"
         f"Options hint: A={a if ok else '(unresolved)'}, B={b if ok else '(unresolved)'}\n"
         f"Options quality hint: {quality:.2f}\n"
+        f"Canonical axes hint: {json.dumps(c.get('axes') or [], ensure_ascii=False)}\n"
+        f"Canonical metrics hint: {json.dumps(c.get('metrics') or [], ensure_ascii=False)}\n"
+        f"Canonical constraints hint: {json.dumps(c.get('constraints') or {}, ensure_ascii=False)}\n"
+        f"Missing fields hint: {json.dumps(c.get('missing_fields') or [], ensure_ascii=False)}\n"
         f"Domain hint: {domain}\n"
         f"Long horizon hint: {'yes' if long_hint else 'no'}\n"
     )
@@ -930,6 +1066,7 @@ def main():
         seed = normalize_before_seed(q)
         c1 = "- Counter: 比較軸を固定しないと結論が揺らぐ"
         c2 = "- Counter: 反転条件を事前定義しないと再現性が落ちる"
+    canonical = _canonicalize_question(q)
     if think_mode:
         master = _append_decision_sections(master, q)
 
@@ -1106,6 +1243,8 @@ def main():
         f"{diff_head}\n\n"
         "=== DEEP META ===\n"
         f"deep_status: {deep_status}\n"
+        f"domain: {canonical.get('domain')}\n"
+        f"missing_fields: {json.dumps(canonical.get('missing_fields') or [], ensure_ascii=False)}\n"
         f"fallback_reason_primary: {fallback_reason_primary or '-'}\n"
         f"fallback_reason_secondary: {json.dumps(fallback_reason_secondary, ensure_ascii=False)}\n"
         f"missing_stages: {json.dumps(missing_stages, ensure_ascii=False)}\n"
@@ -1120,6 +1259,8 @@ def main():
         json.dumps(
             {
                 "deep_status": deep_status,
+                "domain": canonical.get("domain"),
+                "missing_fields": canonical.get("missing_fields") or [],
                 "fallback_reason": fallback_reason_primary or "",
                 "fallback_reason_primary": fallback_reason_primary or "",
                 "fallback_reason_secondary": fallback_reason_secondary,

@@ -484,12 +484,23 @@
     return picks.slice(0, n);
   }
 
-  function strengthHintFromMissing(missingCsv){
-    const m = String(missingCsv || "");
-    if (!m || m === "-") return "目的指標・優先軸・摂取量を追加入力すると精度が上がります。";
-    if (m.includes("expand") || m.includes("diff")) return "比較軸(健康/継続/コスト)と閾値(%)を追加入力すると深掘り精度が上がります。";
-    if (m.includes("master")) return "結論条件（いつ/何をもって有効とするか）を1行で追加入力してください。";
-    return "目的指標・優先軸・摂取量を追加入力すると精度が上がります。";
+  function strengthHintFromMissing(domain, missingFields, missingStages){
+    const d = String(domain || "general");
+    const fields = Array.isArray(missingFields) ? missingFields : [];
+    const stages = String(missingStages || "");
+    if (d === "education_career"){
+      if (fields.includes("job_type")) return "志望職種を1つ固定すると比較精度が上がります。";
+      if (fields.includes("budget_cap")) return "学費上限を金額で追加すると判定が安定します。";
+      if (fields.includes("deadline")) return "意思決定期限を追加すると結論が強くなります。";
+      return "志望職種 / 地域 / 学費上限 / 期限 を追加入力すると精度が上がります。";
+    }
+    if (d === "food"){
+      if (fields.includes("target_metric")) return "目的指標（血糖/体重/便通）を1つ指定してください。";
+      if (fields.includes("intake_amount")) return "1日の摂取量を具体化すると精度が上がります。";
+      return "目的指標 / 摂取量 / 制約 を追加入力すると精度が上がります。";
+    }
+    if (stages.includes("expand") || stages.includes("diff")) return "優先軸と閾値(%)を追加入力すると深掘り精度が上がります。";
+    return "目的指標・優先軸・期限を追加入力すると精度が上がります。";
   }
 
   function renderCompare(txt){
@@ -517,6 +528,8 @@
       ? liveDataDeep.fallback_reason_primary
       : ((liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-");
     const deepMetaMissing = (liveDataDeep && Array.isArray(liveDataDeep.missing_stages) && liveDataDeep.missing_stages.length) ? liveDataDeep.missing_stages.join(",") : "-";
+    const deepMetaMissingFields = (liveDataDeep && Array.isArray(liveDataDeep.missing_fields) && liveDataDeep.missing_fields.length) ? liveDataDeep.missing_fields : [];
+    const deepMetaDomain = (liveDataDeep && typeof liveDataDeep.domain === "string" && liveDataDeep.domain) ? liveDataDeep.domain : "general";
     const deepMetaSecondary = (liveDataDeep && Array.isArray(liveDataDeep.fallback_reason_secondary) && liveDataDeep.fallback_reason_secondary.length)
       ? liveDataDeep.fallback_reason_secondary.join(",")
       : "-";
@@ -555,7 +568,7 @@
       ? detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")
       : detailsBlock("Diff not available", diffFallback, 8, "deltaBox", "partial");
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
-      ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(strengthHintFromMissing(deepMetaMissing))}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing))}</div>`
       : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
