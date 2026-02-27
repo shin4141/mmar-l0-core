@@ -226,17 +226,77 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
     )
 
 
-def _extract_ab_options(q: str) -> tuple[str, str]:
+def _clean_option_label(raw: str) -> str:
+    s = re.sub(r"^[\s:：\-・,、]+|[\s:：\-・,、?？。]+$", "", raw or "")
+    s = re.sub(r"^(問い|question|input)\s*[:：]\s*", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) > 28:
+        s = s[:28].rstrip()
+    return s
+
+
+def _extract_ab_options(q: str) -> tuple[str, str, bool]:
     t = " ".join((q or "").split())
-    m = re.search(r"(.+?)と(.+?)どちら", t)
-    if m:
-        a = m.group(1).strip()[-20:]
-        b = m.group(2).strip()[:20]
-        return (a or "A", b or "B")
-    m2 = re.search(r"(.+?)\s+vs\.?\s+(.+)", t, re.IGNORECASE)
-    if m2:
-        return (m2.group(1).strip()[:20] or "A", m2.group(2).strip()[:20] or "B")
-    return ("A", "B")
+    patterns = [
+        r"(.+?)と(.+?)どちら",
+        r"(.+?)と(.+?)どっち",
+        r"(.+?)\s+vs\.?\s+(.+)",
+        r"(.+?)\s+[Vv][Ss]\s+(.+)",
+        r"(.+?)\s+or\s+(.+)",
+        r"(.+?)か(.+?)か",
+    ]
+    for pat in patterns:
+        m = re.search(pat, t, re.IGNORECASE)
+        if not m:
+            continue
+        a = _clean_option_label(m.group(1))
+        b = _clean_option_label(m.group(2))
+        if a and b and a != b:
+            return a, b, True
+    return "", "", False
+
+
+def _infer_axes(q: str) -> list[str]:
+    t = (q or "")
+    q_l = t.lower()
+    axes: list[str] = []
+    if any(k in t for k in ("学費", "授業料", "奨学金", "借金", "費用", "コスト")):
+        axes.append("初期コスト")
+    if any(k in t for k in ("就職", "就職率", "内定", "年収", "収入", "求人")):
+        axes.append("就職確率")
+    if any(k in t for k in ("AI", "自動化", "陳腐化", "将来性")):
+        axes.append("AI耐性")
+    if any(k in t for k in ("時間", "年", "最短", "期間", "機会費用")):
+        axes.append("機会費用")
+    if any(k in t for k in ("ケガ", "怪我", "安全", "故障")):
+        axes.append("安全性")
+    if any(k in t for k in ("継続", "続け", "習慣")):
+        axes.append("継続可能性")
+
+    # Hard rule: for education/future contexts, never force health axis.
+    if any(k in t for k in ("学費", "就職", "AI", "将来", "2030", "2035", "2040", "年")):
+        axes = [a for a in axes if "健康" not in a]
+
+    dedup: list[str] = []
+    for a in axes:
+        if a not in dedup:
+            dedup.append(a)
+    if not dedup:
+        dedup = ["コスト", "リスク", "柔軟性"]
+    return dedup[:5]
+
+
+def _is_long_horizon(q: str) -> bool:
+    t = (q or "")
+    q_l = t.lower()
+    return any(k in t for k in ("2030", "2035", "2040", "将来", "今後", "長期")) or any(
+        k in q_l for k in ("future", "long-term", "uncertainty", "ai")
+    )
+
+
+def _has_explicit_goal(q: str) -> bool:
+    t = (q or "")
+    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "リスク", "合格", "勝率"))
 
 
 def _facts3_from_q(q: str) -> list[str]:
@@ -245,10 +305,19 @@ def _facts3_from_q(q: str) -> list[str]:
     m_period = re.search(r"(\d+\s*年)", t)
     if m_period:
         facts.append(f"期間={m_period.group(1)}")
+    m_year = re.search(r"(20\d{2})", t)
+    if m_year:
+        facts.append(f"対象年={m_year.group(1)}")
     if "男性" in t:
         facts.append("対象=男性")
     elif "女性" in t:
         facts.append("対象=女性")
+    if "学費" in t:
+        facts.append("論点=学費")
+    if "就職" in t or "就職率" in t:
+        facts.append("論点=就職")
+    if "AI" in t:
+        facts.append("論点=AI影響")
     if "毎日" in t:
         facts.append("頻度=毎日")
     if "効果" in t:
@@ -268,40 +337,98 @@ def _build_v2_after(
     outcome: str,
     missing: list[str] | None = None,
 ) -> str:
-    a, b = _extract_ab_options(q)
-    rec = a if recommend_side == "A" else b
-    opp = b if recommend_side == "A" else a
-    axes = ["健康効果", "継続性", "コスト"]
-    base_a = {"健康効果": 4, "継続性": 3, "コスト": 3}
-    base_b = {"健康効果": 3, "継続性": 3, "コスト": 2}
-    if recommend_side == "B":
-        base_a, base_b = base_b, base_a
-    sum_a = sum(base_a.values())
-    sum_b = sum(base_b.values())
-    delta = abs(sum_a - sum_b)
+    a, b, ok = _extract_ab_options(q)
+    axes = _infer_axes(q)
+    long_horizon = _is_long_horizon(q)
+    goal_defined = _has_explicit_goal(q)
+    if not ok:
+        return (
+            "OPTIONS:\n"
+            "- A: (unresolved)\n"
+            "- B: (unresolved)\n"
+            "CALL: HOLD\n"
+            "NEXT:\n"
+            "- 選択肢A/Bを1行で指定してください（例: A=大学進学, B=専門スキル直行）\n"
+            f"OUTCOME: {outcome}\n"
+        )
+
+    score_map = {
+        "初期コスト": (2, 4),
+        "就職確率": (3, 4),
+        "AI耐性": (4, 3),
+        "機会費用": (2, 4),
+        "安全性": (3, 3),
+        "継続可能性": (3, 3),
+        "コスト": (2, 4),
+        "リスク": (3, 3),
+        "柔軟性": (3, 4),
+    }
+    scores: dict[str, tuple[int, int]] = {ax: score_map.get(ax, (3, 3)) for ax in axes}
+    sum_a = sum(v[0] for v in scores.values())
+    sum_b = sum(v[1] for v in scores.values())
+    margin = abs(sum_a - sum_b)
+    side = "A" if sum_a > sum_b else "B"
+    if margin == 0:
+        side = recommend_side
+    rec = a if side == "A" else b
+    opp = b if side == "A" else a
     is_partial = outcome.lower().startswith("partial")
     cap = 75 if is_partial else 85
-    confidence = max(50, min(cap, 50 + 8 * delta))
+    if long_horizon:
+        cap = min(cap, 70)
+    confidence = max(50, min(cap, 50 + 8 * margin))
     facts = _facts3_from_q(q)
     miss = ",".join(missing or []) if missing else "-"
-    return (
-        f"RECOMMEND: {rec} ({recommend_side})\n"
-        f"CONFIDENCE: {int(confidence)}%\n"
-        f"ΔSCORE: {int(dscore):+d}\n"
-        "AXES:\n"
-        f"- {axes[0]}\n- {axes[1]}\n- {axes[2]}\n"
-        "SCORECARD:\n"
-        f"- {axes[0]}: A={base_a[axes[0]]} B={base_b[axes[0]]}\n"
-        f"- {axes[1]}: A={base_a[axes[1]]} B={base_b[axes[1]]}\n"
-        f"- {axes[2]}: A={base_a[axes[2]]} B={base_b[axes[2]]}\n"
-        "FACTS_3:\n"
-        f"- {facts[0]}\n- {facts[1]}\n- {facts[2]}\n"
-        "FALSIFIER:\n"
-        f"- {opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転\n"
-        "NEXT:\n"
-        f"- 不足データ({miss})を1つ埋め、14日以内に再判定\n"
-        f"OUTCOME: {outcome}\n"
+    lines = [
+        "OPTIONS:",
+        f"- A: {a}",
+        f"- B: {b}",
+    ]
+    if long_horizon:
+        lines.append("MODE: CONDITIONAL")
+    if (long_horizon and margin <= 1) or (not goal_defined):
+        lines.append("CALL: HOLD")
+    else:
+        lines.append(f"RECOMMEND: {rec} ({side})")
+    lines.extend(
+        [
+            f"CONFIDENCE: {int(confidence)}%",
+            f"ΔSCORE: {int(dscore):+d}",
+            "AXES:",
+        ]
     )
+    lines.extend([f"- {ax}" for ax in axes[:5]])
+    lines.append("SCORECARD:")
+    for ax in axes[:5]:
+        sa, sb = scores.get(ax, (3, 3))
+        lines.append(f"- {ax}: A={sa} B={sb}")
+    lines.extend(
+        [
+            "FACTS_3:",
+            f"- {facts[0]}",
+            f"- {facts[1]}",
+            f"- {facts[2]}",
+        ]
+    )
+    if long_horizon:
+        lines.extend(
+            [
+                "SCENARIOS:",
+                f"- AI加速: {rec} の優位が維持されるかを就職/収益データで検証",
+                f"- AI停滞: {opp} 側の中長期リターン再評価で結論が逆転し得る",
+            ]
+        )
+    lines.extend(
+        [
+            "FALSIFIER:",
+            f"- {opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転",
+            "NEXT:",
+            "- 目的が未指定なら、評価目的を1つ選択（例: 収益最大化/安全性/学習効率）",
+            f"- 不足データ({miss})を1つ埋め、14日以内に再判定",
+            f"OUTCOME: {outcome}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _judgment_point_changes_from_after(after: str) -> list[str]:
@@ -309,27 +436,33 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
     has_axes = ("AXES:" in t and "SCORECARD:" in t)
     has_falsifier = ("FALSIFIER:" in t)
     has_next = ("NEXT:" in t)
-    c1 = "比較軸を宣言し、A/Bを軸採点で可視化した（健康/継続/コスト）。" if has_axes else "比較軸を固定し、A/B判定の根拠を数値化した。"
+    c1 = "比較軸を宣言し、A/Bを軸採点で可視化した（入力文脈に合わせて推定）。" if has_axes else "比較軸を固定し、A/B判定の根拠を数値化した。"
     c2 = "反転条件（FALSIFIER）を定義し、結論が変わる条件を明確化した。" if has_falsifier else "反転条件を定義し、再判定トリガーを明確化した。"
     c3 = "次の一手（NEXT）を“取得データ/期限/閾値”で固定した。" if has_next else "次の一手を具体化し、追加データ収集の方向を固定した。"
     return [c1, c2, c3]
 
 
 def _stepa_prompt_v2(q: str) -> str:
-    a, b = _extract_ab_options(q)
+    a, b, ok = _extract_ab_options(q)
+    long_hint = _is_long_horizon(q)
     return (
         "Produce a decision-first answer in EXACT sections below.\n"
         "No extra sections. Keep concise and concrete.\n\n"
+        "OPTIONS:\n- A: <label>\n- B: <label>\n"
+        "If options cannot be extracted, do NOT output RECOMMEND; output CALL: HOLD and NEXT only.\n"
         "RECOMMEND: choose one side strictly as A or B and include label text\n"
+        "CALL: HOLD is allowed when uncertainty is high or options unresolved\n"
         "CONFIDENCE: integer 0-100 with %\n"
         "ΔSCORE: signed integer -100..+100\n"
-        "AXES:\n- 健康効果\n- 継続性\n- コスト\n"
-        "SCORECARD:\n- 健康効果: A=x B=y\n- 継続性: A=x B=y\n- コスト: A=x B=y\n"
+        "AXES:\n- infer 3-5 axes from input\n"
+        "SCORECARD:\n- <axis>: A=x B=y\n"
         "FACTS_3:\n- fact 1 from input\n- fact 2 from input\n- fact 3 from input\n"
+        "SCENARIOS: only when long-horizon/future uncertainty appears\n"
         "FALSIFIER:\n- one concrete condition that flips conclusion\n"
         "NEXT:\n- one concrete next action with source/deadline/threshold\n\n"
         f"Input question: {q}\n"
-        f"Options hint: A={a}, B={b}\n"
+        f"Options hint: A={a if ok else '(unresolved)'}, B={b if ok else '(unresolved)'}\n"
+        f"Long horizon hint: {'yes' if long_hint else 'no'}\n"
     )
 
 
@@ -393,8 +526,12 @@ def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     t = (text or "").strip()
     if lite:
         return (t + "\n") if t else ""
-    # v2 schema is already self-contained
-    if all(k in t for k in ("RECOMMEND:", "CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:", "NEXT:")):
+    # v3 schema is already self-contained
+    if (
+        "OPTIONS:" in t
+        and "NEXT:" in t
+        and (("RECOMMEND:" in t and "CONFIDENCE:" in t and "ΔSCORE:" in t and "AXES:" in t and "SCORECARD:" in t and "FACTS_3:" in t and "FALSIFIER:" in t) or ("CALL: HOLD" in t))
+    ):
         return t + "\n"
     add = []
     if "COUNTER-2:" not in t:
@@ -424,8 +561,13 @@ def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
     t = (text or "").strip()
     if not t or "(dummy)" in t:
         return False
-    required = ("RECOMMEND:", "CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:", "NEXT:")
-    if not all(k in t for k in required):
+    if "OPTIONS:" not in t or "NEXT:" not in t:
+        return False
+    has_recommend = all(k in t for k in ("RECOMMEND:", "CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:"))
+    has_hold = ("CALL: HOLD" in t)
+    if not (has_recommend or has_hold):
+        return False
+    if "MODE: CONDITIONAL" in t and "SCENARIOS:" not in t:
         return False
     return len(t.splitlines()) >= min_lines
 
@@ -696,7 +838,7 @@ def main():
         log("[DONE] core-only output written")
         return
     lite_before = normalize_before_seed(q) if no_llm else "初期SEED生成中（lite first）"
-    lite_after = build_seed_after_core(lite_before) if no_llm else meaningful_after_fallback(q, "LLM timeout; lite first")
+    lite_after = build_seed_after_core(q) if no_llm else meaningful_after_fallback(q, "LLM timeout; lite first")
     lite_diff = build_diff_lite(lite_before, lite_after)
     TAB_FILES["expand"].write_text(lite_after, encoding="utf-8")
     TAB_FILES["diff"].write_text(lite_diff, encoding="utf-8")
@@ -718,7 +860,7 @@ def main():
         seed = normalize_before_seed(q)
         c1 = "- Counter: 証拠不足/バイアスの可能性を確認"
         c2 = "- Counter: 逆条件が成立するケースを確認"
-        master = build_seed_after_core(seed)
+        master = build_seed_after_core(q)
     else:
         log("[2/5] OpenAI StepA (strong after v2)...")
         stepa_timeout = int(os.getenv("MMAR_STEPA_TIMEOUT", "40") or "40")
@@ -793,14 +935,14 @@ def main():
 
     if tab in ("expand", "guard", "diff"):
         if no_llm:
-            out = build_seed_after_core(normalize_before_seed(q)) if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
+            out = build_seed_after_core(q) if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
             if tab == "expand":
                 out = _ensure_deep_after_sections(out, q, lite=True)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             if tab == "expand":
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, out), encoding="utf-8")
             if tab == "diff":
-                TAB_FILES["diff"].write_text(build_diff_lite(seed, build_seed_after_core(normalize_before_seed(q))), encoding="utf-8")
+                TAB_FILES["diff"].write_text(build_diff_lite(seed, build_seed_after_core(q)), encoding="utf-8")
         else:
             # StepB is optional: keep StepA(master) as default and enrich only if budget remains.
             out = master if tab == "expand" else ""

@@ -522,6 +522,7 @@
       : "-";
     const deepTimings = (liveDataDeep && liveDataDeep.timings && typeof liveDataDeep.timings === "object") ? JSON.stringify(liveDataDeep.timings) : "-";
     const afterWithSource = after;
+    const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const viewToggle = (mode === "live" && !!liveDataCore)
       ? `<span style="display:inline-flex; gap:4px; margin-right:6px;">
           <button id="after-view-core" ${liveDataView === "core" ? "disabled" : ""} style="padding:2px 8px;">Core</button>
@@ -538,6 +539,7 @@
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : "解析失敗（再実行）"}</button>`
       : "";
+    const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
     const serverJpc = (liveDataDeep && Array.isArray(liveDataDeep.judgment_point_changes) && liveDataDeep.judgment_point_changes.length)
@@ -555,7 +557,7 @@
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${statusBadges}${conditionalBadge}`, true)}
         ${rerunHint}
         ${diffBlock}
         ${debugDetails}
