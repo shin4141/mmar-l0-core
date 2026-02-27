@@ -405,8 +405,16 @@ def _prior_axes(domain: str) -> list[str]:
     return list(get_domain_spec(domain).get("axes_candidates", ["コスト", "リスク", "柔軟性"]))[:5]
 
 
-def _next_hint_from_missing(domain: str, missing_fields: list[str]) -> str:
+def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "") -> str:
     spec = get_domain_spec(domain)
+    if domain == "subscription_pricing":
+        # Ask exactly one actionable question in priority order.
+        ratio_known = bool(re.search(r"(\d{1,3}\s*%|[0-9]+\s*割)", q or ""))
+        if (not ratio_known) or ("work_ratio" in missing_fields):
+            return "仕事利用比率は何%ですか？（0/30/70/100 のどれに近いか）"
+        if "budget_cap" in missing_fields:
+            return "予算上限は月額いくらですか？（例: 0円 / 3,000円 / 20,000円）"
+        return "待ち時間の許容は何分ですか？（1分/5分/15分）"
     if not missing_fields:
         cands = list(spec.get("next_question_candidates", []))
         return cands[0] if cands else "不足データを1つ埋め、14日以内に再判定"
@@ -443,6 +451,32 @@ def _falsifier_line(domain: str, a_label: str, b_label: str, side: str) -> str:
         return t
     opp = b_label if side == "A" else a_label
     return f"{opp} 側の第三者検証データで主要軸が優位化した場合に結論を反転"
+
+
+def _why_top2(domain: str, axes: list[str], top_label: str, q: str) -> str:
+    if domain == "subscription_pricing":
+        has_work = any(k in (q or "") for k in ("仕事", "業務", "収益"))
+        has_hours = bool(re.search(r"週\s*\d+\s*時間", q or ""))
+        has_budget = any(k in (q or "") for k in ("予算", "上限", "課金", "円", "万円"))
+        l1 = f"1) 回数制限・待ち時間の面で {top_label} が無料より安定"
+        l2 = f"2) 仕事影響を考えると {top_label} はProより費用対効果が高い"
+        if has_budget:
+            l2 = f"2) 予算制約を踏まえると {top_label} はProより費用対効果が高い"
+        elif not has_work and not has_hours:
+            l2 = f"2) 待ち時間と予算のバランスで {top_label} が中位プランとして妥当"
+        return f"{l1} {l2}"
+    a0 = axes[0] if axes else "主要軸"
+    a1 = axes[min(1, len(axes) - 1)] if axes else "補助軸"
+    return f"1) {a0} で {top_label} が優位 2) {a1} で差が出る"
+
+
+def _why_loser(domain: str, top_label: str, loser_label: str, q: str) -> str:
+    if domain == "subscription_pricing":
+        if ("pro" in loser_label.lower()) or ("プロ" in loser_label):
+            return f"{loser_label} は高負荷の仕事比率が高い場合に上振れするが、現入力では {top_label} で十分"
+        if ("free" in loser_label.lower()) or ("無料" in loser_label):
+            return f"{loser_label} はコスト優位だが、回数制限・待ち時間で {top_label} に劣後"
+    return f"{loser_label} は主要軸の合計で {top_label} に届かず3位"
 
 
 def _options_quality(options: list[dict], q: str) -> float:
@@ -859,27 +893,37 @@ def _build_v2_after(
     can_conditional_proceed = (
         option_quality >= 0.55 and len(axes) >= 3 and facts_quality >= 0.6 and decision_context_ok
     )
-    why_top2 = f"1) {axes[0]} で {top_label} が優位 2) {axes[min(1, len(axes)-1)]} で差が出る"
+    why_top2 = _why_top2(domain, axes, top_label, q)
     why_gap = f"1位と2位の合計差={margin}"
+    loser_id = ranked[2] if len(ranked) >= 3 else ""
+    why_loser = _why_loser(domain, top_label, options_map.get(loser_id, ""), q) if loser_id else ""
     if domain_conf < 0.55 or len(axes) < 2:
         lines.append("CALL: HOLD")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
     elif external_evidence_needed and not has_external_evidence and can_conditional_proceed:
         lines.append("CALL: PROCEED_WITH_CONDITIONS")
         lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
         lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}（都市/夜移動条件で反転余地）")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
     elif (not basis_ok) or (long_horizon and margin <= 1) or (not decision_context_ok):
         lines.append("CALL: HOLD")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
     else:
         lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
         lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
     lines.extend(
         [
             f"CONFIDENCE: {int(confidence)}%",
@@ -917,7 +961,7 @@ def _build_v2_after(
             "FALSIFIER:",
             f"- {_falsifier_line(domain, top_label, runner_label, 'A')}",
             "NEXT:",
-            f"- {_next_hint_from_missing(domain, missing_fields)}",
+            f"- {_next_hint_from_missing(domain, missing_fields, q)}",
             f"OUTCOME: {outcome}",
         ]
     )
