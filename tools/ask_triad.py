@@ -229,14 +229,48 @@ def build_after_lite(q, weights, assumptions, dominant_axis, flip_threshold)->st
 def _clean_option_label(raw: str) -> str:
     s = re.sub(r"^[\s:：\-・,、]+|[\s:：\-・,、?？。]+$", "", raw or "")
     s = re.sub(r"^(問い|question|input)\s*[:：]\s*", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"(どっち|どちら).*$", "", s)
+    s = re.sub(r"(方がいい|べき).*$", "", s)
+    s = re.sub(r"(と思う|でしょう).*$", "", s)
+    s = re.sub(r"(のか|か)$", "", s)
+    s = re.sub(r"^(その時間を|この時間を)", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     if len(s) > 28:
         s = s[:28].rstrip()
     return s
 
 
-def _extract_ab_options(q: str) -> tuple[str, str, bool]:
+def _detect_domain(q: str) -> str:
+    t = (q or "")
+    if any(k in t for k in ("大学", "進学", "学費", "就職", "就職率", "専門", "資格", "AI", "2030", "2035", "2040")):
+        return "education_career"
+    if any(k in t for k in ("りんご", "納豆", "食", "栄養", "カロリー", "血糖")):
+        return "food"
+    if any(k in t for k in ("野球", "サッカー", "テニス", "スポーツ", "運動")):
+        return "sports"
+    return "general"
+
+
+def _option_quality(a: str, b: str, q: str) -> float:
+    if not a or not b or a == b:
+        return 0.0
+    score = 1.0
+    for s in (a, b):
+        if len(s) > 22:
+            score -= 0.25
+        if re.search(r"(どっち|どちら|と思う|方がいい|のか|べき|[?？])", s):
+            score -= 0.35
     t = " ".join((q or "").split())
+    if len(a) >= max(14, int(len(t) * 0.6)) or len(b) >= max(14, int(len(t) * 0.6)):
+        score -= 0.5
+    return max(0.0, min(1.0, score))
+
+
+def _extract_ab_options(q: str) -> tuple[str, str, bool, float]:
+    t = " ".join((q or "").split())
+    domain = _detect_domain(t)
+    if domain == "education_career" and any(k in t for k in ("大学", "進学")) and any(k in t for k in ("専門", "スキル", "実務", "資格")):
+        return "大学進学（学歴ルート）", "専門スキル直行（実務→就職）", True, 0.95
     patterns = [
         r"(.+?)と(.+?)どちら",
         r"(.+?)と(.+?)どっち",
@@ -252,13 +286,20 @@ def _extract_ab_options(q: str) -> tuple[str, str, bool]:
         a = _clean_option_label(m.group(1))
         b = _clean_option_label(m.group(2))
         if a and b and a != b:
-            return a, b, True
-    return "", "", False
+            quality = _option_quality(a, b, q)
+            return a, b, (quality >= 0.55), quality
+    return "", "", False, 0.0
 
 
 def _infer_axes(q: str) -> list[str]:
     t = (q or "")
-    q_l = t.lower()
+    domain = _detect_domain(t)
+    if domain == "education_career":
+        return ["初期コスト", "回収期間", "就職確率", "AI代替耐性", "柔軟性"]
+    if domain == "sports":
+        return ["怪我リスク", "費用", "継続可能性"]
+    if domain == "food":
+        return ["健康効果", "価格", "継続可能性"]
     axes: list[str] = []
     if any(k in t for k in ("学費", "授業料", "奨学金", "借金", "費用", "コスト")):
         axes.append("初期コスト")
@@ -337,11 +378,12 @@ def _build_v2_after(
     outcome: str,
     missing: list[str] | None = None,
 ) -> str:
-    a, b, ok = _extract_ab_options(q)
+    a, b, ok, option_quality = _extract_ab_options(q)
+    domain = _detect_domain(q)
     axes = _infer_axes(q)
     long_horizon = _is_long_horizon(q)
     goal_defined = _has_explicit_goal(q)
-    if not ok:
+    if not ok or option_quality < 0.55:
         return (
             "OPTIONS:\n"
             "- A: (unresolved)\n"
@@ -354,14 +396,20 @@ def _build_v2_after(
 
     score_map = {
         "初期コスト": (2, 4),
+        "回収期間": (2, 4),
         "就職確率": (3, 4),
         "AI耐性": (4, 3),
+        "AI代替耐性": (4, 3),
         "機会費用": (2, 4),
         "安全性": (3, 3),
         "継続可能性": (3, 3),
         "コスト": (2, 4),
         "リスク": (3, 3),
         "柔軟性": (3, 4),
+        "怪我リスク": (3, 3),
+        "費用": (2, 4),
+        "価格": (3, 2),
+        "健康効果": (4, 3),
     }
     scores: dict[str, tuple[int, int]] = {ax: score_map.get(ax, (3, 3)) for ax in axes}
     sum_a = sum(v[0] for v in scores.values())
@@ -373,10 +421,28 @@ def _build_v2_after(
     rec = a if side == "A" else b
     opp = b if side == "A" else a
     is_partial = outcome.lower().startswith("partial")
-    cap = 75 if is_partial else 85
+    cap = 65 if is_partial else 85
     if long_horizon:
-        cap = min(cap, 70)
-    confidence = max(50, min(cap, 50 + 8 * margin))
+        cap = min(cap, 60)
+    conf_raw = max(50, min(85, 50 + 8 * margin))
+    evidence_completeness = 0.65
+    if domain == "education_career":
+        if "学費" in q:
+            evidence_completeness += 0.1
+        if "就職" in q:
+            evidence_completeness += 0.1
+        if "AI" in q:
+            evidence_completeness += 0.1
+    elif domain == "food":
+        if any(k in q for k in ("効果", "血糖", "栄養", "体重")):
+            evidence_completeness += 0.15
+    else:
+        if _has_explicit_goal(q):
+            evidence_completeness += 0.15
+    evidence_completeness = max(0.5, min(1.0, evidence_completeness))
+    partial_penalty = 0.85 if is_partial else 1.0
+    adjusted = conf_raw * option_quality * evidence_completeness * partial_penalty
+    confidence = int(max(40, min(cap, adjusted)))
     facts = _facts3_from_q(q)
     miss = ",".join(missing or []) if missing else "-"
     lines = [
@@ -443,18 +509,20 @@ def _judgment_point_changes_from_after(after: str) -> list[str]:
 
 
 def _stepa_prompt_v2(q: str) -> str:
-    a, b, ok = _extract_ab_options(q)
+    a, b, ok, quality = _extract_ab_options(q)
     long_hint = _is_long_horizon(q)
+    domain = _detect_domain(q)
     return (
         "Produce a decision-first answer in EXACT sections below.\n"
         "No extra sections. Keep concise and concrete.\n\n"
         "OPTIONS:\n- A: <label>\n- B: <label>\n"
         "If options cannot be extracted, do NOT output RECOMMEND; output CALL: HOLD and NEXT only.\n"
+        "Do not emit long sentence fragments as options.\n"
         "RECOMMEND: choose one side strictly as A or B and include label text\n"
         "CALL: HOLD is allowed when uncertainty is high or options unresolved\n"
         "CONFIDENCE: integer 0-100 with %\n"
         "ΔSCORE: signed integer -100..+100\n"
-        "AXES:\n- infer 3-5 axes from input\n"
+        "AXES:\n- infer 3-5 axes from input domain\n"
         "SCORECARD:\n- <axis>: A=x B=y\n"
         "FACTS_3:\n- fact 1 from input\n- fact 2 from input\n- fact 3 from input\n"
         "SCENARIOS: only when long-horizon/future uncertainty appears\n"
@@ -462,6 +530,8 @@ def _stepa_prompt_v2(q: str) -> str:
         "NEXT:\n- one concrete next action with source/deadline/threshold\n\n"
         f"Input question: {q}\n"
         f"Options hint: A={a if ok else '(unresolved)'}, B={b if ok else '(unresolved)'}\n"
+        f"Options quality hint: {quality:.2f}\n"
+        f"Domain hint: {domain}\n"
         f"Long horizon hint: {'yes' if long_hint else 'no'}\n"
     )
 
@@ -524,38 +594,17 @@ def build_seed_after_core(before_text: str) -> str:
 
 def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     t = (text or "").strip()
-    if lite:
-        return (t + "\n") if t else ""
-    # v3 schema is already self-contained
-    if (
-        "OPTIONS:" in t
-        and "NEXT:" in t
-        and (("RECOMMEND:" in t and "CONFIDENCE:" in t and "ΔSCORE:" in t and "AXES:" in t and "SCORECARD:" in t and "FACTS_3:" in t and "FALSIFIER:" in t) or ("CALL: HOLD" in t))
-    ):
+    # Always keep After as v3 complete shape for partial/timeout paths.
+    if _is_valid_after_full(t):
         return t + "\n"
-    add = []
-    if "COUNTER-2:" not in t:
-        add.append(
-            "COUNTER-2:\n"
-            "- 反対仮説: 前提が過度に単純化されていないか\n"
-            "- 反対仮説: 代替説明で同じ観測を説明できないか"
-        )
-    if "FLIP-2:" not in t:
-        add.append(
-            "FLIP-2:\n"
-            "- 第三者検証済みデータが追加される\n"
-            "- 主要前提（期限/予算/制約）が反証される"
-        )
-    if "Δ_GAIN:" not in t:
-        add.append(
-            "Δ_GAIN:\n"
-            "- 争点を2軸以上で分解して比較可能性を向上\n"
-            "- 反証条件を先に定義し、判断の更新点を明確化\n"
-            "- 次の取得データを限定し、再実行の質を改善"
-        )
-    if add:
-        t = (t + "\n\n" + "\n\n".join(add)).strip()
-    return t + "\n"
+    rebuilt = _build_v2_after(
+        q,
+        recommend_side="A",
+        dscore=+8 if lite else +10,
+        outcome="Partial_OK",
+        missing=["expand", "diff"] if lite else ["stepA"],
+    ).strip()
+    return rebuilt + "\n"
 
 def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
     t = (text or "").strip()
@@ -563,9 +612,13 @@ def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
         return False
     if "OPTIONS:" not in t or "NEXT:" not in t:
         return False
-    has_recommend = all(k in t for k in ("RECOMMEND:", "CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:"))
-    has_hold = ("CALL: HOLD" in t)
-    if not (has_recommend or has_hold):
+    unresolved = ("- A: (unresolved)" in t and "- B: (unresolved)" in t)
+    if unresolved:
+        return ("CALL: HOLD" in t and "NEXT:" in t and len(t.splitlines()) >= 5)
+    required = ("CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:", "NEXT:")
+    if not all(k in t for k in required):
+        return False
+    if not (("RECOMMEND:" in t) or ("CALL: HOLD" in t)):
         return False
     if "MODE: CONDITIONAL" in t and "SCENARIOS:" not in t:
         return False
