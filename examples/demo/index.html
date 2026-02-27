@@ -64,6 +64,11 @@
       animation:afterHero 1s ease-out 1;
     }
     .deltaBox{ background: rgba(56,189,248,.08); border:1px solid rgba(56,189,248,.25); }
+    .warnBanner{
+      border:1px solid #ef4444; background:#fef2f2; color:#991b1b; border-radius:10px;
+      padding:8px 10px; font-size:12px; font-weight:700;
+      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    }
     @keyframes afterHero{
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
@@ -545,6 +550,13 @@
     };
   }
 
+  function freezeAfterForMismatch(afterText){
+    const raw = String(afterText || "(empty)");
+    return raw
+      .replace(/(^|\n)\s*CONFIDENCE:\s*[^\n]*/i, "$1CONFIDENCE: N/A (sha mismatch)")
+      .replace(/(^|\n)\s*CALL:\s*[^\n]*/i, "$1CALL: N/A (sha mismatch)");
+  }
+
   function renderCompare(txt){
     const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
     let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
@@ -585,9 +597,7 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const afterWithSource = staleDeep
-      ? "RESULT_INVALID: server sha mismatch detected\nCALL: HOLD\nWHY_TOP2: health_sha と run_sha が不一致のため評価を無効化\nNEXT:\n- Re-run Deep after restart_dev_api.sh"
-      : after;
+    const afterWithSource = staleDeep ? freezeAfterForMismatch(after) : after;
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
     const viewToggle = (mode === "live" && !!liveDataCore)
@@ -628,11 +638,19 @@
       : (canShowDiff
       ? detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")
       : detailsBlock("Diff not available", diffFallback, 8, "deltaBox", "partial"));
+    const mismatchBanner = staleDeep
+      ? `<div class="warnBanner">
+          <span>Old server running (sha mismatch). This result is for reference only.</span>
+          <button id="copy-restart-cmd" style="padding:2px 8px;">Copy restart command</button>
+          <span>Reload after restart</span>
+        </div>`
+      : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing))}</div>`
       : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
+        ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
         ${rerunHint}
@@ -648,6 +666,24 @@
         e.stopPropagation();
         debugEl.open = true;
         debugEl.scrollIntoView({ block: "nearest" });
+      };
+    }
+    const copyRestartBtn = document.getElementById("copy-restart-cmd");
+    if (copyRestartBtn) {
+      copyRestartBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const cmd = "bash tools/restart_dev_api.sh";
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(cmd);
+            liveHintEl.textContent = "Copied: bash tools/restart_dev_api.sh";
+          } else {
+            liveHintEl.textContent = `Run: ${cmd}`;
+          }
+        } catch (_) {
+          liveHintEl.textContent = `Run: ${cmd}`;
+        }
       };
     }
     const coreViewBtn = document.getElementById("after-view-core");
