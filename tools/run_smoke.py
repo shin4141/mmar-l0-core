@@ -41,9 +41,12 @@ def _run_case(case_id: str, text: str) -> dict:
     q = card.get("quality") if isinstance(card.get("quality"), dict) else {}
     return {
         "case_id": case_id,
+        "build_sha": card.get("build_sha", "-"),
         "deep_status": card.get("deep_status", "-"),
         "quality_total": int(q.get("total", 0) or 0),
         "quality": q,
+        "recommend_top": (card.get("recommend") or {}).get("top", ""),
+        "next": card.get("next", ""),
         "recommend": card.get("recommend", {}),
     }
 
@@ -74,9 +77,11 @@ def main() -> int:
     print("SMOKE RESULTS")
     for r in results:
         print(
-            f"- {r.get('case_id')}: quality_total={r.get('quality_total', '-')}"
+            f"- {r.get('case_id')}: sha={r.get('build_sha', '-')}"
+            f" quality_total={r.get('quality_total', '-')}"
             f" delta={r.get('delta_total', '-')}"
             f" deep_status={r.get('deep_status', '-')}"
+            f" recommend_top={r.get('recommend_top', '-')}"
         )
     print(f"report: {SMOKE_REPORT}")
     return 0

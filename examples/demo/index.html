@@ -568,6 +568,7 @@
     const deepMetaStatus = (liveDataDeep && typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "not_run";
     const deepRunSha = (liveDataDeep && typeof liveDataDeep.build_sha === "string" && liveDataDeep.build_sha) ? liveDataDeep.build_sha : "";
     liveShaMismatch = !!(deepRunSha && liveBootSha && deepRunSha !== liveBootSha);
+    const staleDeep = (mode === "live" && viewSource === "deep" && liveShaMismatch);
     const deepMetaReason = (liveDataDeep && typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
       ? liveDataDeep.fallback_reason_primary
       : ((liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-");
@@ -584,7 +585,9 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const afterWithSource = after;
+    const afterWithSource = staleDeep
+      ? "RESULT_INVALID: server sha mismatch detected\nCALL: HOLD\nWHY_TOP2: health_sha と run_sha が不一致のため評価を無効化\nNEXT:\n- Re-run Deep after restart_dev_api.sh"
+      : after;
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
     const viewToggle = (mode === "live" && !!liveDataCore)
@@ -611,7 +614,7 @@
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Old server running (sha mismatch)</span>`
       : "";
-    const qualityBadge = `<span class="pillBadge">Quality: ${qualityTotal}/5</span>`;
+    const qualityBadge = `<span class="pillBadge">Quality: ${staleDeep ? "-" : `${qualityTotal}/5`}</span>`;
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
     const serverJpc = (liveDataDeep && Array.isArray(liveDataDeep.judgment_point_changes) && liveDataDeep.judgment_point_changes.length)
@@ -620,9 +623,11 @@
     const keyChanges = serverJpc || extractKeyChanges((liveDataDeep && (liveDataDeep.merge || liveDataDeep.expand)) || after, 3);
     const reasonText = (deepMetaStatus === "partial") ? "expand/diff incomplete due to timeout" : "deep run failed or timed out";
     const diffFallback = `Diff not available (${deepMetaStatus === "partial" ? "partial" : "incomplete"})\nreason: ${reasonText}\nnext: Re-run Deep\n\nJudgment point changes\n- ${keyChanges[0]}\n- ${keyChanges[1]}\n- ${keyChanges[2]}`;
-    const diffBlock = canShowDiff
+    const diffBlock = staleDeep
+      ? detailsBlock("Diff not available", "Diff invalidated due to sha mismatch\nnext: restart dev_api and re-run", 6, "deltaBox", "invalid")
+      : (canShowDiff
       ? detailsBlock("Δ (Diff)", delta, PREVIEW_LINES_DELTA, "deltaBox", "Key changes")
-      : detailsBlock("Diff not available", diffFallback, 8, "deltaBox", "partial");
+      : detailsBlock("Diff not available", diffFallback, 8, "deltaBox", "partial"));
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing))}</div>`
       : "";

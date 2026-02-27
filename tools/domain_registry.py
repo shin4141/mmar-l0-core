@@ -52,13 +52,13 @@ DOMAIN_REGISTRY: dict[str, dict] = {
         "banned_axes": [],
     },
     "leisure": {
-        "keywords": ["旅行", "遊び", "観光", "ホテル", "旅程", "休暇", "チケット"],
-        "axes_candidates": ["体験価値", "総コスト", "移動負担", "安全性", "柔軟性"],
+        "keywords": ["旅行", "遊び", "観光", "ホテル", "旅程", "休暇", "チケット", "横浜", "鎌倉", "リラックス", "散歩"],
+        "axes_candidates": ["静けさ", "移動ラク", "屋内率", "混雑耐性", "景観"],
         "falsifier_templates": [
             "天候/混雑で体験価値が下がるなら反転",
             "移動遅延リスクが高い場合は代替案へ反転",
         ],
-        "next_question_candidates": ["予算上限は？", "日程は？", "優先体験は？"],
+        "next_question_candidates": ["優先は静けさと移動の楽さのどちら？", "予算上限は？", "日程は？"],
         "banned_axes": [],
     },
     "travel_safety": {
@@ -68,7 +68,7 @@ DOMAIN_REGISTRY: dict[str, dict] = {
             "都市・時間帯の条件次第で結論が反転",
             "最新の安全情報で危険度が更新されたら反転",
         ],
-        "next_question_candidates": ["行く都市（候補）と夜移動の有無は？", "滞在期間は？", "移動手段は？"],
+        "next_question_candidates": ["行く都市は？（例: シェムリアップ/プノンペン/ルアンパバーン/ビエンチャン）", "夜移動はある？", "滞在期間は？"],
         "banned_axes": ["健康効果"],
     },
     "food": {
