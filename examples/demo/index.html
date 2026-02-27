@@ -204,7 +204,10 @@
   let liveCoreOnly = false;
   let liveBootSha = "";
   let liveBootAt = "";
+  let liveModelCfgHash = "";
   let liveShaMismatch = false;
+  let activeRunId = "";
+  const liveCache = new Map();
   let lastApiMode = "";
   let lastSubmittedInput = "";
   let prevLiveData = null;
@@ -356,6 +359,37 @@
       .trim();
   }
 
+  function makeRunId(){
+    return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function hashText16(text){
+    const s = String(text || "");
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i += 1){
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function makeCacheKey(modeKey, inputHash, healthSha, modelCfgHash){
+    return `${modeKey}|${inputHash || "-"}|${healthSha || "-"}|${modelCfgHash || "-"}`;
+  }
+
+  function clearLiveOutputForRun(){
+    liveData = null;
+    liveDataCore = null;
+    liveDataDeep = null;
+    liveDataView = "core";
+    outEl.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <details class="beforeBox" open><summary><span class="sumRow"><span class="sumLeft">Before (Single) <span class="small">(running)</span></span></span></summary><div class="preview"><pre class="subpre">Running...</pre></div></details>
+        <details class="afterBox" open><summary><span class="sumRow"><span class="sumLeft">After (MMAR) <span class="small">(running)</span></span></span></summary><div class="preview"><pre class="subpre">Running...</pre></div></details>
+      </div>
+    `;
+  }
+
   function updateCtrlPanel(){
     const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
     const thinkTxt = (liveThinkTimeEl.textContent || "").trim() || "Think time: -";
@@ -413,6 +447,8 @@
       liveBootAt = (health && typeof health.boot_time === "string" && health.boot_time)
         ? health.boot_time
         : ((health && typeof health.boot_at === "string") ? health.boot_at : "");
+      liveModelCfgHash = (health && typeof health.model_cfg_hash === "string" && health.model_cfg_hash) ? health.model_cfg_hash : "";
+      liveShaMismatch = false;
       liveStatus = "ready";
       liveHintEl.textContent = `Live ready${liveCoreOnly ? " (CORE ONLY)" : ""}${liveBootSha ? ` [sha:${liveBootSha}]` : ""}`;
       renderMode();
@@ -624,7 +660,9 @@
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Old server running (sha mismatch)</span>`
       : "";
+    const isCachedView = !!(viewData && viewData.__cached);
     const qualityBadge = `<span class="pillBadge">Quality: ${staleDeep ? "-" : `${qualityTotal}/5`}</span>`;
+    const cachedBadge = isCachedView ? `<span class="pillBadge">cached</span>` : "";
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
     const serverJpc = (liveDataDeep && Array.isArray(liveDataDeep.judgment_point_changes) && liveDataDeep.judgment_point_changes.length)
@@ -652,7 +690,7 @@
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
         ${rerunHint}
         ${diffBlock}
         ${debugDetails}
@@ -725,8 +763,13 @@
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     const rawInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
     const submittedInput = normalizeSubmittedInput(extractQuestion(rawInput));
+    const inputHash = hashText16(submittedInput);
+    const runId = makeRunId();
+    activeRunId = runId;
     const isDeep = (apiMode === "think" || apiMode === "deep");
-    const keepCurrentView = isDeep && !!(liveDataCore || liveDataDeep || liveData);
+    const cacheModeKey = isDeep ? "deep" : "core";
+    const expectedCacheKey = makeCacheKey(cacheModeKey, inputHash, liveBootSha, liveModelCfgHash);
+    const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
     if (submittedInput) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
@@ -755,18 +798,35 @@
     }
     const runSpeed = isDeep ? "1.2s" : "2.8s";
     runLiveEl.disabled = true;
+    clearLiveOutputForRun();
+    if (cached) {
+      const cacheData = { ...cached, __cached: true, cached_from_run_id: cached.run_id, run_id: activeRunId };
+      if (isDeep) {
+        liveDataDeep = cacheData;
+        liveDataView = "deep";
+      } else {
+        liveDataCore = cacheData;
+        liveDataView = "core";
+      }
+      liveData = cacheData;
+      liveHintEl.textContent = "Cache hit: same input/sha/model_cfg";
+      liveStatus = "ready";
+      setRunVisual("ready", "2.8s");
+      loadActive();
+      updateCtrlPanel();
+      renderMode();
+      return;
+    }
     stopRequested = false;
     currentJobId = "";
     updateStopButton();
-    if (!keepCurrentView) liveResultBadgeEl.style.display = "none";
+    liveResultBadgeEl.style.display = "none";
     liveHintEl.textContent = isDeep ? "Thinking..." : "Running...";
     if (isDeep) liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
     liveStatus = isDeep ? "running" : "ready";
-    if (!keepCurrentView) outEl.textContent = "Running...";
-    else if (isDeep && deepRunning) liveHintEl.textContent = "(Deep running...)";
+    outEl.textContent = "Running...";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
-    if (keepCurrentView) loadActive();
     try {
       if (!isDeep) {
         if (!apiBase) {
@@ -781,7 +841,7 @@
         const rCore = await fetch(`${apiBase}/api/triad?mode=core`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: submittedInput }),
+          body: JSON.stringify({ input: submittedInput, run_id: runId }),
           signal: wCore.signal,
         });
         if (!rCore.ok) {
@@ -796,6 +856,12 @@
           return;
         }
         const coreData = await rCore.json();
+        const coreRunId = (coreData && typeof coreData.run_id === "string") ? coreData.run_id : "";
+        if (coreRunId !== activeRunId) {
+          liveHintEl.textContent = "stale ignored (core)";
+          wCore.done();
+          return;
+        }
         const okCore = coreData && ["compare", "expand", "diff", "merge"].every(k => typeof coreData[k] === "string");
         if (!okCore) {
           wCore.done();
@@ -805,6 +871,10 @@
         liveDataCore = coreData;
         liveDataDeep = null;
         liveDataView = "core";
+        if (coreData && coreData.health_sha && coreData.model_cfg_hash && coreData.input_hash) {
+          const key = makeCacheKey("core", coreData.input_hash, coreData.health_sha, coreData.model_cfg_hash);
+          liveCache.set(key, { ...coreData, __cached: false });
+        }
         deepSessionId += 1;
         deepRunning = false;
         deepDone = false;
@@ -834,7 +904,7 @@
       const r = await fetch(`${apiBase}/api/triad?mode=deep`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: submittedInput }),
+        body: JSON.stringify({ input: submittedInput, run_id: runId }),
         signal: w.signal,
       });
       if (!r.ok) {
@@ -849,6 +919,11 @@
         return;
       }
       const data = await r.json();
+      const startRunId = (data && typeof data.run_id === "string") ? data.run_id : "";
+      if (startRunId !== activeRunId) {
+        liveHintEl.textContent = "stale ignored (deep-start)";
+        return;
+      }
       if (data && typeof data.job_id === "string") {
         currentJobId = data.job_id;
         updateStopButton();
@@ -865,11 +940,16 @@
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
+          const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
+          if (pollRunId !== activeRunId) {
+            liveHintEl.textContent = "stale ignored (deep-poll)";
+            return;
+          }
           if (myDeepSession !== deepSessionId) {
             return;
           }
           if (j.status === "running") {
-            if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
+            if (j.stage === "draft" && j.expand && j.expand.trim()) {
               liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
               liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
               liveResultBadgeEl.textContent = "Draft";
@@ -889,7 +969,7 @@
             continue;
           }
           if (j.status === "slow") {
-            if (!keepCurrentView && j.stage === "draft" && j.expand && j.expand.trim()) {
+            if (j.stage === "draft" && j.expand && j.expand.trim()) {
               liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
               liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
               liveResultBadgeEl.textContent = "Draft";
@@ -925,6 +1005,10 @@
           if (j.status === "done") {
             if (myDeepSession !== deepSessionId) return;
             liveDataDeep = j;
+            if (j && j.health_sha && j.model_cfg_hash && j.input_hash) {
+              const key = makeCacheKey("deep", j.input_hash, j.health_sha, j.model_cfg_hash);
+              liveCache.set(key, { ...j, __cached: false });
+            }
             currentJobId = "";
             updateStopButton();
             deepRunning = false;
@@ -1019,7 +1103,14 @@
     if (mode === "live"){
       const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       if (!viewData){
-        outEl.textContent = liveReady ? "Live mode: press Run" : "Live not ready";
+        outEl.textContent = (liveStatus === "running" || liveStatus === "slow")
+          ? "Running..."
+          : (liveReady ? "Live mode: press Run" : "Live not ready");
+        return;
+      }
+      const viewRunId = (viewData && typeof viewData.run_id === "string") ? viewData.run_id : "";
+      if (activeRunId && viewRunId !== activeRunId) {
+        outEl.textContent = "Running...";
         return;
       }
       const txt = (viewData[active] && viewData[active].trim()) ? viewData[active] : (viewData.expand || "");

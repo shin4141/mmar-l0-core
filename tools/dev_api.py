@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -83,6 +84,29 @@ def _read_latest_quality() -> tuple[dict, int]:
 def _runtime_env_snapshot() -> dict:
     keys = ["MMAR_CORE_ONLY", "MMAR_LLM_TIMEOUT", "MMAR_OPENAI_RETRIES", "MMAR_TIME_BUDGET_S"]
     return {k: (os.getenv(k, "").strip() or "-") for k in keys}
+
+
+def _normalize_input_text(text: str) -> str:
+    s = str(text or "")
+    s = s.replace("…", " ")
+    while "..." in s:
+        s = s.replace("...", " ")
+    return " ".join(s.split()).strip()
+
+
+def _input_hash(text: str) -> str:
+    src = _normalize_input_text(text)
+    return hashlib.sha256(src.encode("utf-8", errors="ignore")).hexdigest()[:16]
+
+
+def _model_cfg_hash(mode: str, env_extra: dict | None = None) -> str:
+    data = {"mode": mode, **_runtime_env_snapshot()}
+    if env_extra:
+        for k in ("MMAR_LLM_TIMEOUT", "MMAR_OPENAI_RETRIES", "MMAR_TIME_BUDGET_S", "MMAR_CORE_ONLY"):
+            if k in env_extra:
+                data[k] = str(env_extra.get(k, ""))
+    raw = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
@@ -206,7 +230,7 @@ def _run_ask_triad(user_input: str, timeout_s: int | None, env_extra: dict | Non
     )
 
 
-def _start_full_job(user_input: str) -> str:
+def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_hash: str) -> str:
     job_id = str(uuid.uuid4())
     started_at = time.time()
     before_snapshot = _extract_before_section(_read_text(OUT_FILES["compare"]))
@@ -216,6 +240,11 @@ def _start_full_job(user_input: str) -> str:
             "mode": "think",
             "started_at": started_at,
             "before_snapshot": before_snapshot,
+            "run_id": run_id,
+            "input_hash": input_hash,
+            "health_sha": GIT_SHA,
+            "model_cfg_hash": model_cfg_hash,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def _worker():
@@ -258,6 +287,11 @@ def _start_full_job(user_input: str) -> str:
                         "deep_status": "timeout" if "timed out" in err.lower() else "llm_error",
                         "fallback_reason": "ask_triad_timeout_or_error",
                         "timings": {},
+                        "run_id": run_id,
+                        "input_hash": input_hash,
+                        "health_sha": GIT_SHA,
+                        "model_cfg_hash": model_cfg_hash,
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
                     }
                 return
             payload, missing = _collect_outputs(with_meta=True)
@@ -272,6 +306,11 @@ def _start_full_job(user_input: str) -> str:
                         "deep_status": "schema_invalid",
                         "fallback_reason": "missing_outputs",
                         "timings": {},
+                        "run_id": run_id,
+                        "input_hash": input_hash,
+                        "health_sha": GIT_SHA,
+                        "model_cfg_hash": model_cfg_hash,
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
                     }
                 return
             snapshot = before_snapshot
@@ -294,6 +333,11 @@ def _start_full_job(user_input: str) -> str:
                     "after_mode": _derive_llm_mode(payload),
                     "started_at": started_at,
                     "before_snapshot": snapshot,
+                    "run_id": run_id,
+                    "input_hash": input_hash,
+                    "health_sha": GIT_SHA,
+                    "model_cfg_hash": model_cfg_hash,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
                     **payload,
                 }
             q = payload.get("quality") if isinstance(payload.get("quality"), dict) else {}
@@ -313,6 +357,11 @@ def _start_full_job(user_input: str) -> str:
                     "deep_status": "timeout",
                     "fallback_reason": "ask_triad_timeout",
                     "timings": {},
+                    "run_id": run_id,
+                    "input_hash": input_hash,
+                    "health_sha": GIT_SHA,
+                    "model_cfg_hash": model_cfg_hash,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
         except Exception as e:
             with JOBS_LOCK:
@@ -324,6 +373,11 @@ def _start_full_job(user_input: str) -> str:
                     "deep_status": "llm_error",
                     "fallback_reason": "exception",
                     "timings": {},
+                    "run_id": run_id,
+                    "input_hash": input_hash,
+                    "health_sha": GIT_SHA,
+                    "model_cfg_hash": model_cfg_hash,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
         finally:
             stop_monitor.set()
@@ -362,6 +416,7 @@ class Handler(BaseHTTPRequestHandler):
                     "boot_time": BOOT_AT,
                     "sha": GIT_SHA,
                     "build_sha": GIT_SHA,
+                    "model_cfg_hash": _model_cfg_hash("health", None),
                     "pid": PID,
                     "env": _runtime_env_snapshot(),
                     "mmar_core_only": os.getenv("MMAR_CORE_ONLY", "").strip() == "1",
@@ -443,17 +498,38 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(user_input, str):
                 self._send_json(400, {"ok": False, "error": "input must be string"})
                 return
+            run_id = str(data.get("run_id") or "").strip() or str(uuid.uuid4())
+            input_hash = _input_hash(user_input)
 
             if mode == "deep":
-                job_id = _start_full_job(user_input)
-                self._send_json(202, {"ok": True, "job_id": job_id, "mode": "deep"})
+                deep_env = {"MMAR_LLM_TIMEOUT": "30", "MMAR_OPENAI_RETRIES": "1", "MMAR_TIME_BUDGET_S": "85"}
+                job_id = _start_full_job(
+                    user_input,
+                    run_id=run_id,
+                    input_hash=input_hash,
+                    model_cfg_hash=_model_cfg_hash("deep", deep_env),
+                )
+                self._send_json(
+                    202,
+                    {
+                        "ok": True,
+                        "job_id": job_id,
+                        "mode": "deep",
+                        "run_id": run_id,
+                        "input_hash": input_hash,
+                        "health_sha": GIT_SHA,
+                        "model_cfg_hash": _model_cfg_hash("deep", deep_env),
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
                 return
 
             if mode == "seed":
+                seed_env = {"MMAR_SEED_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "4"}
                 proc = _run_ask_triad(
                     user_input,
                     timeout_s=8,
-                    env_extra={"MMAR_SEED_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "4"},
+                    env_extra=seed_env,
                 )
                 if proc.returncode != 0:
                     err = proc.stderr or ""
@@ -477,13 +553,26 @@ class Handler(BaseHTTPRequestHandler):
                 _append_dev_log(
                     f"{datetime.now(timezone.utc).isoformat()} mode=seed status=ok quality_total={total} quality={json.dumps(q, ensure_ascii=False)}"
                 )
-                self._send_json(200, {"ok": True, "mode": "seed", **payload})
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "mode": "seed",
+                        "run_id": run_id,
+                        "input_hash": input_hash,
+                        "health_sha": GIT_SHA,
+                        "model_cfg_hash": _model_cfg_hash("seed", seed_env),
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                        **payload,
+                    },
+                )
                 return
 
+            core_env = {"MMAR_CORE_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "6"}
             proc = _run_ask_triad(
                 user_input,
                 timeout_s=12,
-                env_extra={"MMAR_CORE_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "6"},
+                env_extra=core_env,
             )
             if proc.returncode != 0:
                 err = proc.stderr or ""
@@ -509,7 +598,18 @@ class Handler(BaseHTTPRequestHandler):
                 f"{datetime.now(timezone.utc).isoformat()} mode=core status=ok quality_total={total} quality={json.dumps(q, ensure_ascii=False)}"
             )
 
-            self._send_json(200, {"ok": True, **payload})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "run_id": run_id,
+                    "input_hash": input_hash,
+                    "health_sha": GIT_SHA,
+                    "model_cfg_hash": _model_cfg_hash("core", core_env),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    **payload,
+                },
+            )
 
         except subprocess.TimeoutExpired:
             self._send_json(504, {"ok": False, "error": "timeout", "mode": "core"})
