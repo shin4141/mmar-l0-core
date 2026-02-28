@@ -507,23 +507,42 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         missing.append("選択肢の定義（2案を短く）")
     if domain_conf < 0.55:
         missing.append("比較ドメインの確定")
+    required_fields: list[str] = []
+    satisfied_fields: list[str] = []
+    unlock_when_text = "必須前提を1つ固定すると深掘り可能"
 
     t = (q or "")
     if domain == "asset_allocation":
+        required_fields = ["horizon"]
         has_horizon = bool(_asset_horizon_bucket(t))
         has_usage = bool(_asset_usage_bucket(t))
+        if has_horizon:
+            satisfied_fields.append("horizon")
+        if has_usage:
+            satisfied_fields.append("use_case")
+        if any(k in t for k in ("リスク", "最大損失", "損失", "下振れ")):
+            satisfied_fields.append("priority_axis:risk")
         if not has_horizon:
             missing.append("運用期間（〜3年 / 3–10年 / 10年以上）")
         if not has_usage:
             missing.append("用途（住む/貸す/未定）")
+        unlock_when_text = "投資期間を選ぶと深掘り可能（〜3年/3–10年/10年以上）"
     elif domain == "leisure":
+        required_fields = ["priority_axis"]
         has_axis = any(k in t for k in ("没入", "気楽", "予算", "混雑", "移動"))
+        if has_axis:
+            satisfied_fields.append("priority_axis")
         if not has_axis:
             missing.append("優先軸（没入/気楽さ/予算 など）")
+        unlock_when_text = "優先軸を1つ選ぶと深掘り可能（没入/気楽さ/予算）"
     elif domain == "ai_tool_subscription_compare":
+        required_fields = ["task_mix_ratio"]
         has_usage_ratio = ("比率" in t) or (("画像" in t) and ("表計算" in t or "資料作成" in t))
+        if has_usage_ratio:
+            satisfied_fields.append("task_mix_ratio")
         if not has_usage_ratio:
             missing.append("主用途比率（画像寄り/半々/表計算寄り）")
+        unlock_when_text = "主用途比率を選ぶと深掘り可能（画像寄り/半々/表計算寄り）"
 
     missing_top2 = missing[:2]
     next_q = "最重要な判断軸を1つ指定してください。"
@@ -555,6 +574,9 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         "missing_top2": missing_top2,
         "next_question": next_q,
         "next_choices": next_choices[:3],
+        "required_fields": required_fields,
+        "satisfied_fields": satisfied_fields,
+        "unlock_when_text": unlock_when_text,
         "cap_split": cap_split,
     }
 
@@ -570,6 +592,7 @@ def _build_need_info_after(q: str, canonical: dict, preflight: dict) -> str:
     missing_top2 = list(preflight.get("missing_top2") or [])[:2]
     next_q = str(preflight.get("next_question") or "最重要な判断軸を1つ指定してください。")
     next_choices = [str(x).strip() for x in list(preflight.get("next_choices") or []) if str(x).strip()][:3]
+    unlock_when = str(preflight.get("unlock_when_text") or "必須前提を1つ固定すると深掘り可能")
     split_top = int(min(55, max(50, int(preflight.get("cap_split") or 55))))
     split_runner = 100 - split_top
     a = options[0]
@@ -604,6 +627,8 @@ def _build_need_info_after(q: str, canonical: dict, preflight: dict) -> str:
         f"- {next_q}",
         "CHOICES:",
         *([f"- {c}" for c in next_choices] if next_choices else ["- なし"]),
+        "UNLOCK_WHEN:",
+        f"- {unlock_when}",
         "OUTCOME: Need_Info",
     ]
     return "\n".join(lines) + "\n"
@@ -2121,6 +2146,9 @@ def main():
                         "missing_top2": list(pf_core.get("missing_top2") or []),
                         "next_question": str(pf_core.get("next_question") or ""),
                         "next_choices": list(pf_core.get("next_choices") or []),
+                        "required_fields": list(pf_core.get("required_fields") or []),
+                        "satisfied_fields": list(pf_core.get("satisfied_fields") or []),
+                        "unlock_when_text": str(pf_core.get("unlock_when_text") or ""),
                     },
                 },
                 ensure_ascii=False,
@@ -2187,6 +2215,9 @@ def main():
                         "missing_top2": list(preflight.get("missing_top2") or []),
                         "next_question": str(preflight.get("next_question") or ""),
                         "next_choices": list(preflight.get("next_choices") or []),
+                        "required_fields": list(preflight.get("required_fields") or []),
+                        "satisfied_fields": list(preflight.get("satisfied_fields") or []),
+                        "unlock_when_text": str(preflight.get("unlock_when_text") or ""),
                     },
                 },
                 ensure_ascii=False,
@@ -2497,6 +2528,9 @@ def main():
                     "missing_top2": list((preflight_final.get("missing_top2") or [])),
                     "next_question": str(preflight_final.get("next_question") or ""),
                     "next_choices": list((preflight_final.get("next_choices") or [])),
+                    "required_fields": list((preflight_final.get("required_fields") or [])),
+                    "satisfied_fields": list((preflight_final.get("satisfied_fields") or [])),
+                    "unlock_when_text": str(preflight_final.get("unlock_when_text") or ""),
                 },
             },
             ensure_ascii=False,

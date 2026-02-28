@@ -718,9 +718,12 @@
     const lockChoices = (uiState && Array.isArray(uiState.next_choices) && uiState.next_choices.length)
       ? uiState.next_choices
       : (sufficiency && Array.isArray(sufficiency.next_choices) && sufficiency.next_choices.length ? sufficiency.next_choices : lockChoicesFromAfter);
+    const lockUnlockWhen = (uiState && typeof uiState.unlock_when_text === "string" && uiState.unlock_when_text)
+      ? uiState.unlock_when_text
+      : ((sufficiency && typeof sufficiency.unlock_when_text === "string" && sufficiency.unlock_when_text) ? sufficiency.unlock_when_text : "必須前提を1つ固定すると深掘り可能");
     const deepLockReason = (uiState && typeof uiState.deep_block_reason === "string" && uiState.deep_block_reason) ? uiState.deep_block_reason : "insufficient_context";
     const deepLockNote = (!sufficientNow)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}<br/>Unlock when: ${escapeHtml(displaySanitize(lockUnlockWhen))}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
@@ -767,8 +770,14 @@
     const needInfoChips = (!sufficientNow && lockChoices.length)
       ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${lockChoices.map(c => `<button class="needinfo-chip" data-choice="${escapeHtml(String(c))}" style="padding:2px 8px;">${escapeHtml(displaySanitize(String(c)))}</button>`).join("")}</div>`
       : "";
+    const needInfoInput = (!sufficientNow)
+      ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+          <input id="needinfo-input" type="text" placeholder="補足条件を1行入力（例: 投資期間=3–10年）" style="padding:4px 8px; min-width:260px;" />
+          <button id="needinfo-apply" style="padding:2px 8px;">再判定</button>
+        </div>`
+      : "";
     const sufficiencyBanner = (!sufficientNow)
-      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(lockNext || "最重要な判断軸を1つ指定してください。")))}${lockMissing.length ? `<br/>不足: ${escapeHtml(displaySanitize(lockMissing.join(" / ")))}` : ""}${needInfoChips}</div>`
+      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(lockNext || "最重要な判断軸を1つ指定してください。")))}${lockMissing.length ? `<br/>不足: ${escapeHtml(displaySanitize(lockMissing.join(" / ")))}` : ""}<br/>UNLOCK_WHEN: ${escapeHtml(displaySanitize(lockUnlockWhen))}${needInfoChips}${needInfoInput}</div>`
       : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
@@ -847,6 +856,20 @@
           await runLive("core", normalized.trim());
         };
       }
+    }
+    const needInfoApplyBtn = document.getElementById("needinfo-apply");
+    if (needInfoApplyBtn) {
+      needInfoApplyBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const inputEl = document.getElementById("needinfo-input");
+        const extra = (inputEl && inputEl.value) ? String(inputEl.value).trim() : "";
+        if (!extra) return;
+        const base = String(qEl.value || "").trim();
+        const normalized = `${base} ${extra}`.trim();
+        qEl.value = normalized;
+        await runLive("core", normalized);
+      };
     }
     const coreViewBtn = document.getElementById("after-view-core");
     if (coreViewBtn) {
