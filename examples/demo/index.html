@@ -239,35 +239,145 @@
   let lastStableResult = null;
   const THINK_UNLOCK_THRESHOLD = 60;
   const slotState = {
-    amount: null,
-    horizon: null,
-    goal: null,
-    risk: null,
-    constraint: null,
+    text: "",
+    extracted: { amount: null, years: null, goal: null, risk: null, constraint: null },
+    selected: { amount: null, horizon: null, goal: null, risk: null, constraint: null },
+    selectedSource: { amount: null, horizon: null, goal: null, risk: null, constraint: null },
+    confidence: null,
+    requiredFields: [],
+    conflict: [],
+    showPanel: false,
+    showExtra: false,
   };
   const SLOT_SPEC = [
-    { key: "horizon", label: "Horizon", values: ["短期", "長期", "未定"] },
+    { key: "horizon", label: "Horizon", values: ["短期", "長期"] },
     { key: "goal", label: "Goal", values: ["増やす", "守る", "現金優先"] },
     { key: "risk", label: "Risk", values: ["低", "中", "高"] },
-    { key: "constraint", label: "Constraint", values: ["なし", "流動性必要", "未定"] },
-    { key: "amount", label: "Amount", values: ["小", "中", "大", "未定"] },
+    { key: "constraint", label: "Constraint", values: ["なし", "流動性必要"] },
+    { key: "amount", label: "Amount", values: ["小", "中", "大"] },
   ];
 
+  function normalizeDigits(v){
+    return String(v || "").replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 65248));
+  }
+
+  function extractSlotsFromText(text){
+    const t = String(text || "");
+    const out = { amount: null, years: null, goal: null, risk: null, constraint: null };
+    const mYears = t.match(/([0-9０-９]+)\s*年/);
+    if (mYears) {
+      const n = parseInt(normalizeDigits(mYears[1]), 10);
+      if (Number.isFinite(n)) out.years = n;
+    }
+    const mAmount = t.match(/([0-9０-９,，]+)\s*万円/);
+    if (mAmount) {
+      const n = parseInt(normalizeDigits(mAmount[1]).replace(/[,\s，]/g, ""), 10);
+      if (Number.isFinite(n)) out.amount = n;
+    }
+    if (/(守る|下がらない|損したくない|最大損失)/.test(t)) out.goal = "守る";
+    else if (/(増やす|上がる|リターン|利回り)/.test(t)) out.goal = "増やす";
+    else if (/(現金|キャッシュ|流動性)/.test(t)) out.goal = "現金優先";
+    if (/(リスクが少ない|損したくない|下がらない|最大損失|怖い)/.test(t)) out.risk = "低";
+    else if (/(ハイリスク|攻める|大きく狙う)/.test(t)) out.risk = "高";
+    else if (/リスク/.test(t)) out.risk = "中";
+    if (/(流動性|現金化|売りやすい)/.test(t)) out.constraint = "流動性必要";
+    else if (/(制約なし|こだわりなし)/.test(t)) out.constraint = "なし";
+    return out;
+  }
+
+  function yearsToHorizon(years){
+    if (years == null) return null;
+    if (years <= 2) return "短期";
+    if (years >= 7) return "長期";
+    return "長期";
+  }
+
+  function amountToBucket(amountMan){
+    if (amountMan == null) return null;
+    if (amountMan <= 300) return "小";
+    if (amountMan <= 3000) return "中";
+    return "大";
+  }
+
+  function applyAutoSlots(extracted){
+    const autoMap = {
+      amount: amountToBucket(extracted.amount),
+      horizon: yearsToHorizon(extracted.years),
+      goal: extracted.goal,
+      risk: extracted.risk,
+      constraint: extracted.constraint,
+    };
+    for (const key of Object.keys(slotState.selected)){
+      const curr = slotState.selected[key];
+      const src = slotState.selectedSource[key];
+      const autoVal = autoMap[key] || null;
+      if (autoVal == null) continue;
+      if (curr == null || src === "auto") {
+        slotState.selected[key] = autoVal;
+        slotState.selectedSource[key] = "auto";
+      }
+    }
+  }
+
+  function computeConflict(extracted, selected){
+    const c = [];
+    if (extracted.years != null && selected.horizon) {
+      if (extracted.years <= 2 && selected.horizon === "長期") c.push({ field: "horizon", extracted: `${extracted.years}年`, selected: "長期" });
+      if (extracted.years >= 7 && selected.horizon === "短期") c.push({ field: "horizon", extracted: `${extracted.years}年`, selected: "短期" });
+    }
+    return c;
+  }
+
+  function confidenceScore(extracted, selected){
+    let penalty = 0;
+    if (!selected.risk) penalty += 25;
+    if (!selected.horizon) penalty += 20;
+    if (!selected.amount) penalty += 20;
+    if (!selected.goal) penalty += 15;
+    if (!selected.constraint) penalty += 10;
+    const conflicts = computeConflict(extracted, selected);
+    penalty += conflicts.length * 40;
+    const conf = Math.max(0, Math.min(100, 100 - penalty));
+    return { confidence: conf, conflict: conflicts };
+  }
+
+  function chooseRequiredFields(confidence, selected){
+    const priority = ["risk", "horizon", "amount", "goal", "constraint"];
+    const need = priority.filter((f) => selected[f] == null);
+    const k = confidence >= 85 ? 0 : confidence >= 70 ? 1 : confidence >= 50 ? 2 : 3;
+    let req = need.slice(0, k);
+    if (selected.risk == null && !req.includes("risk")) {
+      req = ["risk", ...req].slice(0, Math.max(1, k));
+    }
+    return req;
+  }
+
+  function recomputeSlotRequirements(text){
+    slotState.text = String(text || "");
+    slotState.extracted = extractSlotsFromText(slotState.text);
+    applyAutoSlots(slotState.extracted);
+    const cc = confidenceScore(slotState.extracted, slotState.selected);
+    slotState.confidence = cc.confidence;
+    slotState.conflict = cc.conflict;
+    slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
+  }
+
   function slotFilledCount(){
-    return Object.values(slotState).filter(v => v != null).length;
+    return Object.values(slotState.selected).filter(v => v != null).length;
   }
 
   function slotDeepEnabled(){
-    return slotFilledCount() >= 3 && slotState.risk != null;
+    const reqDone = slotState.requiredFields.every((f) => slotState.selected[f] != null);
+    return reqDone && slotState.selected.risk != null;
   }
 
   function buildDeepContextQuestion(baseQuestion){
     const q = String(baseQuestion || "").trim();
-    const amount = slotState.amount || "未定";
-    const horizon = slotState.horizon || "未定";
-    const goal = slotState.goal || "未定";
-    const risk = slotState.risk || "未定";
-    const constraint = slotState.constraint || "未定";
+    const amount = slotState.selected.amount || "未入力";
+    const horizon = slotState.selected.horizon || "未入力";
+    const goal = slotState.selected.goal || "未入力";
+    const risk = slotState.selected.risk || "未入力";
+    const constraint = slotState.selected.constraint || "未入力";
     return (
       `${q}\n\n`
       + `User question: ${q}\n\n`
@@ -288,28 +398,61 @@
 
   function renderSlotPanel(){
     if (!slotPanelEl) return;
+    if (!slotState.showPanel) {
+      slotPanelEl.innerHTML = "";
+      return;
+    }
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
+    const req = slotState.requiredFields || [];
+    const remaining = req.filter((f) => slotState.selected[f] == null).length;
+    const reqDone = req.length - remaining;
     const status = enabled
-      ? `Deep ready: ${filled}/5 (Risk OK)`
-      : `Deep lock: ${filled}/5 (${slotState.risk ? "Risk OK" : "Risk required"})`;
-    slotPanelEl.innerHTML = `
-      <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
-      ${SLOT_SPEC.map((g) => `
+      ? `Deep ready: ${reqDone}/${req.length} required`
+      : `あと${remaining}個選ぶとDeep（required ${reqDone}/${req.length}）`;
+    const rows = slotState.showExtra
+      ? SLOT_SPEC
+      : SLOT_SPEC.filter((g) => req.includes(g.key));
+    const rowsHtml = rows.length
+      ? rows.map((g) => `
         <div class="slotRow">
           <span class="slotLabel">${escapeHtml(g.label)}</span>
-          ${g.values.map((v) => `<button class="slotChip ${slotState[g.key] === v ? "active" : ""}" data-slot="${escapeHtml(g.key)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}
+          ${g.values.map((v) => `<button class="slotChip ${slotState.selected[g.key] === v ? "active" : ""}" data-slot="${escapeHtml(g.key)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}
         </div>
-      `).join("")}
+      `).join("")
+      : `<div class="muted">required fields はありません。追加指定したい場合は下のリンクを開いてください。</div>`;
+    const conflictText = slotState.conflict.length
+      ? `<div class="muted" style="margin-top:4px;">Conflict: ${escapeHtml(slotState.conflict.map((c) => `${c.field}(${c.extracted} vs ${c.selected})`).join(", "))}</div>`
+      : "";
+    slotPanelEl.innerHTML = `
+      <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
+      <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
+      <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")}</div>
+      ${rowsHtml}
+      <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
+      ${conflictText}
     `;
+    const more = document.getElementById("slot-more-toggle");
+    if (more) {
+      more.onclick = (e) => {
+        e.preventDefault();
+        slotState.showExtra = !slotState.showExtra;
+        renderSlotPanel();
+      };
+    }
     for (const btn of Array.from(slotPanelEl.querySelectorAll(".slotChip"))){
       btn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         const key = String(btn.getAttribute("data-slot") || "");
         const value = String(btn.getAttribute("data-value") || "");
-        if (!key || !Object.prototype.hasOwnProperty.call(slotState, key)) return;
-        slotState[key] = value || null;
+        if (!key || !Object.prototype.hasOwnProperty.call(slotState.selected, key)) return;
+        slotState.selected[key] = value || null;
+        slotState.selectedSource[key] = "manual";
+        const cc = confidenceScore(slotState.extracted, slotState.selected);
+        slotState.confidence = cc.confidence;
+        slotState.conflict = cc.conflict;
+        slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
         renderSlotPanel();
         if (mode === "live" && active === "compare") loadActive();
       };
@@ -791,10 +934,10 @@
           <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
         </span>`
       : "";
-    const slotReadyNow = slotDeepEnabled();
-    const deepGateOpen = sufficientNow || slotReadyNow;
+    const slotReadyNow = slotState.showPanel && slotDeepEnabled();
+    const deepGateOpen = slotReadyNow;
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? "3/5 + Risk必須でDeep解放" : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length)}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
     const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
@@ -820,8 +963,9 @@
       ? uiState.unlock_when_text
       : ((sufficiency && typeof sufficiency.unlock_when_text === "string" && sufficiency.unlock_when_text) ? sufficiency.unlock_when_text : "必須前提を1つ固定すると深掘り可能");
     const deepLockReason = (uiState && typeof uiState.deep_block_reason === "string" && uiState.deep_block_reason) ? uiState.deep_block_reason : "insufficient_context";
-    const deepLockNote = (!sufficientNow)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context (${progressCount}/${lockNeedK})<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}<br/>Unlock when: ${escapeHtml(displaySanitize(lockUnlockWhen))}</div>`
+    const deepLockRemain = Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length);
+    const deepLockNote = (!deepGateOpen && slotState.showPanel)
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}項目を選択（required_fieldsを満たすと解放）</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
@@ -830,8 +974,8 @@
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : "";
-    const deepLockBadge = (!sufficientNow)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: need info (${escapeHtml(deepLockReason)})</span>`
+    const deepLockBadge = (!deepGateOpen && slotState.showPanel)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: fill required fields</span>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -878,17 +1022,7 @@
     const unlockChecks = (!sufficientNow && lockRequiredFields.length)
       ? `<div style="margin-top:6px;">Unlock progress: ${progressCount}/${lockNeedK}${lockRequiredFields.map(f => `<div>${lockSatisfiedFields.includes(f) ? "☑" : "☐"} ${escapeHtml(displaySanitize(fieldLabel(f)))}</div>`).join("")}</div>`
       : "";
-    const leftUnlockPanel = (!sufficientNow)
-      ? `<div id="deep-unlock-panel" class="infoBanner">
-          <div>Deepを解放するには ${lockNeedK}/${lockNeedK} が必要（現在 ${progressCount}/${lockNeedK}）</div>
-          ${lockRequiredFields.length ? `<div style="margin-top:4px;">必須: ${escapeHtml(displaySanitize(lockRequiredFields.map(fieldLabel).join(" / ")))}</div>` : ""}
-          ${lockMissing.length ? `<div style="margin-top:4px;">あと${Math.max(0, lockNeedK - progressCount)}つ: ${escapeHtml(displaySanitize(lockMissing.join(" / ")))}</div>` : ""}
-          <div style="margin-top:4px;">NEXT: ${escapeHtml(displaySanitize(String(lockNext || "最重要な判断軸を1つ指定してください。")))}</div>
-          <div style="margin-top:4px;">UNLOCK_WHEN: ${escapeHtml(displaySanitize(lockUnlockWhen))}</div>
-          ${unlockChecks}
-          ${needInfoChips}
-        </div>`
-      : "";
+    const leftUnlockPanel = "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
       : "";
@@ -1002,7 +1136,8 @@
           return;
         }
         if (!deepGateOpen) {
-          liveHintEl.textContent = "Deep locked: need 3/5 slots + Risk";
+          const remain = Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length);
+          liveHintEl.textContent = `Deep locked: あと${remain}項目`;
           const panel = document.getElementById("deep-unlock-panel");
           if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
           return;
@@ -1026,6 +1161,11 @@
     const expectedCacheKey = makeCacheKey(cacheModeKey, inputHash, liveBootSha, liveModelCfgHash);
     const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
     if (submittedInput && !isDeep) lastSubmittedInput = submittedInput;
+    if (!isDeep) {
+      slotState.showPanel = true;
+      recomputeSlotRequirements(submittedInput);
+      renderSlotPanel();
+    }
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
@@ -1179,10 +1319,18 @@
       updateCtrlPanel();
 
       const w = withTimeout(30000);
+      const deepPayload = {
+        input: submittedInput,
+        run_id: runId,
+        question: String(lastSubmittedInput || submittedInput || ""),
+        slots: { ...slotState.selected },
+        confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
+        required_fields: Array.isArray(slotState.requiredFields) ? slotState.requiredFields.slice() : [],
+      };
       const r = await fetch(`${apiBase}/api/triad?mode=deep`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: submittedInput, run_id: runId }),
+        body: JSON.stringify(deepPayload),
         signal: w.signal,
       });
       if (!r.ok) {
