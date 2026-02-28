@@ -153,6 +153,7 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["decision_card_path"] = meta["decision_card_path"]
                 if isinstance(meta.get("build_sha"), str):
                     payload["build_sha"] = meta["build_sha"]
+                    payload["ask_sha"] = meta["build_sha"]
                 if isinstance(meta.get("timings"), dict):
                     payload["timings"] = meta["timings"]
         except Exception:
@@ -238,11 +239,11 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
     server_sha_start = GIT_SHA
     before_snapshot = _extract_before_section(_read_text(OUT_FILES["compare"]))
 
-    def _run_meta(result_sha: str = "") -> dict:
+    def _run_meta() -> dict:
         return {
             "health_sha": server_sha_start,
             "server_sha_start": server_sha_start,
-            "result_sha": (result_sha or server_sha_start),
+            "result_sha": server_sha_start,
             "server_sha_end": GIT_SHA,
             "pid_start": PID,
             "pid_end": PID,
@@ -259,7 +260,7 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
             "input_hash": input_hash,
             "model_cfg_hash": model_cfg_hash,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            **_run_meta(""),
+            **_run_meta(),
         }
 
     def _worker():
@@ -306,7 +307,7 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
                         "input_hash": input_hash,
                         "model_cfg_hash": model_cfg_hash,
                         "generated_at": datetime.now(timezone.utc).isoformat(),
-                        **_run_meta(""),
+                        **_run_meta(),
                     }
                 return
             payload, missing = _collect_outputs(with_meta=True)
@@ -325,7 +326,7 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
                         "input_hash": input_hash,
                         "model_cfg_hash": model_cfg_hash,
                         "generated_at": datetime.now(timezone.utc).isoformat(),
-                        **_run_meta(""),
+                        **_run_meta(),
                     }
                 return
             snapshot = before_snapshot
@@ -352,7 +353,8 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
                     "input_hash": input_hash,
                     "model_cfg_hash": model_cfg_hash,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                    **_run_meta(str(payload.get("build_sha") or "")),
+                    "ask_sha": str(payload.get("build_sha") or ""),
+                    **_run_meta(),
                     **payload,
                 }
             q = payload.get("quality") if isinstance(payload.get("quality"), dict) else {}
@@ -376,7 +378,7 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
                     "input_hash": input_hash,
                     "model_cfg_hash": model_cfg_hash,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                    **_run_meta(""),
+                    **_run_meta(),
                 }
         except Exception as e:
             with JOBS_LOCK:
@@ -392,7 +394,7 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
                     "input_hash": input_hash,
                     "model_cfg_hash": model_cfg_hash,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                    **_run_meta(""),
+                    **_run_meta(),
                 }
         finally:
             stop_monitor.set()
@@ -521,11 +523,11 @@ class Handler(BaseHTTPRequestHandler):
             input_hash = _input_hash(user_input)
             server_sha_start = GIT_SHA
 
-            def _resp_meta(result_sha: str = "") -> dict:
+            def _resp_meta() -> dict:
                 return {
                     "health_sha": server_sha_start,
                     "server_sha_start": server_sha_start,
-                    "result_sha": (result_sha or server_sha_start),
+                    "result_sha": server_sha_start,
                     "server_sha_end": GIT_SHA,
                     "pid_start": PID,
                     "pid_end": PID,
@@ -550,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
                         "input_hash": input_hash,
                         "model_cfg_hash": _model_cfg_hash("deep", deep_env),
                         "generated_at": datetime.now(timezone.utc).isoformat(),
-                        **_resp_meta(""),
+                        **_resp_meta(),
                     },
                 )
                 return
@@ -593,7 +595,8 @@ class Handler(BaseHTTPRequestHandler):
                         "input_hash": input_hash,
                         "model_cfg_hash": _model_cfg_hash("seed", seed_env),
                         "generated_at": datetime.now(timezone.utc).isoformat(),
-                        **_resp_meta(str(payload.get("build_sha") or "")),
+                        "ask_sha": str(payload.get("build_sha") or ""),
+                        **_resp_meta(),
                         **payload,
                     },
                 )
@@ -637,7 +640,8 @@ class Handler(BaseHTTPRequestHandler):
                     "input_hash": input_hash,
                     "model_cfg_hash": _model_cfg_hash("core", core_env),
                     "generated_at": datetime.now(timezone.utc).isoformat(),
-                    **_resp_meta(str(payload.get("build_sha") or "")),
+                    "ask_sha": str(payload.get("build_sha") or ""),
+                    **_resp_meta(),
                     **payload,
                 },
             )
