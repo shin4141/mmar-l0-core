@@ -383,6 +383,35 @@
     return { total: required.length, filled, missing };
   }
 
+  function computeDeepState(){
+    const prog = computeRequiredProgress();
+    const blockers = [];
+    if (analysisStatus === "running") blockers.push("analysis_running");
+    if (analysisStatus === "error") blockers.push("analysis_error");
+    if (prog.missing.length > 0) blockers.push("required_missing");
+    const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
+    if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
+    if (Array.isArray(slotState.conflict) && slotState.conflict.length) blockers.push("conflict_present");
+    return { enabled: blockers.length === 0, blockers, prog };
+  }
+
+  async function safeFetchDeep(url, payload, signal){
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    const raw = await res.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+      const msg = (data && (data.error || data.message)) ? (data.error || data.message) : raw;
+      throw new Error(`deep_http_${res.status}: ${msg}`);
+    }
+    return { data, raw };
+  }
+
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
     slotState.extracted = extractSlotsFromText(slotState.text);
@@ -1200,9 +1229,20 @@
           liveHintEl.textContent = "No submitted input";
           return;
         }
-        if (!deepGateOpen) {
-          const remain = Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length);
-          liveHintEl.textContent = `Deep locked: あと${remain}項目`;
+        const ds = computeDeepState();
+        console.debug("[DG]", {
+          runId: activeRunId,
+          phase: "deep_click",
+          requiredTotal: ds.prog.total,
+          requiredMissing: ds.prog.missing.length,
+          deepEnabled: ds.enabled,
+          blockers: ds.blockers,
+          required: slotState.requiredFields,
+          selectedKeys: Object.keys(slotState.selected || {}),
+          analysisPhase: analysisStatus,
+        });
+        if (!ds.enabled) {
+          liveHintEl.textContent = `Deep locked: ${ds.blockers.join(",") || "blocked"}`;
           const panel = document.getElementById("slot-panel");
           if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
           return;
@@ -1418,25 +1458,39 @@
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
         required_fields: Array.isArray(slotState.requiredFields) ? slotState.requiredFields.slice() : [],
       };
-      const r = await fetch(`${apiBase}/api/triad?mode=deep`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(deepPayload),
-        signal: w.signal,
-      });
-      if (!r.ok) {
-        const body = await r.text();
-        const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
-        liveHintEl.textContent = `Live error: HTTP ${r.status}`;
-        liveStatus = "error";
+      const { data, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
+      const rawText = String(raw || "");
+      const parsed = (data && typeof data === "object") ? data : {};
+      const fallbackStart = (typeof parsed.fallback_reason_primary === "string" && parsed.fallback_reason_primary)
+        ? parsed.fallback_reason_primary
+        : ((typeof parsed.fallback_reason === "string" && parsed.fallback_reason) ? parsed.fallback_reason : "");
+      const needInfoStart = parsed.mode === "NEED_INFO0" || /MODE:\s*NEED_INFO0/.test(rawText);
+      if (fallbackStart === "insufficient_context" || needInfoStart || /insufficient_context/.test(rawText)) {
+        const add = ["risk", "horizon", "amount", "goal", "constraint"];
+        slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
+        slotState.requiredFrom = "deep_fallback";
+        slotState.showPanel = true;
+        renderSlotPanel();
         deepRunning = false;
         isRunning = false;
-        outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
-        setRunVisual("error", "2.8s");
+        liveStatus = "ready";
+        liveHintEl.textContent = "Deep blocked: insufficient_context";
+        setRunVisual("ready", "2.8s");
         updateCtrlPanel();
         return;
       }
-      const data = await r.json();
+      const dataObj = (data && typeof data === "object") ? data : null;
+      if (!dataObj) {
+        deepRunning = false;
+        isRunning = false;
+        liveStatus = "ready";
+        liveHintEl.textContent = "Deep returned non-JSON response";
+        outEl.textContent = rawText || "(empty deep response)";
+        setRunVisual("ready", "2.8s");
+        updateCtrlPanel();
+        return;
+      }
+      const data = dataObj;
       const startRunId = (data && typeof data.run_id === "string") ? data.run_id : "";
       if (startRunId && startRunId !== activeRunId) {
         if (!liveDataDeep && !liveData) {
