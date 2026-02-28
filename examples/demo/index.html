@@ -610,6 +610,9 @@
       return;
     }
 
+    const viewDataForBadges = (mode === "live")
+      ? (((liveDataView === "deep") && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData))
+      : null;
     const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
     const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
@@ -660,7 +663,7 @@
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Old server running (sha mismatch)</span>`
       : "";
-    const isCachedView = !!(viewData && viewData.__cached);
+    const isCachedView = !!(viewDataForBadges && viewDataForBadges.__cached);
     const qualityBadge = `<span class="pillBadge">Quality: ${staleDeep ? "-" : `${qualityTotal}/5`}</span>`;
     const cachedBadge = isCachedView ? `<span class="pillBadge">cached</span>` : "";
     const hasDiff = !!String(delta || "").trim();
