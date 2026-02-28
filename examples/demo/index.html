@@ -79,6 +79,13 @@
       display:flex; gap:10px; flex-wrap:wrap; align-items:center;
     }
     .winnerBanner .wKey{ color:#0369a1; font-weight:900; }
+    .slotGrid{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+    .slotRow{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .slotLabel{ min-width:92px; font-size:12px; color:var(--muted); font-weight:700; }
+    .slotChip{ padding:4px 10px; border-radius:999px; border:1px solid var(--line); background:#fff; font-size:12px; font-weight:700; cursor:pointer; }
+    .slotChip.active{ border-color:#0ea5e9; background:#e0f2fe; color:#075985; }
+    .slotStatus{ font-size:12px; font-weight:700; color:#0f766e; }
+    .slotStatus.locked{ color:#9a3412; }
     @keyframes afterHero{
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
@@ -116,6 +123,7 @@
       </div>
       <p class="muted" style="margin:10px 0 6px;">Input (static demo). Output files are loaded from this folder.</p>
       <textarea id="q" placeholder="Question (for display only)"></textarea>
+      <div id="slot-panel" class="slotGrid"></div>
       <div class="row" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <button id="mode-static" class="active" style="display:none;">Static</button>
         <button id="mode-live" style="display:none;">Live</button>
@@ -193,6 +201,7 @@
   const coreOnlyBadgeEl = document.getElementById("core-only-badge");
   const liveHintEl = document.getElementById("live-hint");
   const leftUnlockEl = document.getElementById("left-unlock");
+  const slotPanelEl = document.getElementById("slot-panel");
   const runBarEl = document.getElementById("run-bar");
   const ctrlGearEl = document.getElementById("ctrl-gear");
   const ctrlPanelEl = document.getElementById("ctrl-panel");
@@ -229,6 +238,83 @@
   let deepSessionId = 0;
   let lastStableResult = null;
   const THINK_UNLOCK_THRESHOLD = 60;
+  const slotState = {
+    amount: null,
+    horizon: null,
+    goal: null,
+    risk: null,
+    constraint: null,
+  };
+  const SLOT_SPEC = [
+    { key: "horizon", label: "Horizon", values: ["短期", "長期", "未定"] },
+    { key: "goal", label: "Goal", values: ["増やす", "守る", "現金優先"] },
+    { key: "risk", label: "Risk", values: ["低", "中", "高"] },
+    { key: "constraint", label: "Constraint", values: ["なし", "流動性必要", "未定"] },
+    { key: "amount", label: "Amount", values: ["小", "中", "大", "未定"] },
+  ];
+
+  function slotFilledCount(){
+    return Object.values(slotState).filter(v => v != null).length;
+  }
+
+  function slotDeepEnabled(){
+    return slotFilledCount() >= 3 && slotState.risk != null;
+  }
+
+  function buildDeepContextQuestion(baseQuestion){
+    const q = String(baseQuestion || "").trim();
+    const amount = slotState.amount || "未定";
+    const horizon = slotState.horizon || "未定";
+    const goal = slotState.goal || "未定";
+    const risk = slotState.risk || "未定";
+    const constraint = slotState.constraint || "未定";
+    return (
+      `${q}\n\n`
+      + `User question: ${q}\n\n`
+      + "Context slots (selected by user):\n"
+      + `- Amount: ${amount}\n`
+      + `- Horizon: ${horizon}\n`
+      + `- Goal: ${goal}\n`
+      + `- Risk: ${risk}\n`
+      + `- Constraint: ${constraint}\n\n`
+      + "Task:\n"
+      + "- Give a decision-oriented answer tailored to the context slots.\n"
+      + "- Start by restating the slots as assumptions (1 line).\n"
+      + "- Provide 2–3 options with conditions (if/then).\n"
+      + "- List 3 key unknowns to ask next (only if needed).\n"
+      + "- Keep it practical; no EV, no long theory.\n"
+    );
+  }
+
+  function renderSlotPanel(){
+    if (!slotPanelEl) return;
+    const filled = slotFilledCount();
+    const enabled = slotDeepEnabled();
+    const status = enabled
+      ? `Deep ready: ${filled}/5 (Risk OK)`
+      : `Deep lock: ${filled}/5 (${slotState.risk ? "Risk OK" : "Risk required"})`;
+    slotPanelEl.innerHTML = `
+      <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
+      ${SLOT_SPEC.map((g) => `
+        <div class="slotRow">
+          <span class="slotLabel">${escapeHtml(g.label)}</span>
+          ${g.values.map((v) => `<button class="slotChip ${slotState[g.key] === v ? "active" : ""}" data-slot="${escapeHtml(g.key)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}
+        </div>
+      `).join("")}
+    `;
+    for (const btn of Array.from(slotPanelEl.querySelectorAll(".slotChip"))){
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = String(btn.getAttribute("data-slot") || "");
+        const value = String(btn.getAttribute("data-value") || "");
+        if (!key || !Object.prototype.hasOwnProperty.call(slotState, key)) return;
+        slotState[key] = value || null;
+        renderSlotPanel();
+        if (mode === "live" && active === "compare") loadActive();
+      };
+    }
+  }
 
   function currentLimit(){
     if (mode === "static") return 600;
@@ -705,8 +791,10 @@
           <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
         </span>`
       : "";
+    const slotReadyNow = slotDeepEnabled();
+    const deepGateOpen = sufficientNow || slotReadyNow;
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!sufficientNow ? "材料不足のためDeep停止中" : "")}" style="padding:2px 8px; margin-right:6px;">${(deepMetaDomain === "asset_allocation" && sufficientNow) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? "3/5 + Risk必須でDeep解放" : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
     const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
@@ -913,13 +1001,14 @@
           liveHintEl.textContent = "No submitted input";
           return;
         }
-        if (!sufficientNow) {
-          liveHintEl.textContent = "Deep locked: need info";
+        if (!deepGateOpen) {
+          liveHintEl.textContent = "Deep locked: need 3/5 slots + Risk";
           const panel = document.getElementById("deep-unlock-panel");
           if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
           return;
         }
-        await runLive("deep", lastSubmittedInput);
+        const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
+        await runLive("deep", deepInput);
       };
     }
   }
@@ -936,7 +1025,7 @@
     const cacheModeKey = isDeep ? "deep" : "core";
     const expectedCacheKey = makeCacheKey(cacheModeKey, inputHash, liveBootSha, liveModelCfgHash);
     const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
-    if (submittedInput) lastSubmittedInput = submittedInput;
+    if (submittedInput && !isDeep) lastSubmittedInput = submittedInput;
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
@@ -1427,6 +1516,7 @@
   document.getElementById("reload").onclick = loadActive;
   mode = "live";
   renderMode();
+  renderSlotPanel();
   renderTabs();
   checkLiveHealth();
   loadActive();
