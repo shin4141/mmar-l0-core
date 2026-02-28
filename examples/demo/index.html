@@ -896,7 +896,12 @@
         updateStopButton();
         lastSubmittedInput = submittedInput;
         setTimestamp();
-        loadActive();
+        await loadActive();
+        if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
+          try {
+            renderCompare((coreData.compare && coreData.compare.trim()) ? coreData.compare : (coreData.expand || ""));
+          } catch (_) {}
+        }
         wCore.done();
         liveHintEl.textContent = "RUN: core ok";
         liveStatus = "ready";
@@ -1069,7 +1074,7 @@
             setRunVisual("ready", "2.8s");
             runBarEl.style.width = "100%";
             setTimestamp();
-            loadActive();
+            await loadActive();
             updateCtrlPanel();
             return;
           }
