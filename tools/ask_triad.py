@@ -527,15 +527,22 @@ def _preflight_check(q: str, canonical: dict) -> dict:
 
     missing_top2 = missing[:2]
     next_q = "最重要な判断軸を1つ指定してください。"
+    next_choices: list[str] = []
     if domain == "asset_allocation":
         if any("運用期間" in m for m in missing_top2):
             next_q = "投資期間は？（〜3年 / 3–10年 / 10年以上）"
+            next_choices = ["〜3年", "3–10年", "10年以上"]
         elif any("用途" in m for m in missing_top2):
             next_q = "用途は？（住む/貸す/未定）"
+            next_choices = ["住む", "貸す", "未定"]
+        else:
+            next_choices = ["〜3年", "3–10年", "10年以上"]
     elif domain == "leisure":
         next_q = "今日は没入（映画館）と気楽さ（家）のどちらを優先しますか？（二択）"
+        next_choices = ["没入", "気楽さ"]
     elif domain == "ai_tool_subscription_compare":
         next_q = "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
+        next_choices = ["画像寄り", "半々", "表計算寄り"]
 
     blocking_missing = list(missing_top2)
     # Asset allocation can proceed once horizon is fixed (usage can remain secondary).
@@ -547,6 +554,7 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         "sufficient": sufficient,
         "missing_top2": missing_top2,
         "next_question": next_q,
+        "next_choices": next_choices[:3],
         "cap_split": cap_split,
     }
 
@@ -561,6 +569,7 @@ def _build_need_info_after(q: str, canonical: dict, preflight: dict) -> str:
     facts = _facts3_from_q(q)
     missing_top2 = list(preflight.get("missing_top2") or [])[:2]
     next_q = str(preflight.get("next_question") or "最重要な判断軸を1つ指定してください。")
+    next_choices = [str(x).strip() for x in list(preflight.get("next_choices") or []) if str(x).strip()][:3]
     split_top = int(min(55, max(50, int(preflight.get("cap_split") or 55))))
     split_runner = 100 - split_top
     a = options[0]
@@ -593,6 +602,8 @@ def _build_need_info_after(q: str, canonical: dict, preflight: dict) -> str:
         "- 追加情報で主要軸が逆転した場合に再判定",
         "NEXT:",
         f"- {next_q}",
+        "CHOICES:",
+        *([f"- {c}" for c in next_choices] if next_choices else ["- なし"]),
         "OUTCOME: Need_Info",
     ]
     return "\n".join(lines) + "\n"
@@ -2109,6 +2120,7 @@ def main():
                         "deep_block_reason": ("insufficient_context" if not bool(pf_core.get("sufficient", True)) else ""),
                         "missing_top2": list(pf_core.get("missing_top2") or []),
                         "next_question": str(pf_core.get("next_question") or ""),
+                        "next_choices": list(pf_core.get("next_choices") or []),
                     },
                 },
                 ensure_ascii=False,
@@ -2174,6 +2186,7 @@ def main():
                         "deep_block_reason": ("insufficient_context" if not bool(preflight.get("sufficient", True)) else ""),
                         "missing_top2": list(preflight.get("missing_top2") or []),
                         "next_question": str(preflight.get("next_question") or ""),
+                        "next_choices": list(preflight.get("next_choices") or []),
                     },
                 },
                 ensure_ascii=False,
@@ -2483,6 +2496,7 @@ def main():
                     "deep_block_reason": ("insufficient_context" if not bool(preflight_final.get("sufficient", True)) else ""),
                     "missing_top2": list((preflight_final.get("missing_top2") or [])),
                     "next_question": str(preflight_final.get("next_question") or ""),
+                    "next_choices": list((preflight_final.get("next_choices") or [])),
                 },
             },
             ensure_ascii=False,

@@ -700,6 +700,9 @@
     const lockNext = (uiState && typeof uiState.next_question === "string" && uiState.next_question)
       ? uiState.next_question
       : (sufficiency && typeof sufficiency.next_question === "string" ? sufficiency.next_question : "");
+    const lockChoices = (uiState && Array.isArray(uiState.next_choices) && uiState.next_choices.length)
+      ? uiState.next_choices
+      : (sufficiency && Array.isArray(sufficiency.next_choices) ? sufficiency.next_choices : []);
     const deepLockNote = (mode === "live" && deepReady && !sufficientNow)
       ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}</div>`
       : "";
@@ -709,6 +712,9 @@
       : "";
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
+      : "";
+    const deepLockBadge = (mode === "live" && !sufficientNow)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: need info</span>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -742,15 +748,11 @@
           <span>Reload after restart</span>
         </div>`
       : "";
-    const needInfoChips = (mode === "live" && sufficiency && sufficiency.sufficient === false && deepMetaDomain === "asset_allocation")
-      ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
-          <button class="needinfo-chip" data-horizon="〜3年" style="padding:2px 8px;">〜3年</button>
-          <button class="needinfo-chip" data-horizon="3–10年" style="padding:2px 8px;">3–10年</button>
-          <button class="needinfo-chip" data-horizon="10年以上" style="padding:2px 8px;">10年以上</button>
-        </div>`
+    const needInfoChips = (mode === "live" && !sufficientNow && lockChoices.length)
+      ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${lockChoices.map(c => `<button class="needinfo-chip" data-choice="${escapeHtml(String(c))}" style="padding:2px 8px;">${escapeHtml(displaySanitize(String(c)))}</button>`).join("")}</div>`
       : "";
-    const sufficiencyBanner = (mode === "live" && sufficiency && sufficiency.sufficient === false)
-      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(sufficiency.next_question || "最重要な判断軸を1つ指定してください。")))}${Array.isArray(sufficiency.missing_top2) && sufficiency.missing_top2.length ? `<br/>不足: ${escapeHtml(displaySanitize(sufficiency.missing_top2.join(" / ")))}` : ""}${needInfoChips}</div>`
+    const sufficiencyBanner = (mode === "live" && !sufficientNow)
+      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(lockNext || "最重要な判断軸を1つ指定してください。")))}${lockMissing.length ? `<br/>不足: ${escapeHtml(displaySanitize(lockMissing.join(" / ")))}` : ""}${needInfoChips}</div>`
       : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
@@ -773,7 +775,7 @@
         ${sufficiencyBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${deepLockNote}
         ${rerunHint}
         ${diffBlock}
@@ -808,16 +810,23 @@
         }
       };
     }
-    const horizonChips = Array.from(document.querySelectorAll(".needinfo-chip"));
-    if (horizonChips.length) {
-      for (const chip of horizonChips) {
+    const choiceChips = Array.from(document.querySelectorAll(".needinfo-chip"));
+    if (choiceChips.length) {
+      for (const chip of choiceChips) {
         chip.onclick = async (e) => {
           e.preventDefault();
           e.stopPropagation();
-          const hz = String(chip.getAttribute("data-horizon") || "").trim();
-          if (!hz) return;
+          const choice = String(chip.getAttribute("data-choice") || "").trim();
+          if (!choice) return;
           const base = String(qEl.value || "").trim();
-          const normalized = /投資期間/.test(base) ? base.replace(/投資期間\s*[:：=]\s*(〜3年|3[-–]10年|10年以上)/, `投資期間=${hz}`) : `${base} 投資期間=${hz}`;
+          let normalized = base;
+          if (deepMetaDomain === "asset_allocation") {
+            normalized = /投資期間/.test(base) ? base.replace(/投資期間\s*[:：=]\s*(〜3年|3[-–]10年|10年以上)/, `投資期間=${choice}`) : `${base} 投資期間=${choice}`;
+          } else if (deepMetaDomain === "ai_tool_subscription_compare") {
+            normalized = /主用途比率/.test(base) ? base.replace(/主用途比率\s*[:：=]\s*([^\s]+)/, `主用途比率=${choice}`) : `${base} 主用途比率=${choice}`;
+          } else {
+            normalized = /優先軸/.test(base) ? base.replace(/優先軸\s*[:：=]\s*([^\s]+)/, `優先軸=${choice}`) : `${base} 優先軸=${choice}`;
+          }
           qEl.value = normalized.trim();
           await runLive("core", normalized.trim());
         };
