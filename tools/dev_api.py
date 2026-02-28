@@ -135,6 +135,11 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["missing_stages"] = meta["missing_stages"]
                 if isinstance(meta.get("stage_status"), dict):
                     payload["stage_status"] = meta["stage_status"]
+                    try:
+                        missing_from_stage = [k for k, v in meta["stage_status"].items() if str(v) == "missing"]
+                        payload["missing_stages"] = missing_from_stage
+                    except Exception:
+                        pass
                 if isinstance(meta.get("missing_fields"), list):
                     payload["missing_fields"] = meta["missing_fields"]
                 if isinstance(meta.get("domain"), str):

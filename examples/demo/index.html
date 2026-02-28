@@ -637,7 +637,10 @@
     const deepMetaReason = (liveDataDeep && typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
       ? liveDataDeep.fallback_reason_primary
       : ((liveDataDeep && typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "-");
-    const deepMetaMissing = (liveDataDeep && Array.isArray(liveDataDeep.missing_stages) && liveDataDeep.missing_stages.length) ? liveDataDeep.missing_stages.join(",") : "-";
+    const deepStageStatus = (liveDataDeep && liveDataDeep.stage_status && typeof liveDataDeep.stage_status === "object") ? liveDataDeep.stage_status : null;
+    const deepMissingListRaw = (liveDataDeep && Array.isArray(liveDataDeep.missing_stages)) ? liveDataDeep.missing_stages.slice() : [];
+    const deepMissingList = deepMissingListRaw.filter((s) => !(s === "stepA" && deepStageStatus && deepStageStatus.stepA === "done"));
+    const deepMetaMissing = deepMissingList.length ? deepMissingList.join(",") : "-";
     const deepMetaMissingFields = (liveDataDeep && Array.isArray(liveDataDeep.missing_fields) && liveDataDeep.missing_fields.length) ? liveDataDeep.missing_fields : [];
     const deepMetaDomain = (liveDataDeep && typeof liveDataDeep.domain === "string" && liveDataDeep.domain) ? liveDataDeep.domain : "general";
     const deepMetaDomainGuess = (liveDataDeep && liveDataDeep.domain_guess && typeof liveDataDeep.domain_guess === "object") ? liveDataDeep.domain_guess : null;

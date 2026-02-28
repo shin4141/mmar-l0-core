@@ -705,6 +705,7 @@ def _has_explicit_goal(q: str) -> bool:
 
 def _facts3_from_q(q: str) -> list[str]:
     t = " ".join((q or "").split())
+    domain = _detect_domain(t)
     facts: list[str] = []
     m_pair = re.search(r"(.+?)と(.+?)(どちら|どっち)", t)
     if m_pair:
@@ -727,6 +728,12 @@ def _facts3_from_q(q: str) -> list[str]:
         facts.append("時期=来月")
     if "一人" in t:
         facts.append("同行条件=一人")
+    if "神奈川" in t:
+        facts.append("居住地=神奈川")
+    if "横浜" in t:
+        facts.append("候補=横浜")
+    if "鎌倉" in t:
+        facts.append("候補=鎌倉")
     if "仕事" in t and "趣味" in t:
         facts.append("用途=仕事+趣味")
     elif "仕事" in t:
@@ -745,26 +752,47 @@ def _facts3_from_q(q: str) -> list[str]:
         facts.append("論点=AI影響")
     if "毎日" in t:
         facts.append("頻度=毎日")
+    if "検索程度" in t:
+        facts.append("頻度=検索程度")
+    if "画像" in t:
+        facts.append("用途=画像生成")
+    if "表計算" in t or "資料作成" in t:
+        facts.append("用途=表計算/資料作成")
+    if "料金" in t or "課金" in t:
+        facts.append("論点=料金")
+    if "制限" in t or "待ち" in t:
+        facts.append("論点=制限")
+    if "費用" in t:
+        facts.append("論点=費用")
+    if "移動時間" in t or "移動" in t:
+        facts.append("論点=移動時間")
     if "効果" in t:
         facts.append("目的=効果比較")
-    # Extract concrete tokens from input to avoid generic placeholder facts.
-    tokens = re.findall(r"[A-Za-z0-9０-９一-龠ぁ-んァ-ヴー]{2,12}", t)
-    for tk in tokens:
-        if len(facts) >= 3:
-            break
-        if tk in ("どちら", "どっち", "相応しい", "比較", "プラン"):
-            continue
-        candidate = f"入力語={tk}"
-        if candidate not in facts:
-            facts.append(candidate)
+    if domain == "leisure":
+        if "リラックス" in t:
+            facts.append("目的=リラックス")
+        if "一人" in t:
+            facts.append("滞在形態=単独")
+    if domain == "ai_tool_subscription_compare":
+        if "gpt" in t.lower() or "chatgpt" in t.lower():
+            facts.append("比較対象=GPT")
+        if "gemini" in t.lower():
+            facts.append("比較対象=Gemini")
+    if len(facts) < 3:
+        opts, _ = _extract_options_nway(q, max_options=5)
+        labels = [str(o.get("label") or "").strip() for o in opts if str(o.get("label") or "").strip()]
+        if labels:
+            facts.append(f"候補数={len(labels)}")
+            if len(labels) >= 2:
+                facts.append(f"比較対象={labels[0]}/{labels[1]}")
     if not facts:
-        facts.append("入力語=比較")
+        facts.append("比較形式=二択")
     dedup: list[str] = []
     for f in facts:
         if f not in dedup:
             dedup.append(f)
     facts = dedup
-    fillers = ["入力語=比較", "入力語=目的", "入力語=条件"]
+    fillers = ["比較形式=二択", "評価条件=要確認", "追加条件=未入力"]
     i = 0
     while len(facts) < 3:
         add = fillers[i % len(fillers)]
@@ -947,7 +975,7 @@ def _build_v2_after(
     if option_count >= 3:
         facts = [f for f in facts if "比較対象=2案" not in f]
         while len(facts) < 3:
-            facts.append("判定条件=未固定")
+            facts.append(f"候補数={option_count}")
         facts[2] = f"比較対象={','.join(plan_options[:3])}"
     miss_stage = ",".join(missing or []) if missing else "-"
     miss_fields = ",".join(missing_fields) if missing_fields else "-"
@@ -975,7 +1003,15 @@ def _build_v2_after(
     why_gap = f"1位と2位の合計差={margin}"
     loser_id = ranked[2] if len(ranked) >= 3 else (runner_id if len(ranked) >= 2 else "")
     why_loser = _why_loser(domain, top_label, options_map.get(loser_id, ""), q) if loser_id else ""
-    if domain_conf < 0.55 or len(axes) < 2:
+    if domain == "ai_tool_subscription_compare" and option_count >= 2:
+        lines.append("CALL: PROCEED_WITH_CONDITIONS")
+        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
+        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}（用途比率で反転余地）")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
+    elif domain_conf < 0.55 or len(axes) < 2:
         lines.append("CALL: HOLD")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}")
@@ -1036,6 +1072,8 @@ def _build_v2_after(
         )
     lines.extend(
         [
+            "RULE:",
+            "- 比率条件で暫定順位を採用し、反転条件を先に固定する",
             "FALSIFIER:",
             f"- {_falsifier_line(domain, top_label, runner_label, 'A')}",
             "NEXT:",
