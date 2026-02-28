@@ -237,6 +237,8 @@
   let deepDone = false;
   let deepSessionId = 0;
   let lastStableResult = null;
+  let analysisStatus = "idle";
+  let analysisError = null;
   const THINK_UNLOCK_THRESHOLD = 60;
   const slotState = {
     text: "",
@@ -352,6 +354,14 @@
     return req;
   }
 
+  function deepEnabled(requiredFields, selected){
+    const req = Array.isArray(requiredFields) ? requiredFields : [];
+    const s = selected || {};
+    const requiredOk = req.every((f) => s[f] != null);
+    const riskOk = s.risk != null;
+    return requiredOk && riskOk;
+  }
+
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
     slotState.extracted = extractSlotsFromText(slotState.text);
@@ -367,8 +377,7 @@
   }
 
   function slotDeepEnabled(){
-    const reqDone = slotState.requiredFields.every((f) => slotState.selected[f] != null);
-    return reqDone && slotState.selected.risk != null;
+    return deepEnabled(slotState.requiredFields, slotState.selected);
   }
 
   function buildDeepContextQuestion(baseQuestion){
@@ -405,14 +414,15 @@
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
     const req = slotState.requiredFields || [];
-    const remaining = req.filter((f) => slotState.selected[f] == null).length;
-    const reqDone = req.length - remaining;
+    const requiredTotal = req.length;
+    const requiredFilled = req.filter((f) => slotState.selected[f] != null).length;
+    const requiredRemaining = Math.max(0, requiredTotal - requiredFilled);
     const status = enabled
-      ? `Deep ready: ${reqDone}/${req.length} required`
-      : `あと${remaining}個選ぶとDeep（required ${reqDone}/${req.length}）`;
+      ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
+      : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})`;
     const rows = slotState.showExtra
       ? SLOT_SPEC
-      : SLOT_SPEC.filter((g) => req.includes(g.key));
+      : req.map((k) => SLOT_SPEC.find((g) => g.key === k)).filter(Boolean);
     const rowsHtml = rows.length
       ? rows.map((g) => `
         <div class="slotRow">
@@ -934,7 +944,7 @@
           <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
         </span>`
       : "";
-    const slotReadyNow = slotState.showPanel && slotDeepEnabled();
+    const slotReadyNow = slotState.showPanel && deepEnabled(slotState.requiredFields, slotState.selected);
     const deepGateOpen = slotReadyNow;
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length)}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
@@ -951,29 +961,22 @@
     const lockChoices = (uiState && Array.isArray(uiState.next_choices) && uiState.next_choices.length)
       ? uiState.next_choices
       : (sufficiency && Array.isArray(sufficiency.next_choices) && sufficiency.next_choices.length ? sufficiency.next_choices : lockChoicesFromAfter);
-    const lockRequiredFields = (uiState && Array.isArray(uiState.required_fields)) ? uiState.required_fields : (sufficiency && Array.isArray(sufficiency.required_fields) ? sufficiency.required_fields : []);
-    const lockSatisfiedFields = (uiState && Array.isArray(uiState.satisfied_fields)) ? uiState.satisfied_fields : (sufficiency && Array.isArray(sufficiency.satisfied_fields) ? sufficiency.satisfied_fields : []);
-    const lockNeedK = (uiState && typeof uiState.need_k === "number") ? uiState.need_k : ((sufficiency && typeof sufficiency.need_k === "number") ? sufficiency.need_k : Math.max(1, lockRequiredFields.length || 1));
-    const lockQuestions = (uiState && Array.isArray(uiState.questions) && uiState.questions.length) ? uiState.questions : (sufficiency && Array.isArray(sufficiency.questions) ? sufficiency.questions : []);
-    const fieldLabel = (f) => ({ horizon: "投資期間", priority_axis: "最優先軸", task_mix_ratio: "主用途比率", use: "用途" }[String(f || "")] || String(f || ""));
-    const progressCount = lockRequiredFields.length
-      ? Math.min(lockNeedK, lockRequiredFields.filter(f => lockSatisfiedFields.includes(f)).length)
-      : (sufficientNow ? lockNeedK : 0);
-    const lockUnlockWhen = (uiState && typeof uiState.unlock_when_text === "string" && uiState.unlock_when_text)
-      ? uiState.unlock_when_text
-      : ((sufficiency && typeof sufficiency.unlock_when_text === "string" && sufficiency.unlock_when_text) ? sufficiency.unlock_when_text : "必須前提を1つ固定すると深掘り可能");
-    const deepLockReason = (uiState && typeof uiState.deep_block_reason === "string" && uiState.deep_block_reason) ? uiState.deep_block_reason : "insufficient_context";
-    const deepLockRemain = Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length);
+    const requiredTotal = (slotState.requiredFields || []).length;
+    const requiredFilled = (slotState.requiredFields || []).filter((f) => slotState.selected[f] != null).length;
+    const deepLockRemain = Math.max(0, requiredTotal - requiredFilled);
     const deepLockNote = (!deepGateOpen && slotState.showPanel)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}項目を選択（required_fieldsを満たすと解放）</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
-    const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
+    const deepStatusShowSet = new Set(["partial", "insufficient", "timeout", "llm_error", "schema_invalid", "error"]);
+    const showDeepStatusBadge = (mode === "live" && viewSource === "deep" && deepStatusShowSet.has(deepMetaStatus));
+    const showCoreErrorBadge = (mode === "live" && viewSource === "core" && analysisStatus === "error");
+    const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
-      : "";
+      : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
     const deepLockBadge = (!deepGateOpen && slotState.showPanel)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: fill required fields</span>`
       : "";
@@ -1009,6 +1012,7 @@
           <span>Reload after restart</span>
         </div>`
       : "";
+    const lockQuestions = (uiState && Array.isArray(uiState.questions) && uiState.questions.length) ? uiState.questions : (sufficiency && Array.isArray(sufficiency.questions) ? sufficiency.questions : []);
     const needInfoChips = (!sufficientNow && lockQuestions.length)
       ? `<div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">${lockQuestions.map(q => {
           const fld = escapeHtml(String(q.field || ""));
@@ -1019,9 +1023,6 @@
       : ((!sufficientNow && lockChoices.length)
         ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${lockChoices.map(c => `<button class="needinfo-chip" data-field="priority_axis" data-choice="${escapeHtml(String(c))}" style="padding:2px 8px;">${escapeHtml(displaySanitize(String(c)))}</button>`).join("")}</div>`
         : "");
-    const unlockChecks = (!sufficientNow && lockRequiredFields.length)
-      ? `<div style="margin-top:6px;">Unlock progress: ${progressCount}/${lockNeedK}${lockRequiredFields.map(f => `<div>${lockSatisfiedFields.includes(f) ? "☑" : "☐"} ${escapeHtml(displaySanitize(fieldLabel(f)))}</div>`).join("")}</div>`
-      : "";
     const leftUnlockPanel = "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
@@ -1138,7 +1139,7 @@
         if (!deepGateOpen) {
           const remain = Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length);
           liveHintEl.textContent = `Deep locked: あと${remain}項目`;
-          const panel = document.getElementById("deep-unlock-panel");
+          const panel = document.getElementById("slot-panel");
           if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
           return;
         }
@@ -1162,8 +1163,17 @@
     const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
     if (submittedInput && !isDeep) lastSubmittedInput = submittedInput;
     if (!isDeep) {
+      analysisStatus = "running";
+      analysisError = null;
       slotState.showPanel = true;
       recomputeSlotRequirements(submittedInput);
+      console.log({
+        confidence: slotState.confidence,
+        requiredFields: slotState.requiredFields,
+        selected: slotState.selected,
+        requiredFilled: (slotState.requiredFields || []).filter((f) => slotState.selected[f] != null).length,
+        deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected),
+      });
       renderSlotPanel();
     }
     lastApiMode = apiMode;
@@ -1229,6 +1239,8 @@
     try {
       if (!isDeep) {
         if (!apiBase) {
+          analysisStatus = "error";
+          analysisError = "api_base_empty";
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = "Live error: API base is empty";
@@ -1245,6 +1257,8 @@
           signal: wCore.signal,
         });
         if (!rCore.ok) {
+          analysisStatus = "error";
+          analysisError = `http_${rCore.status}`;
           const body = await rCore.text();
           const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
           liveHintEl.textContent = "RUN: core error";
@@ -1304,6 +1318,8 @@
         }
         wCore.done();
         liveHintEl.textContent = "RUN: core ok";
+        analysisStatus = "ok";
+        analysisError = null;
         liveStatus = "ready";
         liveResultBadgeEl.textContent = "Core";
         liveResultBadgeEl.style.display = "inline-block";
@@ -1539,6 +1555,10 @@
       currentJobId = "";
       updateStopButton();
       deepRunning = false;
+      if (!isDeep) {
+        analysisStatus = "error";
+        analysisError = String(e || "core_error");
+      }
       liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
       liveStatus = "error";
       isRunning = false;
