@@ -2104,6 +2104,12 @@ def main():
                     "build_sha": RUN_SHA,
                     "timings": {},
                     "sufficiency": pf_core,
+                    "ui_state": {
+                        "deep_enabled": bool(pf_core.get("sufficient", True)),
+                        "deep_block_reason": ("insufficient_context" if not bool(pf_core.get("sufficient", True)) else ""),
+                        "missing_top2": list(pf_core.get("missing_top2") or []),
+                        "next_question": str(pf_core.get("next_question") or ""),
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -2163,6 +2169,12 @@ def main():
                     "build_sha": RUN_SHA,
                     "timings": {},
                     "sufficiency": preflight,
+                    "ui_state": {
+                        "deep_enabled": bool(preflight.get("sufficient", True)),
+                        "deep_block_reason": ("insufficient_context" if not bool(preflight.get("sufficient", True)) else ""),
+                        "missing_top2": list(preflight.get("missing_top2") or []),
+                        "next_question": str(preflight.get("next_question") or ""),
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -2445,6 +2457,7 @@ def main():
         compare = _append_decision_sections(compare, q)
     Path(TAB_FILES["compare"]).write_text(compare, encoding="utf-8")
     TURNP.write_text(json.dumps(turn_after, ensure_ascii=False, indent=2), encoding="utf-8")
+    preflight_final = _preflight_check(q, canonical)
     DEEP_META.write_text(
         json.dumps(
             {
@@ -2464,7 +2477,13 @@ def main():
                 "decision_card_path": str(latest_card_path) if latest_card_path else "",
                 "build_sha": RUN_SHA,
                 "timings": timings,
-                "sufficiency": _preflight_check(q, canonical),
+                "sufficiency": preflight_final,
+                "ui_state": {
+                    "deep_enabled": bool(preflight_final.get("sufficient", True)),
+                    "deep_block_reason": ("insufficient_context" if not bool(preflight_final.get("sufficient", True)) else ""),
+                    "missing_top2": list((preflight_final.get("missing_top2") or [])),
+                    "next_question": str(preflight_final.get("next_question") or ""),
+                },
             },
             ensure_ascii=False,
             indent=2,

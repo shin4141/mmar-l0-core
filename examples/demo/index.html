@@ -643,10 +643,13 @@
     const viewDataForBadges = (mode === "live")
       ? (((liveDataView === "deep") && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData))
       : null;
+    const uiState = (viewDataForBadges && viewDataForBadges.ui_state && typeof viewDataForBadges.ui_state === "object")
+      ? viewDataForBadges.ui_state
+      : null;
     const sufficiency = (viewDataForBadges && viewDataForBadges.sufficiency && typeof viewDataForBadges.sufficiency === "object")
       ? viewDataForBadges.sufficiency
       : null;
-    const sufficientNow = !(sufficiency && sufficiency.sufficient === false);
+    const sufficientNow = uiState ? (uiState.deep_enabled !== false) : !(sufficiency && sufficiency.sufficient === false);
     const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
     const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
@@ -692,6 +695,13 @@
       : "";
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !sufficientNow) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!sufficientNow ? "材料不足のためDeep停止中" : "")}" style="padding:2px 8px; margin-right:6px;">${(deepMetaDomain === "asset_allocation" && sufficientNow) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
+      : "";
+    const lockMissing = (uiState && Array.isArray(uiState.missing_top2)) ? uiState.missing_top2 : (sufficiency && Array.isArray(sufficiency.missing_top2) ? sufficiency.missing_top2 : []);
+    const lockNext = (uiState && typeof uiState.next_question === "string" && uiState.next_question)
+      ? uiState.next_question
+      : (sufficiency && typeof sufficiency.next_question === "string" ? sufficiency.next_question : "");
+    const deepLockNote = (mode === "live" && deepReady && !sufficientNow)
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
@@ -764,6 +774,7 @@
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${deepLockNote}
         ${rerunHint}
         ${diffBlock}
         ${debugDetails}

@@ -158,6 +158,8 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["quality_label"] = meta["quality_label"]
                 if isinstance(meta.get("sufficiency"), dict):
                     payload["sufficiency"] = meta["sufficiency"]
+                if isinstance(meta.get("ui_state"), dict):
+                    payload["ui_state"] = meta["ui_state"]
                 if isinstance(meta.get("decision_card_path"), str):
                     payload["decision_card_path"] = meta["decision_card_path"]
                 if isinstance(meta.get("build_sha"), str):
