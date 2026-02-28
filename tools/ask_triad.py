@@ -257,6 +257,39 @@ def _clean_option_label(raw: str) -> str:
     return s
 
 
+def _option_noise_score(label: str) -> int:
+    s = str(label or "").strip()
+    if not s:
+        return 10
+    score = 0
+    if len(s) > 14:
+        score += 2
+    if re.search(r"[。！？?？]", s):
+        score += 2
+    if re.search(r"(どっち|どちら|相応しい|でしょう|ですか|と思う|方がいい)", s):
+        score += 3
+    if re.search(r"(を|に|で|が|は|から|まで|より|について)", s) and len(s) > 10:
+        score += 1
+    return score
+
+
+def _pick_short_jp_token(text: str, side: str) -> str:
+    tokens = re.findall(r"[A-Za-z0-9一-龥ぁ-んァ-ンー]{2,24}", text or "")
+    if not tokens:
+        return ""
+    stop = {"どっち", "どちら", "ですか", "でしょう", "相応しい", "比較", "検討", "候補", "今日", "普段"}
+    cands = [t for t in tokens if t not in stop]
+    if not cands:
+        cands = tokens
+    scored = sorted(
+        cands,
+        key=lambda x: (_option_noise_score(x), abs(len(x) - 4), 0 if 2 <= len(x) <= 12 else 1),
+    )
+    if side == "left":
+        return scored[-1] if len(scored) > 1 and _option_noise_score(scored[0]) > _option_noise_score(scored[-1]) else scored[0]
+    return scored[0]
+
+
 def _detect_domain(q: str) -> str:
     return str((guess_domain(q or "") or {}).get("name") or "general")
 
@@ -570,6 +603,26 @@ def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], flo
             {"id": "b", "label": "専門スキル直行（実務→就職）"},
         ], 0.95)
 
+    # JP binary-island extraction (prefer local candidate island over long preface)
+    island_patterns = [
+        r"([^\n。！？]{1,24})か[、,\s]*([^\n。！？]{1,24})(?:か|$)",
+        r"([^\n。！？]{1,24})と([^\n。！？]{1,24})(?:どっち|どちら)",
+        r"([^\n。！？]{1,24})\s+or\s+([^\n。！？]{1,24})",
+    ]
+    for pat in island_patterns:
+        m = re.search(pat, t, flags=re.IGNORECASE)
+        if not m:
+            continue
+        left = _clean_option_label(_pick_short_jp_token(m.group(1), "left"))
+        right = _clean_option_label(_pick_short_jp_token(m.group(2), "right"))
+        opts = []
+        if left:
+            opts.append({"id": "a", "label": left})
+        if right and right != left:
+            opts.append({"id": "b", "label": right})
+        if len(opts) >= 2:
+            return opts[:max_options], _options_quality(opts, q)
+
     # Compact binary form: derive tail/head tokens around "と" for prompts like
     # "...カンボジアとラオスを比較..." / "...横浜と鎌倉どちら..."
     m_compact = re.search(r"(.+?)\s*と\s*(.+?)(どちら|どっち|を比較|比較)", t)
@@ -743,6 +796,11 @@ def _facts3_from_q(q: str) -> list[str]:
         return dedup_ai[:3]
 
     facts: list[str] = []
+    m_pref = re.search(r"^(.{0,40}?)[。.!！?？]\s*[^。!?！？]{1,24}(?:か|と).{0,24}(?:どっち|どちら|か)", t)
+    if m_pref:
+        pre = m_pref.group(1).strip(" 、,")
+        if pre and len(pre) >= 4:
+            facts.append(f"状況={pre}")
     m_pair = re.search(r"(.+?)と(.+?)(どちら|どっち)", t)
     if m_pair:
         p1 = _clean_option_label(m_pair.group(1))
@@ -1246,7 +1304,19 @@ def _quality_from_after(after_text: str, domain: str = "", input_text: str = "")
     next_lines = _section_lines(after_text, "NEXT:")
     banned = set(get_domain_spec(domain or "general").get("banned_axes", []))
 
-    options_ok = int(len(options) >= 2 and all("(unresolved)" not in o for o in options) and all(len(o) <= 32 for o in options))
+    def _option_too_long_or_noisy(o: str) -> bool:
+        s = str(o or "").strip()
+        if len(s) > 18:
+            return True
+        if _option_noise_score(s) >= 4:
+            return True
+        return False
+    options_ok = int(
+        len(options) >= 2
+        and all("(unresolved)" not in o for o in options)
+        and all(len(o) <= 32 for o in options)
+        and not any(_option_too_long_or_noisy(o) for o in options)
+    )
     axes_ok = int(len(axes) >= 3 and all(a not in banned for a in axes))
     generic_fact_markers = ("判定条件=未固定", "入力語=")
     facts_ok = int(len(facts) >= 3 and all(not any(g in f for g in generic_fact_markers) for f in facts))
@@ -1255,6 +1325,8 @@ def _quality_from_after(after_text: str, domain: str = "", input_text: str = "")
     next_ok = int(bool(next_lines) and any(k in next_txt for k in ("職種", "予算", "都市", "期限", "比率", "摂取量", "期間", "移動")))
 
     total = options_ok + axes_ok + facts_ok + falsifier_ok + next_ok
+    if options_ok == 0:
+        total = min(total, 4)
     return {
         "options_ok": options_ok,
         "axes_ok": axes_ok,
