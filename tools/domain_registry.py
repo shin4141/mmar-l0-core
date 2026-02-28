@@ -22,7 +22,7 @@ DOMAIN_REGISTRY: dict[str, dict] = {
         "banned_axes": ["健康効果"],
     },
     "asset_allocation": {
-        "keywords": ["資産配分", "アセットアロケーション", "ポートフォリオ", "分散", "オルカン", "インデックス", "不動産", "賃貸", "REIT", "レバレッジ", "現金比率"],
+        "keywords": ["資産配分", "アセットアロケーション", "ポートフォリオ", "分散", "オルカン", "インデックス", "不動産", "賃貸", "REIT", "レバレッジ", "現金比率", "マンション", "ロレックス", "ロレ", "金ロレ", "金時計"],
         "axes_candidates": ["期待リターン", "流動性", "価格変動リスク", "管理負担", "分散効果"],
         "falsifier_templates": [
             "運用期間が短期化するなら高ボラ側から低ボラ側へ反転",
@@ -128,7 +128,7 @@ DOMAIN_REGISTRY: dict[str, dict] = {
 def guess_domain(text: str) -> dict:
     t = text or ""
     low = t.lower()
-    has_asset = any(k in t for k in ("資産配分", "アセットアロケーション", "ポートフォリオ", "オルカン", "不動産", "賃貸", "REIT", "現金比率"))
+    has_asset = any(k in t for k in ("資産配分", "アセットアロケーション", "ポートフォリオ", "オルカン", "不動産", "賃貸", "REIT", "現金比率", "マンション", "ロレックス", "ロレ", "金ロレ", "金時計"))
     if has_asset and any(k in t for k in ("投資", "運用", "配分", "比較", "どちら", "どっち", "か")):
         return {"name": "asset_allocation", "confidence": 0.9}
     has_gpt = ("gpt" in low) or ("chatgpt" in low)

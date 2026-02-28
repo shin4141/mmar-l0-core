@@ -473,6 +473,105 @@ def _canonicalize_question(q: str) -> dict:
     }
 
 
+def _preflight_check(q: str, canonical: dict) -> dict:
+    domain = str(canonical.get("domain") or "general")
+    options = list(canonical.get("options") or [])
+    option_quality = float(canonical.get("option_quality") or 0.0)
+    domain_conf = float((canonical.get("domain_guess") or {}).get("confidence") or 0.0)
+    missing: list[str] = []
+
+    options_ok = len(options) >= 2 and option_quality >= 0.55
+    if not options_ok:
+        missing.append("選択肢の定義（2案を短く）")
+    if domain_conf < 0.55:
+        missing.append("比較ドメインの確定")
+
+    t = (q or "")
+    if domain == "asset_allocation":
+        has_horizon = any(k in t for k in ("短期", "中期", "長期", "運用期間", "年"))
+        has_usage = any(k in t for k in ("住む", "居住", "貸す", "賃貸", "未定"))
+        if not has_horizon:
+            missing.append("運用期間（短期/中期/長期）")
+        if not has_usage:
+            missing.append("用途（住む/貸す/未定）")
+    elif domain == "leisure":
+        has_axis = any(k in t for k in ("没入", "気楽", "予算", "混雑", "移動"))
+        if not has_axis:
+            missing.append("優先軸（没入/気楽さ/予算 など）")
+    elif domain == "ai_tool_subscription_compare":
+        has_usage_ratio = ("比率" in t) or (("画像" in t) and ("表計算" in t or "資料作成" in t))
+        if not has_usage_ratio:
+            missing.append("主用途比率（画像寄り/半々/表計算寄り）")
+
+    missing_top2 = missing[:2]
+    next_q = "最重要な判断軸を1つ指定してください。"
+    if domain == "asset_allocation":
+        if any("運用期間" in m for m in missing_top2):
+            next_q = "運用期間は？（短期/中期/長期）"
+        elif any("用途" in m for m in missing_top2):
+            next_q = "用途は？（住む/貸す/未定）"
+    elif domain == "leisure":
+        next_q = "今日は没入（映画館）と気楽さ（家）のどちらを優先しますか？（二択）"
+    elif domain == "ai_tool_subscription_compare":
+        next_q = "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
+
+    sufficient = len(missing_top2) == 0
+    cap_split = 55 if (not sufficient and domain == "asset_allocation") else 70
+    return {
+        "sufficient": sufficient,
+        "missing_top2": missing_top2,
+        "next_question": next_q,
+        "cap_split": cap_split,
+    }
+
+
+def _build_need_info_after(q: str, canonical: dict, preflight: dict) -> str:
+    options = [str(o.get("label") or "").strip() for o in list(canonical.get("options") or []) if str(o.get("label") or "").strip()]
+    if len(options) < 2:
+        options = ["候補A", "候補B"]
+    options = options[:5]
+    domain = str(canonical.get("domain") or "general")
+    axes = _prior_axes(domain)[:5]
+    facts = _facts3_from_q(q)
+    missing_top2 = list(preflight.get("missing_top2") or [])[:2]
+    next_q = str(preflight.get("next_question") or "最重要な判断軸を1つ指定してください。")
+    split_top = int(min(55, max(50, int(preflight.get("cap_split") or 55))))
+    split_runner = 100 - split_top
+    a = options[0]
+    b = options[1]
+    lines = [
+        "OPTIONS:",
+        *[f"- {o}" for o in options],
+        "MODE: NEED_INFO",
+        "CALL: NEED_INFO",
+        "LEAN: ほぼ同等（暫定）",
+        f"ALT: {b}",
+        f"LEAN_SPLIT: {a} {split_top} / {b} {split_runner}",
+        "WHY: 前提未固定のため、暫定判定のみ提示",
+        f"STABILITY: {40 if domain == 'asset_allocation' else 45}",
+        "RESOLUTION: low",
+        "ΔSCORE: +0",
+        "AXES:",
+        *[f"- {ax}" for ax in axes],
+        "SCORECARD:",
+        *[f"- {ax}: {a}=2 {b}=2" for ax in axes[:3]],
+        "FACTS_3:",
+        f"- {facts[0]}",
+        f"- {facts[1]}",
+        f"- {facts[2]}",
+        "MISSING_TOP2:",
+        *([f"- {m}" for m in missing_top2] if missing_top2 else ["- 追加情報なし"]),
+        "FLIP:",
+        "- 前提条件（期間/用途/優先軸）が固定されると傾きが反転し得る",
+        "FALSIFIER:",
+        "- 追加情報で主要軸が逆転した場合に再判定",
+        "NEXT:",
+        f"- {next_q}",
+        "OUTCOME: Need_Info",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _prior_axes(domain: str) -> list[str]:
     return list(get_domain_spec(domain).get("axes_candidates", ["コスト", "リスク", "柔軟性"]))[:5]
 
@@ -995,6 +1094,7 @@ def _build_v2_after(
     missing: list[str] | None = None,
 ) -> str:
     c = _canonicalize_question(q)
+    preflight = _preflight_check(q, c)
     options = list(c.get("options") or [])
     option_count = int(c.get("option_count") or len(options))
     option_quality = float(c.get("option_quality") or 0.0)
@@ -1203,6 +1303,8 @@ def _build_v2_after(
     else:
         split_delta = min(20, max(3, margin * 4))
         split_top = 50 + split_delta
+    if domain == "asset_allocation" and not bool(preflight.get("sufficient", True)):
+        split_top = min(split_top, int(preflight.get("cap_split") or 55))
     split_runner = 100 - split_top
     lines.append(f"LEAN: {lean_text}")
     lines.append(f"ALT: {runner_label}")
@@ -1911,6 +2013,65 @@ def main():
         )
         log("[DONE] core-only output written")
         return
+    canonical = _canonicalize_question(q)
+    domain_guess = canonical.get("domain_guess") or {}
+    preflight = _preflight_check(q, canonical)
+    if think_mode and (not no_llm) and (not bool(preflight.get("sufficient", True))):
+        need_after = _build_need_info_after(q, canonical, preflight).strip()
+        need_before = normalize_before_seed(q)
+        need_diff = build_diff_lite(need_before, need_after)
+        TAB_FILES["expand"].write_text(need_after + "\n", encoding="utf-8")
+        TAB_FILES["diff"].write_text(need_diff, encoding="utf-8")
+        TAB_FILES["merge"].write_text(need_after + "\n", encoding="utf-8")
+        TAB_FILES["compare"].write_text(
+            "=== INPUT ===\n"
+            f"{q}\n\n"
+            "=== BEFORE (Single / seed) ===\n"
+            f"{need_before}\n\n"
+            "=== AFTER (MMAR / EXPAND) ===\n"
+            f"{need_after}\n\n"
+            "=== Δ (Diff head) ===\n"
+            f"{need_diff}\n",
+            encoding="utf-8",
+        )
+        latest_card, latest_card_path = _write_decision_card(
+            case_id=case_id,
+            input_text=q,
+            after_text=need_after,
+            domain_guess=domain_guess,
+            deep_status="insufficient",
+            missing_stages=[],
+            fallback_reason_primary="insufficient_context",
+        )
+        DEEP_META.write_text(
+            json.dumps(
+                {
+                    "deep_status": "insufficient",
+                    "domain": canonical.get("domain"),
+                    "domain_guess": domain_guess,
+                    "domain_confidence": float(domain_guess.get("confidence") or 0.0),
+                    "missing_fields": canonical.get("missing_fields") or [],
+                    "fallback_reason": "insufficient_context",
+                    "fallback_reason_primary": "insufficient_context",
+                    "fallback_reason_secondary": [],
+                    "missing_stages": [],
+                    "stage_status": {"stepA": "done", "expand": "done", "diff": "done"},
+                    "judgment_point_changes": _judgment_point_changes_from_after(need_after),
+                    "quality": (latest_card or {}).get("quality", {}),
+                    "quality_total": int(((latest_card or {}).get("quality") or {}).get("total") or 0),
+                    "quality_label": "insufficient",
+                    "decision_card_path": str(latest_card_path) if latest_card_path else "",
+                    "build_sha": RUN_SHA,
+                    "timings": {},
+                    "sufficiency": preflight,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        log("[DONE] preflight insufficient -> NEED_INFO (skip LLM)")
+        return
     lite_before = normalize_before_seed(q) if no_llm else "初期SEED生成中（lite first）"
     lite_after = build_seed_after_core(q) if no_llm else meaningful_after_fallback(q, "LLM timeout; lite first")
     lite_diff = build_diff_lite(lite_before, lite_after)
@@ -2204,6 +2365,7 @@ def main():
                 "decision_card_path": str(latest_card_path) if latest_card_path else "",
                 "build_sha": RUN_SHA,
                 "timings": timings,
+                "sufficiency": _preflight_check(q, canonical),
             },
             ensure_ascii=False,
             indent=2,

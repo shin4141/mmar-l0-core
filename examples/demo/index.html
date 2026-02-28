@@ -643,6 +643,10 @@
     const viewDataForBadges = (mode === "live")
       ? (((liveDataView === "deep") && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData))
       : null;
+    const sufficiency = (viewDataForBadges && viewDataForBadges.sufficiency && typeof viewDataForBadges.sufficiency === "object")
+      ? viewDataForBadges.sufficiency
+      : null;
+    const sufficientNow = !(sufficiency && sufficiency.sufficient === false);
     const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
     const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
@@ -687,14 +691,14 @@
         </span>`
       : "";
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : ""}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !sufficientNow) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!sufficientNow ? "材料不足のためDeep停止中" : "")}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
-      ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : "解析失敗（再実行）"}</button>`
+      ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -705,7 +709,8 @@
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">sha mismatch</span>`
       : "";
     const isCachedView = !!(viewDataForBadges && viewDataForBadges.__cached);
-    const qualityBadge = `<span class="pillBadge">Quality: ${staleDeep ? "-" : `${qualityTotal}/5`}</span>`;
+    const qualityLabel = (viewDataForBadges && typeof viewDataForBadges.quality_label === "string") ? viewDataForBadges.quality_label : "";
+    const qualityBadge = `<span class="pillBadge">Quality: ${staleDeep ? "-" : (qualityLabel === "insufficient" ? "insufficient" : `${qualityTotal}/5`)}</span>`;
     const cachedBadge = isCachedView ? `<span class="pillBadge">cached</span>` : "";
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
@@ -727,6 +732,9 @@
           <span>Reload after restart</span>
         </div>`
       : "";
+    const sufficiencyBanner = (mode === "live" && sufficiency && sufficiency.sufficient === false)
+      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(sufficiency.next_question || "最重要な判断軸を1つ指定してください。")))}${Array.isArray(sufficiency.missing_top2) && sufficiency.missing_top2.length ? `<br/>不足: ${escapeHtml(displaySanitize(sufficiency.missing_top2.join(" / ")))}` : ""}</div>`
+      : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
       : "";
@@ -745,6 +753,7 @@
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${stickyBannerHtml}
         ${mismatchBanner}
+        ${sufficiencyBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}

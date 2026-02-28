@@ -154,6 +154,10 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["quality"] = meta["quality"]
                 if isinstance(meta.get("quality_total"), (int, float)):
                     payload["quality_total"] = int(meta["quality_total"])
+                if isinstance(meta.get("quality_label"), str):
+                    payload["quality_label"] = meta["quality_label"]
+                if isinstance(meta.get("sufficiency"), dict):
+                    payload["sufficiency"] = meta["sufficiency"]
                 if isinstance(meta.get("decision_card_path"), str):
                     payload["decision_card_path"] = meta["decision_card_path"]
                 if isinstance(meta.get("build_sha"), str):
