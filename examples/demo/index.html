@@ -69,6 +69,10 @@
       padding:8px 10px; font-size:12px; font-weight:700;
       display:flex; align-items:center; gap:8px; flex-wrap:wrap;
     }
+    .infoBanner{
+      border:1px solid #7dd3fc; background:#e0f2fe; color:#075985; border-radius:10px;
+      padding:8px 10px; font-size:12px; font-weight:700;
+    }
     @keyframes afterHero{
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
@@ -212,8 +216,10 @@
   let lastSubmittedInput = "";
   let prevLiveData = null;
   let deepRunning = false;
+  let isRunning = false;
   let deepDone = false;
   let deepSessionId = 0;
+  let lastStableResult = null;
   const THINK_UNLOCK_THRESHOLD = 60;
 
   function currentLimit(){
@@ -593,7 +599,7 @@
       .replace(/(^|\n)\s*CALL:\s*[^\n]*/i, "$1CALL: N/A (sha mismatch)");
   }
 
-  function renderCompare(txt){
+  function renderCompare(txt, stickyBannerHtml=""){
     const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
     let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
     if (!before) before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
@@ -698,6 +704,7 @@
       : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
+        ${stickyBannerHtml}
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${conditionalBadge}${holdDomainBadge}`, true)}
@@ -798,12 +805,14 @@
       deepRunning = true;
       deepDone = false;
     }
+    isRunning = true;
     const myDeepSession = deepSessionId;
     if (!liveReady && isDeep) {
       outEl.textContent = "Live not ready";
       liveStatus = "error";
       setRunVisual("error", "2.8s");
       updateCtrlPanel();
+      isRunning = false;
       return;
     }
     const runSpeed = isDeep ? "1.2s" : "2.8s";
@@ -819,6 +828,8 @@
         liveDataView = "core";
       }
       liveData = cacheData;
+      lastStableResult = cacheData;
+      isRunning = false;
       liveHintEl.textContent = "Cache hit: same input/sha/model_cfg";
       liveStatus = "ready";
       setRunVisual("ready", "2.8s");
@@ -845,6 +856,7 @@
           outEl.textContent = "Live error: API base is empty";
           setRunVisual("error", "2.8s");
           updateCtrlPanel();
+          isRunning = false;
           return;
         }
         const wCore = withTimeout(12000);
@@ -863,6 +875,7 @@
           setRunVisual("error", "2.8s");
           updateCtrlPanel();
           wCore.done();
+          isRunning = false;
           return;
         }
         const coreData = await rCore.json();
@@ -891,6 +904,7 @@
         liveDataCore = coreData;
         liveDataDeep = null;
         liveDataView = "core";
+        lastStableResult = coreData;
         if (coreData && coreData.health_sha && coreData.model_cfg_hash && coreData.input_hash) {
           const key = makeCacheKey("core", coreData.input_hash, coreData.health_sha, coreData.model_cfg_hash);
           liveCache.set(key, { ...coreData, __cached: false });
@@ -898,6 +912,7 @@
         deepSessionId += 1;
         deepRunning = false;
         deepDone = false;
+        isRunning = false;
         currentJobId = "";
         stopRequested = false;
         updateStopButton();
@@ -938,6 +953,7 @@
         liveHintEl.textContent = `Live error: HTTP ${r.status}`;
         liveStatus = "error";
         deepRunning = false;
+        isRunning = false;
         outEl.textContent = `Live error: HTTP ${r.status}\n\n${short}`;
         setRunVisual("error", "2.8s");
         updateCtrlPanel();
@@ -965,6 +981,7 @@
             liveHintEl.textContent = "Stopped";
             liveStatus = "cancelled";
             deepRunning = false;
+            isRunning = false;
             setRunVisual("ready", "2.8s");
             updateCtrlPanel();
             return;
@@ -1041,6 +1058,7 @@
             outEl.textContent = `Live error\n\n${short}`;
             setRunVisual("error", "2.8s");
             updateCtrlPanel();
+            isRunning = false;
             return;
           }
           if (j.status === "done") {
@@ -1055,6 +1073,7 @@
             deepRunning = false;
             deepDone = true;
             liveStatus = "ready";
+            isRunning = false;
             const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
             const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
             const noGain = ((typeof j.deep_status === "string" ? j.deep_status : "") === "timeout");
@@ -1071,10 +1090,12 @@
             if (deepStatus === "ok" || deepStatus === "partial") {
               liveDataView = "deep";
               liveData = liveDataDeep;
+              lastStableResult = liveDataDeep;
               liveHintEl.textContent = `Live ready (view=deep; status=${deepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
             } else {
               liveDataView = "core";
               liveData = liveDataCore || liveDataDeep;
+              if (liveData) lastStableResult = liveData;
               liveHintEl.textContent = `Deep failed (${deepStatus}; fallback=${fallbackReason})`;
             }
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
@@ -1094,6 +1115,7 @@
             liveStatus = "cancelled";
             setRunVisual("ready", "2.8s");
             updateCtrlPanel();
+            isRunning = false;
             return;
           }
           throw new Error("invalid job status");
@@ -1106,6 +1128,7 @@
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
         liveStatus = "error";
         deepRunning = false;
+        isRunning = false;
         outEl.textContent = `Live error\n\n${short}`;
         setRunVisual("error", "2.8s");
         updateCtrlPanel();
@@ -1118,6 +1141,8 @@
       liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
       liveHintEl.textContent = "Live ready";
       liveStatus = "ready";
+      isRunning = false;
+      lastStableResult = liveData;
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
       setTimestamp();
@@ -1130,6 +1155,7 @@
       deepRunning = false;
       liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
       liveStatus = "error";
+      isRunning = false;
       outEl.textContent = `Live run failed\n\n${e}`;
       setRunVisual("error", "2.8s");
       updateCtrlPanel();
@@ -1144,13 +1170,33 @@
     if (mode === "live"){
       const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       if (!viewData){
-        outEl.textContent = (liveStatus === "running" || liveStatus === "slow")
+        if (isRunning && lastStableResult) {
+          const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
+          const banner = `<div class="infoBanner">Running… showing previous result</div>`;
+          if (active === "compare") {
+            renderCompare(stickyTxt, banner);
+          } else {
+            outEl.innerHTML = `${banner}<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
+          }
+          return;
+        }
+        outEl.textContent = (liveStatus === "running" || liveStatus === "slow" || isRunning)
           ? "Running..."
           : (liveReady ? "Live mode: press Run" : "Live not ready");
         return;
       }
       const viewRunId = (viewData && typeof viewData.run_id === "string") ? viewData.run_id : "";
       if (activeRunId && viewRunId !== activeRunId) {
+        if (isRunning && lastStableResult) {
+          const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
+          const banner = `<div class="infoBanner">Running… showing previous result</div>`;
+          if (active === "compare") {
+            renderCompare(stickyTxt, banner);
+          } else {
+            outEl.innerHTML = `${banner}<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
+          }
+          return;
+        }
         outEl.textContent = "Running...";
         return;
       }

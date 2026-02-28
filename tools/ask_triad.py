@@ -1502,6 +1502,7 @@ def main():
     fallback_reason_primary = ""
     fallback_reason_secondary: list[str] = []
     missing_stages: list[str] = []
+    stage_status: dict[str, str] = {"stepA": "pending", "expand": "pending", "diff": "pending"}
     timings: dict[str, float] = {}
     budget_s = 85
     env_budget = os.getenv("MMAR_TIME_BUDGET_S", "").strip()
@@ -1546,6 +1547,8 @@ def main():
     def mark_missing(stage: str) -> None:
         if stage not in missing_stages:
             missing_stages.append(stage)
+        if stage in stage_status:
+            stage_status[stage] = "missing"
 
     def timed_call(stage: str, prompt: str, timeout_override: int | None = None) -> str:
         nonlocal deep_status
@@ -1668,12 +1671,14 @@ def main():
         c1 = "- Counter: 証拠不足/バイアスの可能性を確認"
         c2 = "- Counter: 逆条件が成立するケースを確認"
         master = build_seed_after_core(q)
+        stage_status["stepA"] = "done"
     else:
         log("[2/5] OpenAI StepA (strong after v2)...")
         stepa_timeout = int(os.getenv("MMAR_STEPA_TIMEOUT", "40") or "40")
         stepa = timed_call("stepA", _stepa_prompt_v2(q), timeout_override=stepa_timeout)
         if _is_valid_stepa_for_question(stepa, q):
             master = stepa.strip()
+            stage_status["stepA"] = "done"
         else:
             if deep_status == "ok":
                 deep_status = "partial"
@@ -1737,16 +1742,6 @@ def main():
     if not diff_head:
         diff_head = "- LLM timeout -> lite used"
 
-    final_after = (expand_txt or master or "").strip()
-    stage_status = {
-        "stepA": "done" if _has_stepa_evidence(final_after) else "missing",
-        "expand": "missing" if "expand" in missing_stages else "done",
-        "diff": "missing" if "diff" in missing_stages else "done",
-    }
-    missing_stages = [s for s in missing_stages if not (s == "stepA" and stage_status["stepA"] == "done")]
-    stage_status["expand"] = "missing" if "expand" in missing_stages else "done"
-    stage_status["diff"] = "missing" if "diff" in missing_stages else "done"
-
     compare = (
         "=== INPUT ===\n"
         f"{q}\n\n"
@@ -1766,11 +1761,14 @@ def main():
             out = build_seed_after_core(q) if tab == "expand" else dummy_fallback_text(f"tab-{tab}")
             if tab == "expand":
                 out = _ensure_deep_after_sections(out, q, lite=True)
+                stage_status["expand"] = "done"
             TAB_FILES[tab].write_text(out, encoding="utf-8")
             if tab == "expand":
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, out), encoding="utf-8")
+                stage_status["diff"] = "done"
             if tab == "diff":
                 TAB_FILES["diff"].write_text(build_diff_lite(seed, build_seed_after_core(q)), encoding="utf-8")
+                stage_status["diff"] = "done"
         else:
             # StepB is optional: keep StepA(master) as default and enrich only if budget remains.
             out = master if tab == "expand" else ""
@@ -1800,6 +1798,7 @@ def main():
                 out = out.rstrip() + "\n(full)\n"
             if tab == "expand":
                 out = _ensure_deep_after_sections(out, q, lite=lite_used)
+                stage_status["expand"] = "done"
             if think_mode:
                 out = _append_decision_sections(out, q)
             TAB_FILES[tab].write_text(out, encoding="utf-8")
@@ -1813,6 +1812,7 @@ def main():
                     if think_mode:
                         diff_out = _append_decision_sections(diff_out, q)
                     TAB_FILES["diff"].write_text(diff_out, encoding="utf-8")
+                    stage_status["diff"] = "done"
                 else:
                     mark_missing("diff")
                     add_secondary_reason("stepB_diff_skipped_budget")
@@ -1858,6 +1858,17 @@ def main():
     diff_head = "\n".join(diff_txt.splitlines()[:60]).strip()
     if not diff_head:
         diff_head = "- LLM timeout -> lite used"
+
+    final_after = (expand_txt or master or "").strip()
+    if _has_stepa_evidence(final_after):
+        stage_status["stepA"] = "done"
+    elif stage_status.get("stepA") == "pending":
+        stage_status["stepA"] = "missing"
+    if stage_status.get("expand") == "pending":
+        stage_status["expand"] = "done" if bool(expand_txt.strip()) else "missing"
+    if stage_status.get("diff") == "pending":
+        stage_status["diff"] = "done" if bool(diff_txt.strip()) else "missing"
+    missing_stages = [k for k, v in stage_status.items() if v == "missing"]
 
     if think_mode:
         all_stages = ["seed", "counter_1", "counter_2", "master", "expand", "diff"]
