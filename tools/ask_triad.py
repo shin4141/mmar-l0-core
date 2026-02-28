@@ -1239,7 +1239,7 @@ def build_seed_after_core(before_text: str) -> str:
 def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     t = (text or "").strip()
     # Always keep After as v3 complete shape for partial/timeout paths.
-    if _is_valid_after_full(t) and "WHY_TOP2:" in t:
+    if _is_valid_stepa_for_question(t, q):
         return t + "\n"
     rebuilt = _build_v2_after(
         q,
@@ -1267,6 +1267,44 @@ def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
     if "MODE: CONDITIONAL" in t and "SCENARIOS:" not in t:
         return False
     return len(t.splitlines()) >= min_lines
+
+
+def _is_pricing_stepa_ready(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    required = ("RECOMMEND_TOP:", "RECOMMEND_RUNNER_UP:", "WHY_TOP2:", "WHY_GAP:", "WHY_LOSER:", "NEXT:")
+    if not all(k in t for k in required):
+        return False
+    low = t.lower()
+    # WHY_TOP2 should carry concrete pricing tokens.
+    why_line = _section_value(t, "WHY_TOP2")
+    concrete_tokens = ("回数制限", "待ち時間", "仕事影響", "仕事比率", "予算")
+    if not any(tok in why_line for tok in concrete_tokens):
+        return False
+    # NEXT must stay one fixed question.
+    next_lines = _section_lines(t, "NEXT:")
+    if len(next_lines) != 1:
+        return False
+    if "仕事利用比率" not in next_lines[0]:
+        return False
+    # Ensure options are explicit triad.
+    opts = _section_lines(t, "OPTIONS:")
+    joined = " ".join(opts).lower()
+    if not (("無料" in joined or "free" in joined) and ("plus" in joined) and ("pro" in joined or "プロ" in joined)):
+        return False
+    return True
+
+
+def _is_valid_stepa_for_question(text: str, q: str) -> bool:
+    if not _is_valid_after_full(text):
+        return False
+    if "WHY_TOP2:" not in (text or ""):
+        return False
+    domain = _detect_domain(q or "")
+    if domain == "subscription_pricing":
+        return _is_pricing_stepa_ready(text)
+    return True
 
 
 def _decision_sections(q: str) -> str:
@@ -1586,7 +1624,7 @@ def main():
         log("[2/5] OpenAI StepA (strong after v2)...")
         stepa_timeout = int(os.getenv("MMAR_STEPA_TIMEOUT", "40") or "40")
         stepa = timed_call("stepA", _stepa_prompt_v2(q), timeout_override=stepa_timeout)
-        if _is_valid_after_full(stepa):
+        if _is_valid_stepa_for_question(stepa, q):
             master = stepa.strip()
         else:
             if deep_status == "ok":
@@ -1692,14 +1730,14 @@ def main():
                 if tab == "diff":
                     mark_missing("diff")
             lite_used = False
-            if tab == "expand" and not _is_valid_after_full(out):
+            if tab == "expand" and not _is_valid_stepa_for_question(out, q):
                 if deep_status == "ok":
                     deep_status = "partial"
                 mark_missing("expand")
                 add_secondary_reason("expand_invalid_kept_master")
                 # Sticky StepA: keep master result instead of replacing with generic partial text.
-                out = master_after if _is_valid_after_full(master_after) else build_after_partial(q, seed, c1, c2, master)
-                lite_used = not _is_valid_after_full(master_after)
+                out = master_after if _is_valid_stepa_for_question(master_after, q) else build_after_partial(q, seed, c1, c2, master)
+                lite_used = not _is_valid_stepa_for_question(master_after, q)
             elif tab == "expand" and do_stepb:
                 out = out.rstrip() + "\n(full)\n"
             if tab == "expand":
@@ -1733,7 +1771,7 @@ def main():
     if TAB_FILES.get("expand") and Path(TAB_FILES["expand"]).exists():
         expand_txt = Path(TAB_FILES["expand"]).read_text(encoding="utf-8", errors="replace").strip()
     if _is_pure_dummy(expand_txt):
-        if _is_valid_after_full(master):
+        if _is_valid_stepa_for_question(master, q):
             expand_txt = master.strip()
         elif seed.strip() or c1.strip() or c2.strip() or master.strip():
             expand_txt = build_after_partial(q, seed, c1, c2, master).strip()

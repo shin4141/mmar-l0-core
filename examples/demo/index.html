@@ -1143,10 +1143,18 @@
         return;
       }
       const txt = (viewData[active] && viewData[active].trim()) ? viewData[active] : (viewData.expand || "");
-      if (active === "compare") {
-        renderCompare(txt);
-      } else {
-        outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+      try {
+        if (active === "compare") {
+          renderCompare(txt);
+        } else {
+          outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+        }
+      } catch (e) {
+        const msg = (e && e.stack) ? e.stack : String(e);
+        outEl.textContent = `Render error (live)\n\n${msg}`;
+        liveHintEl.textContent = "Render error";
+        liveStatus = "error";
+        updateCtrlPanel();
       }
       return;
     }
