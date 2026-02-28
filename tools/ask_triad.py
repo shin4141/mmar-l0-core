@@ -280,6 +280,18 @@ def _extract_user_axes(q: str) -> list[str]:
         ("地域適合", "地域適合"),
         ("柔軟性", "柔軟性"),
         ("制限", "制限"),
+        ("画像生成", "画像生成の相性"),
+        ("画像", "画像生成の相性"),
+        ("表計算", "表計算/資料作成の相性"),
+        ("資料作成", "表計算/資料作成の相性"),
+        ("資料", "表計算/資料作成の相性"),
+        ("料金", "料金"),
+        ("課金", "料金"),
+        ("待ち時間", "制限（回数/待ち/速度）"),
+        ("回数制限", "制限（回数/待ち/速度）"),
+        ("速度", "制限（回数/待ち/速度）"),
+        ("頻度", "利用頻度"),
+        ("検索程度", "利用頻度"),
         ("仕事", "仕事適性"),
         ("趣味", "趣味適性"),
         ("待ち", "制限"),
@@ -373,6 +385,11 @@ def _canonicalize_question(q: str) -> dict:
             missing_fields.append("budget_cap")
         if not any(k in (q or "") for k in ("仕事", "業務", "収益")):
             missing_fields.append("work_ratio")
+    elif domain == "ai_tool_subscription_compare":
+        if not any(k in (q or "") for k in ("画像", "画像生成", "表計算", "資料作成")):
+            missing_fields.append("task_mix")
+        if not any(k in (q or "") for k in ("頻度", "毎日", "週", "時間", "検索程度")):
+            missing_fields.append("usage_frequency")
     elif domain == "education_career":
         if not any(k in (q or "") for k in ("職種", "志望職", "就きたい")):
             missing_fields.append("job_type")
@@ -415,6 +432,8 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "")
         return "優先は静けさと移動の楽さのどちらですか？（二択）"
     if domain == "travel_safety":
         return "行く都市はどこですか？（例: シェムリアップ/プノンペン/ルアンパバーン/ビエンチャン）"
+    if domain == "ai_tool_subscription_compare":
+        return "画像生成と表計算、どちらの比率が高いですか？（画像/半々/表計算）"
     if not missing_fields:
         cands = list(spec.get("next_question_candidates", []))
         return cands[0] if cands else "不足データを1つ埋め、14日以内に再判定"
@@ -475,6 +494,11 @@ def _why_top2(domain: str, axes: list[str], top_label: str, q: str) -> str:
         time_cond = "来月" if soon else "渡航時期"
         cost_cond = "費用重視" if cost else "予算条件"
         return f"1) {cond}+{time_cond}+{cost_cond} では都市/夜移動でリスク差が拡大 2) 国名より都市条件の差が順位を決める"
+    if domain == "ai_tool_subscription_compare":
+        return (
+            f"1) 画像生成と表計算/資料作成の相性で {top_label} が上位 "
+            f"2) 料金・制限（回数/待ち/速度）と利用頻度のバランスで差が付く"
+        )
     a0 = axes[0] if axes else "主要軸"
     a1 = axes[min(1, len(axes) - 1)] if axes else "補助軸"
     return f"1) {a0} で {top_label} が優位 2) {a1} で差が出る"
@@ -490,6 +514,8 @@ def _why_loser(domain: str, top_label: str, loser_label: str, q: str) -> str:
         return f"{loser_label} は優位軸が限定的で、静けさ/移動ラクの優先次第で {top_label} に届かない"
     if domain == "travel_safety":
         return f"{loser_label} は都市と夜移動条件が不利ならリスクが上振れし、{top_label} より下位化する"
+    if domain == "ai_tool_subscription_compare":
+        return f"{loser_label} は画像生成/表計算の主要用途か制限条件が合わない場合に、{top_label} へ劣後する"
     return f"{loser_label} は主要軸の合計で {top_label} に届かず下位化"
 
 
@@ -517,6 +543,16 @@ def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], flo
     domain = _detect_domain(t)
     options: list[dict] = []
     low = t.lower()
+
+    # Tool-family compare: GPT vs Gemini
+    if (("gpt" in low) or ("chatgpt" in low)) and ("gemini" in low):
+        return (
+            [
+                {"id": "gpt", "label": "GPT"},
+                {"id": "gemini", "label": "Gemini"},
+            ],
+            0.95,
+        )
 
     # Explicit pricing/subscription names.
     if any(k in low for k in ("free", "plus", "pro")) or any(k in t for k in ("無料", "プラス", "プロ")):
@@ -664,7 +700,7 @@ def _has_external_evidence(q: str) -> bool:
 
 def _has_explicit_goal(q: str) -> bool:
     t = (q or "")
-    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "安全", "治安"))
+    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "料金", "画像生成", "表計算", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "頻度", "安全", "治安"))
 
 
 def _facts3_from_q(q: str) -> list[str]:
@@ -764,6 +800,8 @@ def _build_v2_after(
     goal_defined = _has_explicit_goal(q)
     decision_context_ok = goal_defined or (
         domain == "subscription_pricing" and option_count >= 3 and any(k in q for k in ("仕事", "趣味", "週", "時間"))
+    ) or (
+        domain == "ai_tool_subscription_compare" and option_count >= 2 and any(k in q for k in ("画像", "画像生成", "表計算", "資料作成", "料金", "頻度", "検索程度"))
     ) or (
         domain == "travel_safety" and option_count >= 2 and any(k in q for k in ("来月", "一人", "費用", "安全", "治安"))
     )
@@ -1250,6 +1288,16 @@ def _ensure_deep_after_sections(text: str, q: str, lite: bool = False) -> str:
     ).strip()
     return rebuilt + "\n"
 
+
+def _has_stepa_evidence(after_text: str) -> bool:
+    t = (after_text or "").strip()
+    if not t:
+        return False
+    has_recommend = bool(_section_value(t, "RECOMMEND_TOP") or _section_value(t, "RECOMMEND"))
+    has_axes = len(_section_lines(t, "AXES:")) >= 1
+    has_next = len(_section_lines(t, "NEXT:")) >= 1
+    return has_recommend and has_axes and has_next
+
 def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
     t = (text or "").strip()
     if not t or "(dummy)" in t:
@@ -1689,6 +1737,16 @@ def main():
     if not diff_head:
         diff_head = "- LLM timeout -> lite used"
 
+    final_after = (expand_txt or master or "").strip()
+    stage_status = {
+        "stepA": "done" if _has_stepa_evidence(final_after) else "missing",
+        "expand": "missing" if "expand" in missing_stages else "done",
+        "diff": "missing" if "diff" in missing_stages else "done",
+    }
+    missing_stages = [s for s in missing_stages if not (s == "stepA" and stage_status["stepA"] == "done")]
+    stage_status["expand"] = "missing" if "expand" in missing_stages else "done"
+    stage_status["diff"] = "missing" if "diff" in missing_stages else "done"
+
     compare = (
         "=== INPUT ===\n"
         f"{q}\n\n"
@@ -1818,7 +1876,7 @@ def main():
     latest_card, latest_card_path = _write_decision_card(
         case_id=case_id,
         input_text=q,
-        after_text=expand_txt or master,
+        after_text=final_after,
         domain_guess=domain_guess,
         deep_status=deep_status,
         missing_stages=missing_stages,
@@ -1864,6 +1922,7 @@ def main():
                 "fallback_reason_primary": fallback_reason_primary or "",
                 "fallback_reason_secondary": fallback_reason_secondary,
                 "missing_stages": missing_stages,
+                "stage_status": stage_status,
                 "judgment_point_changes": judgment_point_changes,
                 "quality": (latest_card or {}).get("quality", {}),
                 "quality_total": int(((latest_card or {}).get("quality") or {}).get("total") or 0),

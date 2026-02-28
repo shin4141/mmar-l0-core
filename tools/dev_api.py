@@ -133,6 +133,8 @@ def _collect_outputs(with_meta: bool = False) -> tuple[dict, list[str]]:
                     payload["fallback_reason_secondary"] = meta["fallback_reason_secondary"]
                 if isinstance(meta.get("missing_stages"), list):
                     payload["missing_stages"] = meta["missing_stages"]
+                if isinstance(meta.get("stage_status"), dict):
+                    payload["stage_status"] = meta["stage_status"]
                 if isinstance(meta.get("missing_fields"), list):
                     payload["missing_fields"] = meta["missing_fields"]
                 if isinstance(meta.get("domain"), str):

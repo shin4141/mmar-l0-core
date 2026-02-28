@@ -41,6 +41,17 @@ DOMAIN_REGISTRY: dict[str, dict] = {
         "next_question_candidates": ["予算上限は？", "仕事利用の比率は？", "待ち時間許容は？"],
         "banned_axes": [],
     },
+    "ai_tool_subscription_compare": {
+        "keywords": ["GPT", "ChatGPT", "Gemini", "画像生成", "表計算", "資料作成", "料金", "課金", "サブスク", "プラン"],
+        "axes_candidates": ["画像生成の相性", "表計算/資料作成の相性", "料金", "制限（回数/待ち/速度）", "利用頻度"],
+        "falsifier_templates": [
+            "画像生成比率が高ければGemini側へ反転",
+            "表計算/資料作成比率が高ければGPT側へ反転",
+        ],
+        "next_question_candidates": ["画像生成と表計算、どっちの比率が高い？（画像/半々/表計算）"],
+        "banned_axes": ["健康効果"],
+        "banned_vocab": ["無料より安定", "Plus", "Pro", "free/plus/pro"],
+    },
     "fitness": {
         "keywords": ["運動", "筋トレ", "体脂肪", "減量", "増量", "ランニング", "持久力"],
         "axes_candidates": ["効果", "ケガリスク", "継続可能性", "時間コスト", "費用"],
@@ -106,6 +117,12 @@ DOMAIN_REGISTRY: dict[str, dict] = {
 
 def guess_domain(text: str) -> dict:
     t = text or ""
+    low = t.lower()
+    has_gpt = ("gpt" in low) or ("chatgpt" in low)
+    has_gemini = "gemini" in low
+    has_sub_words = any(k in t for k in ("課金", "サブスク", "プラン", "料金", "有料", "無料"))
+    if has_gpt and has_gemini and has_sub_words:
+        return {"name": "ai_tool_subscription_compare", "confidence": 0.92}
     scores: dict[str, int] = {}
     for name, spec in DOMAIN_REGISTRY.items():
         if name == "general":
