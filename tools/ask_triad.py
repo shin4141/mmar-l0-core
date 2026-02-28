@@ -340,6 +340,9 @@ def _extract_user_axes(q: str) -> list[str]:
         ("費用", "費用"),
         ("継続", "継続可能性"),
         ("怪我", "怪我リスク"),
+        ("テンション", "満足度"),
+        ("気分", "満足度"),
+        ("満足", "満足度"),
     ]
     out: list[str] = []
     for k, axis in ordered:
@@ -753,7 +756,7 @@ def _has_external_evidence(q: str) -> bool:
 
 def _has_explicit_goal(q: str) -> bool:
     t = (q or "")
-    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "料金", "画像生成", "表計算", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "頻度", "安全", "治安"))
+    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "料金", "画像生成", "表計算", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "頻度", "安全", "治安", "テンション", "気分", "満足"))
 
 
 def _facts3_from_q(q: str) -> list[str]:
@@ -1063,6 +1066,7 @@ def _build_v2_after(
     likely_hold = (
         domain_conf < 0.55 or (long_horizon and margin <= 1) or (not decision_context_ok) or len(axes) < 2 or (not basis_ok)
     )
+    force_conditional_binary = (option_count == 2 and option_quality >= 0.8 and goal_defined and len(axes) >= 2)
     if likely_hold:
         confidence = min(confidence, 55)
     facts = _facts3_from_q(q)
@@ -1079,7 +1083,9 @@ def _build_v2_after(
     lines.extend([f"- {label}" for label in plan_options])
     if not plan_options:
         lines.append("- 候補を箇条書きで指定してください（最大5）")
-    if domain_conf < 0.55:
+    if force_conditional_binary:
+        lines.append("MODE: CONDITIONAL")
+    elif domain_conf < 0.55:
         lines.append("MODE: HOLD")
     elif external_evidence_needed and not has_external_evidence:
         lines.append("MODE: CONDITIONAL")
@@ -1103,6 +1109,14 @@ def _build_v2_after(
         lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}（用途比率で反転余地）")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
+    elif option_count == 2 and option_quality >= 0.8 and goal_defined and len(axes) >= 2:
+        lines.append("CALL: PROCEED_WITH_CONDITIONS")
+        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
+        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}")
         if why_loser:
             lines.append(f"WHY_LOSER: {why_loser}")
     elif domain_conf < 0.55 or len(axes) < 2:
