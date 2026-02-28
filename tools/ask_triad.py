@@ -473,6 +473,28 @@ def _canonicalize_question(q: str) -> dict:
     }
 
 
+def _asset_horizon_bucket(q: str) -> str:
+    t = (q or "")
+    if any(k in t for k in ("〜3年", "~3年", "3年以内", "短期")):
+        return "short"
+    if any(k in t for k in ("3–10年", "3-10年", "中期")):
+        return "mid"
+    if any(k in t for k in ("10年以上", "長期")):
+        return "long"
+    return ""
+
+
+def _asset_usage_bucket(q: str) -> str:
+    t = (q or "")
+    if any(k in t for k in ("住む", "居住", "自分で住")):
+        return "live"
+    if any(k in t for k in ("貸す", "賃貸", "家賃収入")):
+        return "rent"
+    if "未定" in t:
+        return "undecided"
+    return ""
+
+
 def _preflight_check(q: str, canonical: dict) -> dict:
     domain = str(canonical.get("domain") or "general")
     options = list(canonical.get("options") or [])
@@ -488,10 +510,10 @@ def _preflight_check(q: str, canonical: dict) -> dict:
 
     t = (q or "")
     if domain == "asset_allocation":
-        has_horizon = any(k in t for k in ("短期", "中期", "長期", "運用期間", "年"))
-        has_usage = any(k in t for k in ("住む", "居住", "貸す", "賃貸", "未定"))
+        has_horizon = bool(_asset_horizon_bucket(t))
+        has_usage = bool(_asset_usage_bucket(t))
         if not has_horizon:
-            missing.append("運用期間（短期/中期/長期）")
+            missing.append("運用期間（〜3年 / 3–10年 / 10年以上）")
         if not has_usage:
             missing.append("用途（住む/貸す/未定）")
     elif domain == "leisure":
@@ -507,7 +529,7 @@ def _preflight_check(q: str, canonical: dict) -> dict:
     next_q = "最重要な判断軸を1つ指定してください。"
     if domain == "asset_allocation":
         if any("運用期間" in m for m in missing_top2):
-            next_q = "運用期間は？（短期/中期/長期）"
+            next_q = "投資期間は？（〜3年 / 3–10年 / 10年以上）"
         elif any("用途" in m for m in missing_top2):
             next_q = "用途は？（住む/貸す/未定）"
     elif domain == "leisure":
@@ -515,7 +537,11 @@ def _preflight_check(q: str, canonical: dict) -> dict:
     elif domain == "ai_tool_subscription_compare":
         next_q = "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
 
-    sufficient = len(missing_top2) == 0
+    blocking_missing = list(missing_top2)
+    # Asset allocation can proceed once horizon is fixed (usage can remain secondary).
+    if domain == "asset_allocation":
+        blocking_missing = [m for m in missing_top2 if "運用期間" in m]
+    sufficient = len(blocking_missing) == 0
     cap_split = 55 if (not sufficient and domain == "asset_allocation") else 70
     return {
         "sufficient": sufficient,
@@ -589,10 +615,10 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "")
         return "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
     if domain == "asset_allocation":
         if "operation_horizon" in missing_fields:
-            return "運用期間は？（短期/中期/長期）"
+            return "投資期間は？（〜3年 / 3–10年 / 10年以上）"
         if "leverage_allowed" in missing_fields:
             return "レバレッジを許容しますか？（可/不可）"
-        return "運用期間は？（短期/中期/長期）"
+        return "投資期間は？（〜3年 / 3–10年 / 10年以上）"
     if not missing_fields:
         cands = list(spec.get("next_question_candidates", []))
         return cands[0] if cands else "不足データを1つ埋め、14日以内に再判定"
@@ -1116,6 +1142,8 @@ def _build_v2_after(
     ) or (
         domain == "ai_tool_subscription_compare" and option_count >= 2 and any(k in q for k in ("画像", "画像生成", "表計算", "資料作成", "料金", "頻度", "検索程度"))
     ) or (
+        domain == "asset_allocation" and option_count >= 2 and bool(_asset_horizon_bucket(q))
+    ) or (
         domain == "travel_safety" and option_count >= 2 and any(k in q for k in ("来月", "一人", "費用", "安全", "治安"))
     )
     missing_fields = list(c.get("missing_fields") or [])
@@ -1303,8 +1331,21 @@ def _build_v2_after(
     else:
         split_delta = min(20, max(3, margin * 4))
         split_top = 50 + split_delta
-    if domain == "asset_allocation" and not bool(preflight.get("sufficient", True)):
-        split_top = min(split_top, int(preflight.get("cap_split") or 55))
+    if domain == "asset_allocation":
+        has_horizon = bool(_asset_horizon_bucket(q))
+        has_usage = bool(_asset_usage_bucket(q))
+        fixed_count = int(has_horizon) + int(has_usage)
+        if has_horizon:
+            horizon = _asset_horizon_bucket(q)
+            if horizon == "short":
+                split_top = max(split_top, 58)
+            elif horizon == "mid":
+                split_top = min(max(split_top, 52), 58)
+            elif horizon == "long":
+                split_top = max(split_top, 62)
+        cap_dynamic = 55 if fixed_count == 0 else (65 if fixed_count == 1 else 70)
+        split_top = min(split_top, cap_dynamic)
+        split_top = max(100 - cap_dynamic, split_top)
     split_runner = 100 - split_top
     lines.append(f"LEAN: {lean_text}")
     lines.append(f"ALT: {runner_label}")
@@ -1314,6 +1355,12 @@ def _build_v2_after(
         lines.append("CALL: PROCEED_WITH_CONDITIONS")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}（用途比率で反転余地）")
+        if why_loser:
+            lines.append(f"WHY_LOSER: {why_loser}")
+    elif domain == "asset_allocation" and bool(_asset_horizon_bucket(q)):
+        lines.append("CALL: PROCEED_WITH_CONDITIONS")
+        lines.append(f"WHY_TOP2: {why_top2}")
+        lines.append(f"WHY_GAP: {why_gap}（運用期間の前提で再計算）")
         if why_loser:
             lines.append(f"WHY_LOSER: {why_loser}")
     elif option_count == 2 and option_quality >= 0.8 and goal_defined and len(axes) >= 2:
@@ -1378,6 +1425,15 @@ def _build_v2_after(
                 "SCENARIOS:",
                 f"- AI加速: {top_label} の優位が維持されるかを検証",
                 f"- AI停滞: {runner_label} の中長期リターン再評価で逆転し得る",
+            ]
+        )
+    if domain == "asset_allocation":
+        lines.extend(
+            [
+                "VARIABLE_TREE:",
+                "- 期待リターン: 値上がり / キャッシュフロー / 諸費用",
+                "- 最大損失: 金利上昇 / 空室 / 流動性ディスカウント",
+                "- レバレッジ効果: 借入可否と返済負担",
             ]
         )
     lines.extend(
@@ -1795,6 +1851,17 @@ def tab_prompt(tab: str, q: str, seed: str, c1: str, c2: str, master: str, turn_
         f"GATE_REASON_JSON:\n{json.dumps(gate, ensure_ascii=False)}\n"
     )
     if tab == "expand":
+        if _detect_domain(q or "") == "asset_allocation":
+            return (
+                "TAB=EXPAND (variable tree for investment only).\n"
+                "Goal: decompose variables, not predict outcomes.\n"
+                "Output MUST include:\n"
+                "1) VARIABLE_TREE with nodes for return/risk/liquidity/management/diversification\n"
+                "2) FLIP conditions with numeric thresholds placeholders\n"
+                "3) NEXT one question to fix remaining premise\n"
+                "No prophecy, no generic advice.\n\n"
+                + common_ctx
+            )
         flavor = os.getenv("MMAR_EXPAND_FLAVOR", "wow").strip().lower()
         if flavor == "plan":
             return (
@@ -1984,7 +2051,12 @@ def main():
     log("[1/5] generate_triad_turn_min.py -> incoming/triad_turn.json")
     subprocess.check_call([sys.executable, "tools/generate_triad_turn_min.py", q], cwd=str(REPO))
     if core_only:
-        after_core = build_after_core(q)
+        c_core = _canonicalize_question(q)
+        pf_core = _preflight_check(q, c_core)
+        if not bool(pf_core.get("sufficient", True)):
+            after_core = _build_need_info_after(q, c_core, pf_core).strip() + "\n"
+        else:
+            after_core = build_after_core(q)
         before_core = q
         diff_core = build_diff_lite(before_core, after_core)
         TAB_FILES["expand"].write_text(after_core, encoding="utf-8")
@@ -2007,9 +2079,36 @@ def main():
             input_text=q,
             after_text=after_core,
             domain_guess={"name": str(g.get("name") or "general"), "confidence": float(g.get("confidence") or 0.0)},
-            deep_status="core",
+            deep_status=("insufficient" if not bool(pf_core.get("sufficient", True)) else "core"),
             missing_stages=[],
-            fallback_reason_primary="",
+            fallback_reason_primary=("insufficient_context" if not bool(pf_core.get("sufficient", True)) else ""),
+        )
+        DEEP_META.write_text(
+            json.dumps(
+                {
+                    "deep_status": ("insufficient" if not bool(pf_core.get("sufficient", True)) else "core"),
+                    "domain": c_core.get("domain"),
+                    "domain_guess": c_core.get("domain_guess"),
+                    "domain_confidence": float((c_core.get("domain_guess") or {}).get("confidence") or 0.0),
+                    "missing_fields": c_core.get("missing_fields") or [],
+                    "fallback_reason": ("insufficient_context" if not bool(pf_core.get("sufficient", True)) else ""),
+                    "fallback_reason_primary": ("insufficient_context" if not bool(pf_core.get("sufficient", True)) else ""),
+                    "fallback_reason_secondary": [],
+                    "missing_stages": [],
+                    "stage_status": {"stepA": "done", "expand": "done", "diff": "done"},
+                    "judgment_point_changes": _judgment_point_changes_from_after(after_core),
+                    "quality": _quality_from_after(after_core, domain=str(c_core.get("domain") or "general"), input_text=q),
+                    "quality_total": int(_quality_from_after(after_core, domain=str(c_core.get("domain") or "general"), input_text=q).get("total", 0)),
+                    "quality_label": ("insufficient" if not bool(pf_core.get("sufficient", True)) else ""),
+                    "decision_card_path": "",
+                    "build_sha": RUN_SHA,
+                    "timings": {},
+                    "sufficiency": pf_core,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
         )
         log("[DONE] core-only output written")
         return

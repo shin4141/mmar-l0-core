@@ -632,7 +632,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
-            payload, missing = _collect_outputs()
+            payload, missing = _collect_outputs(with_meta=True)
             if missing:
                 self._send_json(500, {"ok": False, "error": "missing_outputs", "missing": missing})
                 return

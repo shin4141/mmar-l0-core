@@ -691,7 +691,7 @@
         </span>`
       : "";
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !sufficientNow) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!sufficientNow ? "材料不足のためDeep停止中" : "")}" style="padding:2px 8px; margin-right:6px;">${deepDone ? "Re-run" : "Deep ▸"}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !sufficientNow) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!sufficientNow ? "材料不足のためDeep停止中" : "")}" style="padding:2px 8px; margin-right:6px;">${(deepMetaDomain === "asset_allocation" && sufficientNow) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
@@ -732,8 +732,15 @@
           <span>Reload after restart</span>
         </div>`
       : "";
+    const needInfoChips = (mode === "live" && sufficiency && sufficiency.sufficient === false && deepMetaDomain === "asset_allocation")
+      ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="needinfo-chip" data-horizon="〜3年" style="padding:2px 8px;">〜3年</button>
+          <button class="needinfo-chip" data-horizon="3–10年" style="padding:2px 8px;">3–10年</button>
+          <button class="needinfo-chip" data-horizon="10年以上" style="padding:2px 8px;">10年以上</button>
+        </div>`
+      : "";
     const sufficiencyBanner = (mode === "live" && sufficiency && sufficiency.sufficient === false)
-      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(sufficiency.next_question || "最重要な判断軸を1つ指定してください。")))}${Array.isArray(sufficiency.missing_top2) && sufficiency.missing_top2.length ? `<br/>不足: ${escapeHtml(displaySanitize(sufficiency.missing_top2.join(" / ")))}` : ""}</div>`
+      ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(sufficiency.next_question || "最重要な判断軸を1つ指定してください。")))}${Array.isArray(sufficiency.missing_top2) && sufficiency.missing_top2.length ? `<br/>不足: ${escapeHtml(displaySanitize(sufficiency.missing_top2.join(" / ")))}` : ""}${needInfoChips}</div>`
       : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
       ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
@@ -789,6 +796,21 @@
           liveHintEl.textContent = `Run: ${cmd}`;
         }
       };
+    }
+    const horizonChips = Array.from(document.querySelectorAll(".needinfo-chip"));
+    if (horizonChips.length) {
+      for (const chip of horizonChips) {
+        chip.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const hz = String(chip.getAttribute("data-horizon") || "").trim();
+          if (!hz) return;
+          const base = String(qEl.value || "").trim();
+          const normalized = /投資期間/.test(base) ? base.replace(/投資期間\s*[:：=]\s*(〜3年|3[-–]10年|10年以上)/, `投資期間=${hz}`) : `${base} 投資期間=${hz}`;
+          qEl.value = normalized.trim();
+          await runLive("core", normalized.trim());
+        };
+      }
     }
     const coreViewBtn = document.getElementById("after-view-core");
     if (coreViewBtn) {
