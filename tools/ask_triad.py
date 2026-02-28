@@ -509,11 +509,20 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         missing.append("比較ドメインの確定")
     required_fields: list[str] = []
     satisfied_fields: list[str] = []
+    missing_fields_ids: list[str] = []
+    need_k = 1
+    questions: list[dict] = []
     unlock_when_text = "必須前提を1つ固定すると深掘り可能"
 
     t = (q or "")
     if domain == "asset_allocation":
-        required_fields = ["horizon"]
+        required_fields = ["horizon", "priority_axis"]
+        need_k = 2
+        questions = [
+            {"field": "horizon", "type": "choice", "label": "投資期間", "choices": ["〜3年", "3–10年", "10年以上"]},
+            {"field": "use", "type": "choice", "label": "用途", "choices": ["住む", "貸す", "未定"]},
+            {"field": "priority_axis", "type": "choice", "label": "最優先軸", "choices": ["リスク最小", "リターン最大", "流動性", "手間最小"]},
+        ]
         has_horizon = bool(_asset_horizon_bucket(t))
         has_usage = bool(_asset_usage_bucket(t))
         if has_horizon:
@@ -521,27 +530,41 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         if has_usage:
             satisfied_fields.append("use_case")
         if any(k in t for k in ("リスク", "最大損失", "損失", "下振れ")):
-            satisfied_fields.append("priority_axis:risk")
+            satisfied_fields.append("priority_axis")
         if not has_horizon:
             missing.append("運用期間（〜3年 / 3–10年 / 10年以上）")
+            missing_fields_ids.append("horizon")
         if not has_usage:
             missing.append("用途（住む/貸す/未定）")
+            missing_fields_ids.append("use")
+        if "priority_axis" not in satisfied_fields:
+            missing_fields_ids.append("priority_axis")
         unlock_when_text = "投資期間を選ぶと深掘り可能（〜3年/3–10年/10年以上）"
     elif domain == "leisure":
         required_fields = ["priority_axis"]
+        need_k = 1
+        questions = [
+            {"field": "priority_axis", "type": "choice", "label": "優先軸", "choices": ["没入", "気楽さ", "予算", "混雑回避", "移動負荷"]},
+        ]
         has_axis = any(k in t for k in ("没入", "気楽", "予算", "混雑", "移動"))
         if has_axis:
             satisfied_fields.append("priority_axis")
         if not has_axis:
             missing.append("優先軸（没入/気楽さ/予算 など）")
+            missing_fields_ids.append("priority_axis")
         unlock_when_text = "優先軸を1つ選ぶと深掘り可能（没入/気楽さ/予算）"
     elif domain == "ai_tool_subscription_compare":
         required_fields = ["task_mix_ratio"]
+        need_k = 1
+        questions = [
+            {"field": "task_mix_ratio", "type": "choice", "label": "主用途比率", "choices": ["画像寄り", "半々", "表計算寄り"]},
+        ]
         has_usage_ratio = ("比率" in t) or (("画像" in t) and ("表計算" in t or "資料作成" in t))
         if has_usage_ratio:
             satisfied_fields.append("task_mix_ratio")
         if not has_usage_ratio:
             missing.append("主用途比率（画像寄り/半々/表計算寄り）")
+            missing_fields_ids.append("task_mix_ratio")
         unlock_when_text = "主用途比率を選ぶと深掘り可能（画像寄り/半々/表計算寄り）"
 
     missing_top2 = missing[:2]
@@ -563,19 +586,22 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         next_q = "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
         next_choices = ["画像寄り", "半々", "表計算寄り"]
 
-    blocking_missing = list(missing_top2)
-    # Asset allocation can proceed once horizon is fixed (usage can remain secondary).
-    if domain == "asset_allocation":
-        blocking_missing = [m for m in missing_top2 if "運用期間" in m]
-    sufficient = len(blocking_missing) == 0
+    required_satisfied = 0
+    for rf in required_fields:
+        if rf in satisfied_fields:
+            required_satisfied += 1
+    sufficient = required_satisfied >= max(1, int(need_k))
     cap_split = 55 if (not sufficient and domain == "asset_allocation") else 70
     return {
         "sufficient": sufficient,
         "missing_top2": missing_top2,
+        "missing_fields": missing_fields_ids,
         "next_question": next_q,
         "next_choices": next_choices[:3],
         "required_fields": required_fields,
         "satisfied_fields": satisfied_fields,
+        "need_k": int(need_k),
+        "questions": questions,
         "unlock_when_text": unlock_when_text,
         "cap_split": cap_split,
     }
@@ -2144,10 +2170,13 @@ def main():
                         "deep_enabled": bool(pf_core.get("sufficient", True)),
                         "deep_block_reason": ("insufficient_context" if not bool(pf_core.get("sufficient", True)) else ""),
                         "missing_top2": list(pf_core.get("missing_top2") or []),
+                        "missing_fields": list(pf_core.get("missing_fields") or []),
                         "next_question": str(pf_core.get("next_question") or ""),
                         "next_choices": list(pf_core.get("next_choices") or []),
                         "required_fields": list(pf_core.get("required_fields") or []),
                         "satisfied_fields": list(pf_core.get("satisfied_fields") or []),
+                        "need_k": int(pf_core.get("need_k") or 1),
+                        "questions": list(pf_core.get("questions") or []),
                         "unlock_when_text": str(pf_core.get("unlock_when_text") or ""),
                     },
                 },
@@ -2213,10 +2242,13 @@ def main():
                         "deep_enabled": bool(preflight.get("sufficient", True)),
                         "deep_block_reason": ("insufficient_context" if not bool(preflight.get("sufficient", True)) else ""),
                         "missing_top2": list(preflight.get("missing_top2") or []),
+                        "missing_fields": list(preflight.get("missing_fields") or []),
                         "next_question": str(preflight.get("next_question") or ""),
                         "next_choices": list(preflight.get("next_choices") or []),
                         "required_fields": list(preflight.get("required_fields") or []),
                         "satisfied_fields": list(preflight.get("satisfied_fields") or []),
+                        "need_k": int(preflight.get("need_k") or 1),
+                        "questions": list(preflight.get("questions") or []),
                         "unlock_when_text": str(preflight.get("unlock_when_text") or ""),
                     },
                 },
@@ -2526,10 +2558,13 @@ def main():
                     "deep_enabled": bool(preflight_final.get("sufficient", True)),
                     "deep_block_reason": ("insufficient_context" if not bool(preflight_final.get("sufficient", True)) else ""),
                     "missing_top2": list((preflight_final.get("missing_top2") or [])),
+                    "missing_fields": list((preflight_final.get("missing_fields") or [])),
                     "next_question": str(preflight_final.get("next_question") or ""),
                     "next_choices": list((preflight_final.get("next_choices") or [])),
                     "required_fields": list((preflight_final.get("required_fields") or [])),
                     "satisfied_fields": list((preflight_final.get("satisfied_fields") or [])),
+                    "need_k": int(preflight_final.get("need_k") or 1),
+                    "questions": list((preflight_final.get("questions") or [])),
                     "unlock_when_text": str(preflight_final.get("unlock_when_text") or ""),
                 },
             },
