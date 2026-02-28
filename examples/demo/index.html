@@ -857,10 +857,13 @@
         }
         const coreData = await rCore.json();
         const coreRunId = (coreData && typeof coreData.run_id === "string") ? coreData.run_id : "";
-        if (coreRunId !== activeRunId) {
+        if (coreRunId && coreRunId !== activeRunId) {
           liveHintEl.textContent = "stale ignored (core)";
           wCore.done();
           return;
+        }
+        if (!coreRunId && coreData && typeof coreData === "object") {
+          coreData.run_id = activeRunId; // backward compatibility for older dev_api responses
         }
         const okCore = coreData && ["compare", "expand", "diff", "merge"].every(k => typeof coreData[k] === "string");
         if (!okCore) {
@@ -920,9 +923,12 @@
       }
       const data = await r.json();
       const startRunId = (data && typeof data.run_id === "string") ? data.run_id : "";
-      if (startRunId !== activeRunId) {
+      if (startRunId && startRunId !== activeRunId) {
         liveHintEl.textContent = "stale ignored (deep-start)";
         return;
+      }
+      if (!startRunId && data && typeof data === "object") {
+        data.run_id = activeRunId; // backward compatibility for older dev_api responses
       }
       if (data && typeof data.job_id === "string") {
         currentJobId = data.job_id;
@@ -941,9 +947,12 @@
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
           const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
-          if (pollRunId !== activeRunId) {
+          if (pollRunId && pollRunId !== activeRunId) {
             liveHintEl.textContent = "stale ignored (deep-poll)";
             return;
+          }
+          if (!pollRunId && j && typeof j === "object") {
+            j.run_id = activeRunId; // backward compatibility for older dev_api responses
           }
           if (myDeepSession !== deepSessionId) {
             return;
