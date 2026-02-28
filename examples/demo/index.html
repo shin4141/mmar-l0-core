@@ -247,6 +247,7 @@
     selectedSource: { amount: null, horizon: null, goal: null, risk: null, constraint: null },
     confidence: null,
     requiredFields: [],
+    requiredFrom: "none",
     conflict: [],
     showPanel: false,
     showExtra: false,
@@ -354,12 +355,32 @@
     return req;
   }
 
-  function deepEnabled(requiredFields, selected){
+  function deepEnabled(requiredFields, selected, conflict){
     const req = Array.isArray(requiredFields) ? requiredFields : [];
     const s = selected || {};
-    const requiredOk = req.every((f) => s[f] != null);
-    const riskOk = s.risk != null;
-    return requiredOk && riskOk;
+    const hasValue = (field) => {
+      const v = s[field];
+      if (v !== null && v !== undefined && String(v) !== "") return true;
+      const v2 = slotState.extracted ? slotState.extracted[field] : null;
+      return v2 !== null && v2 !== undefined && String(v2) !== "";
+    };
+    const requiredOk = req.every((f) => hasValue(f));
+    const riskOk = hasValue("risk");
+    const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
+    return requiredOk && riskOk && conflictOk;
+  }
+
+  function computeRequiredProgress(){
+    const required = Array.isArray(slotState.requiredFields) ? slotState.requiredFields : [];
+    const hasValue = (field) => {
+      const v = slotState.selected[field];
+      if (v !== null && v !== undefined && String(v) !== "") return true;
+      const v2 = slotState.extracted[field];
+      return v2 !== null && v2 !== undefined && String(v2) !== "";
+    };
+    const missing = required.filter((f) => !hasValue(f));
+    const filled = required.length - missing.length;
+    return { total: required.length, filled, missing };
   }
 
   function recomputeSlotRequirements(text){
@@ -370,6 +391,7 @@
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
     slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
+    slotState.requiredFrom = "confidence";
   }
 
   function slotFilledCount(){
@@ -377,7 +399,7 @@
   }
 
   function slotDeepEnabled(){
-    return deepEnabled(slotState.requiredFields, slotState.selected);
+    return deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
   }
 
   function buildDeepContextQuestion(baseQuestion){
@@ -414,9 +436,10 @@
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
     const req = slotState.requiredFields || [];
-    const requiredTotal = req.length;
-    const requiredFilled = req.filter((f) => slotState.selected[f] != null).length;
-    const requiredRemaining = Math.max(0, requiredTotal - requiredFilled);
+    const prog = computeRequiredProgress();
+    const requiredTotal = prog.total;
+    const requiredFilled = prog.filled;
+    const requiredRemaining = prog.missing.length;
     const status = enabled
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
       : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})`;
@@ -437,7 +460,7 @@
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
-      <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")}</div>
+      <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
       ${rowsHtml}
       <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
       ${conflictText}
@@ -463,6 +486,14 @@
         slotState.confidence = cc.confidence;
         slotState.conflict = cc.conflict;
         slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
+        console.debug("[DG]", {
+          phase: "selected_change",
+          key,
+          value,
+          requiredTotal: computeRequiredProgress().total,
+          requiredMissing: computeRequiredProgress().missing.length,
+          deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict),
+        });
         renderSlotPanel();
         if (mode === "live" && active === "compare") loadActive();
       };
@@ -871,6 +902,37 @@
       .replace(/(^|\n)\s*CALL:\s*[^\n]*/i, "$1CALL: N/A (sha mismatch)");
   }
 
+  function sanitizeOptionDisplay(afterText, inputText){
+    const src = String(afterText || "");
+    if (!src) return src;
+    const t = String(inputText || "");
+    const lines = src.split("\n");
+    let inOptions = false;
+    let warned = false;
+    const out = [];
+    for (const ln of lines){
+      if (/^\s*OPTIONS:\s*$/i.test(ln)) {
+        inOptions = true;
+        out.push(ln);
+        continue;
+      }
+      if (inOptions && /^\s*[A-Z_]+:\s*/.test(ln) && !/^\s*-\s*/.test(ln)) inOptions = false;
+      if (inOptions && /^\s*-\s*/.test(ln)) {
+        const label = ln.replace(/^\s*-\s*/, "").trim();
+        const weakToken = /^[ぁ-んァ-ン]$/.test(label) || /^(ら|を|に|が|で)$/.test(label);
+        const noMatch = (label.length >= 2 && t && !t.includes(label));
+        if (weakToken || noMatch) {
+          warned = true;
+          out.push("- 抽出が不安定（要修正）");
+          continue;
+        }
+      }
+      out.push(ln);
+    }
+    if (!warned) return src;
+    return `${out.join("\n")}\n\nOPTION_WARNING:\n- 抽出が不安定（要修正）\n`;
+  }
+
   function renderCompare(txt, stickyBannerHtml=""){
     const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
     let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
@@ -935,7 +997,8 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const afterWithSource = staleDeep ? freezeAfterForMismatch(after) : after;
+    const afterNormalized = sanitizeOptionDisplay(after, before || qEl.value || "");
+    const afterWithSource = staleDeep ? freezeAfterForMismatch(afterNormalized) : afterNormalized;
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
     const viewToggle = (mode === "live" && !!liveDataCore)
@@ -944,10 +1007,11 @@
           <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
         </span>`
       : "";
-    const slotReadyNow = slotState.showPanel && deepEnabled(slotState.requiredFields, slotState.selected);
+    const slotProgress = computeRequiredProgress();
+    const slotReadyNow = slotState.showPanel && deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
     const deepGateOpen = slotReadyNow;
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${Math.max(0, (slotState.requiredFields || []).filter((f) => slotState.selected[f] == null).length)}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
+      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${slotProgress.missing.length}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
     const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
@@ -961,14 +1025,14 @@
     const lockChoices = (uiState && Array.isArray(uiState.next_choices) && uiState.next_choices.length)
       ? uiState.next_choices
       : (sufficiency && Array.isArray(sufficiency.next_choices) && sufficiency.next_choices.length ? sufficiency.next_choices : lockChoicesFromAfter);
-    const requiredTotal = (slotState.requiredFields || []).length;
-    const requiredFilled = (slotState.requiredFields || []).filter((f) => slotState.selected[f] != null).length;
-    const deepLockRemain = Math.max(0, requiredTotal - requiredFilled);
+    const requiredTotal = slotProgress.total;
+    const requiredFilled = slotProgress.filled;
+    const deepLockRemain = slotProgress.missing.length;
     const deepLockNote = (!deepGateOpen && slotState.showPanel)
       ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
-    const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
+    const debugDetails = (mode === "live" && (deepMetaStatus !== "ok" || analysisStatus === "error"))
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
     const deepStatusShowSet = new Set(["partial", "insufficient", "timeout", "llm_error", "schema_invalid", "error"]);
@@ -1165,14 +1229,25 @@
     if (!isDeep) {
       analysisStatus = "running";
       analysisError = null;
+      deepDone = false;
       slotState.showPanel = true;
       recomputeSlotRequirements(submittedInput);
-      console.log({
+      const prog = computeRequiredProgress();
+      const enabledNow = deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
+      console.debug("[DG]", {
+        runId,
+        phase: "run_start",
         confidence: slotState.confidence,
         requiredFields: slotState.requiredFields,
         selected: slotState.selected,
-        requiredFilled: (slotState.requiredFields || []).filter((f) => slotState.selected[f] != null).length,
-        deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected),
+        requiredTotal: prog.total,
+        requiredMissing: prog.missing.length,
+        deepEnabled: enabledNow,
+        blockers: enabledNow ? [] : [
+          ...(prog.missing.length ? ["required_missing"] : []),
+          ...(slotState.selected.risk == null && (slotState.extracted.risk == null) ? ["risk_missing"] : []),
+          ...(slotState.conflict.length ? ["conflict_present"] : []),
+        ],
       });
       renderSlotPanel();
     }
@@ -1499,6 +1574,23 @@
               liveData = liveDataCore || liveDataDeep;
               if (liveData) lastStableResult = liveData;
               liveHintEl.textContent = `Deep failed (${deepStatus}; fallback=${fallbackReason})`;
+              if (fallbackReason === "insufficient_context") {
+                const add = ["risk", "horizon", "amount", "goal", "constraint"];
+                const nextReq = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
+                slotState.requiredFields = nextReq;
+                slotState.requiredFrom = "deep_fallback";
+                slotState.showPanel = true;
+                renderSlotPanel();
+              }
+              console.debug("[DG]", {
+                runId: activeRunId,
+                phase: "deep_failed",
+                code: deepStatus,
+                fallback: fallbackReason,
+                requiredTotal: computeRequiredProgress().total,
+                requiredMissing: computeRequiredProgress().missing.length,
+                deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict),
+              });
             }
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
             setRunVisual("ready", "2.8s");
