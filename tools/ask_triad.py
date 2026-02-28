@@ -339,6 +339,15 @@ def _extract_user_axes(q: str) -> list[str]:
         ("価格", "価格"),
         ("費用", "費用"),
         ("継続", "継続可能性"),
+        ("期待リターン", "期待リターン"),
+        ("リターン", "期待リターン"),
+        ("流動性", "流動性"),
+        ("換金", "流動性"),
+        ("ボラ", "価格変動リスク"),
+        ("変動", "価格変動リスク"),
+        ("管理", "管理負担"),
+        ("手間", "管理負担"),
+        ("分散", "分散効果"),
         ("怪我", "怪我リスク"),
         ("テンション", "満足度"),
         ("気分", "満足度"),
@@ -373,6 +382,10 @@ def _extract_metrics(q: str) -> list[str]:
         m.append("安全度")
     if "夜移動" in t:
         m.append("夜間移動リスク")
+    if "運用期間" in t or "長期" in t or "中期" in t or "短期" in t:
+        m.append("運用期間")
+    if "レバ" in t:
+        m.append("レバレッジ可否")
     return m[:3]
 
 
@@ -426,6 +439,11 @@ def _canonicalize_question(q: str) -> dict:
             missing_fields.append("task_mix")
         if not any(k in (q or "") for k in ("頻度", "毎日", "週", "時間", "検索程度")):
             missing_fields.append("usage_frequency")
+    elif domain == "asset_allocation":
+        if not any(k in (q or "") for k in ("短期", "中期", "長期", "運用期間", "年")):
+            missing_fields.append("operation_horizon")
+        if not any(k in (q or "") for k in ("レバ", "借入", "信用", "レバレッジ")):
+            missing_fields.append("leverage_allowed")
     elif domain == "education_career":
         if not any(k in (q or "") for k in ("職種", "志望職", "就きたい")):
             missing_fields.append("job_type")
@@ -470,6 +488,12 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "")
         return "行く都市はどこですか？（例: シェムリアップ/プノンペン/ルアンパバーン/ビエンチャン）"
     if domain == "ai_tool_subscription_compare":
         return "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
+    if domain == "asset_allocation":
+        if "operation_horizon" in missing_fields:
+            return "運用期間は？（短期/中期/長期）"
+        if "leverage_allowed" in missing_fields:
+            return "レバレッジを許容しますか？（可/不可）"
+        return "運用期間は？（短期/中期/長期）"
     if not missing_fields:
         cands = list(spec.get("next_question_candidates", []))
         return cands[0] if cands else "不足データを1つ埋め、14日以内に再判定"
@@ -535,6 +559,11 @@ def _why_top2(domain: str, axes: list[str], top_label: str, q: str) -> str:
             f"1) 画像生成と表計算/資料作成の相性で {top_label} が上位 "
             f"2) 料金・制限（回数/待ち/速度）と利用頻度のバランスで差が付く"
         )
+    if domain == "asset_allocation":
+        return (
+            f"1) 期待リターンと価格変動リスクのバランスで {top_label} に傾く "
+            f"2) 流動性・管理負担・分散効果の差で順位が分かれる"
+        )
     a0 = axes[0] if axes else "主要軸"
     a1 = axes[min(1, len(axes) - 1)] if axes else "補助軸"
     return f"1) {a0} で {top_label} が優位 2) {a1} で差が出る"
@@ -552,6 +581,8 @@ def _why_loser(domain: str, top_label: str, loser_label: str, q: str) -> str:
         return f"{loser_label} は都市と夜移動条件が不利ならリスクが上振れし、{top_label} より下位化する"
     if domain == "ai_tool_subscription_compare":
         return f"{loser_label} は画像生成/表計算の主要用途か制限条件が合わない場合に、{top_label} へ劣後する"
+    if domain == "asset_allocation":
+        return f"{loser_label} は流動性・価格変動リスク・管理負担の条件が不利な場合、{top_label} より傾きが弱くなる"
     return f"{loser_label} は主要軸の合計で {top_label} に届かず下位化"
 
 
@@ -572,6 +603,27 @@ def _options_quality(options: list[dict], q: str) -> float:
         if len(s) >= max(14, int(len(t) * 0.65)):
             score -= 0.25
     return max(0.0, min(1.0, score))
+
+
+def _looks_action_phrase(s: str) -> bool:
+    t = str(s or "").strip()
+    if not t:
+        return False
+    if re.search(r"(する|買う|売る|積立|運用|保有|賃貸に出す|貸す|投資)$", t):
+        return True
+    if "を" in t and re.search(r"(する|積立|運用|保有|購入|売却|賃貸|貸し)", t):
+        return True
+    return False
+
+
+def _normalize_action_phrase(raw: str) -> str:
+    s = _clean_option_label(raw)
+    s = re.sub(r"^(投資として|資産配分として|運用として)\s*", "", s)
+    s = re.sub(r"^[0-9０-９,，]+(?:万|億)?円で\s*", "", s)
+    s = re.sub(r"^(約|およそ)\s*[0-9０-９,，]+(?:万|億)?円で\s*", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"^[\s:：\-・,、]+|[\s:：\-・,、?？。]+$", "", s)
+    return s
 
 
 def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], float]:
@@ -612,6 +664,24 @@ def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], flo
             {"id": "a", "label": "映画館"},
             {"id": "b", "label": "家レンタル"},
         ], 0.95)
+
+    if domain in ("investing", "asset_allocation"):
+        action_patterns = [
+            r"([^\n。！？]{3,72})か[、,\s]*([^\n。！？]{3,72})か",
+            r"([^\n。！？]{3,72})と([^\n。！？]{3,72})(?:どっち|どちら|比較)",
+            r"([^\n。！？]{3,72})\s+or\s+([^\n。！？]{3,72})",
+        ]
+        for pat in action_patterns:
+            m = re.search(pat, t, flags=re.IGNORECASE)
+            if not m:
+                continue
+            left = _normalize_action_phrase(m.group(1))
+            right = _normalize_action_phrase(m.group(2))
+            if not (_looks_action_phrase(left) and _looks_action_phrase(right)):
+                continue
+            if left == right:
+                continue
+            return ([{"id": "a", "label": left}, {"id": "b", "label": right}], 0.9)
 
     # JP binary-island extraction (prefer local candidate island over long preface)
     island_patterns = [
@@ -700,6 +770,10 @@ def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], flo
                 options = opts
                 break
     quality = _options_quality(options, q)
+    if domain in ("investing", "asset_allocation") and len(options) >= 2:
+        acts = [o for o in options if _looks_action_phrase(str(o.get("label") or ""))]
+        if len(acts) < 2:
+            return [], 0.2
     return options[:max_options], quality
 
 
@@ -721,6 +795,8 @@ def _infer_axes(q: str) -> list[str]:
         return ["怪我リスク", "費用", "継続可能性"]
     if domain == "food":
         return ["健康効果", "価格", "継続可能性"]
+    if domain == "asset_allocation":
+        return ["期待リターン", "流動性", "価格変動リスク", "管理負担", "分散効果"]
     axes: list[str] = []
     if any(k in t for k in ("学費", "授業料", "奨学金", "借金", "費用", "コスト")):
         axes.append("初期コスト")
@@ -763,7 +839,7 @@ def _has_external_evidence(q: str) -> bool:
 
 def _has_explicit_goal(q: str) -> bool:
     t = (q or "")
-    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "料金", "画像生成", "表計算", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "頻度", "安全", "治安", "テンション", "気分", "満足"))
+    return any(k in t for k in ("目的", "効果", "就職", "年収", "収入", "健康", "コスト", "料金", "画像生成", "表計算", "リスク", "合格", "勝率", "仕事", "趣味", "週", "時間", "頻度", "安全", "治安", "テンション", "気分", "満足", "投資", "運用", "分散", "レバ"))
 
 
 def _facts3_from_q(q: str) -> list[str]:
@@ -868,6 +944,11 @@ def _facts3_from_q(q: str) -> list[str]:
         facts.append("論点=制限")
     if "費用" in t:
         facts.append("論点=費用")
+    if "投資として" in t:
+        facts.append("文脈=投資として比較")
+    m_money = re.search(r"([0-9０-９,，]+(?:万|億)?円)", t)
+    if m_money:
+        facts.append(f"資金規模={m_money.group(1)}")
     if "移動時間" in t or "移動" in t:
         facts.append("論点=移動時間")
     if "効果" in t:
