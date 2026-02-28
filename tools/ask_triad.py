@@ -465,7 +465,7 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "")
         # Keep pricing NEXT to one fixed question to tighten loop.
         return "仕事利用比率は何%ですか？（0/30/70/100 のどれに近いか）"
     if domain == "leisure":
-        return "優先は静けさと移動の楽さのどちらですか？（二択）"
+        return "今日は没入（映画館）と気楽さ（家）のどちらを優先しますか？（二択）"
     if domain == "travel_safety":
         return "行く都市はどこですか？（例: シェムリアップ/プノンペン/ルアンパバーン/ビエンチャン）"
     if domain == "ai_tool_subscription_compare":
@@ -486,7 +486,7 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "")
         if "intake_amount" in missing_fields:
             return "1日の摂取量を数値で指定し、比較を再実行"
         if "target_metric" in missing_fields:
-            return "目的指標（血糖/体重/便通など）を1つ選択"
+            return "目的指標（血糖/体重/体調（コンディション）など）を1つ選択"
     if domain == "subscription_pricing":
         if "budget_cap" in missing_fields:
             return "予算上限を1つ指定してください（例: 月額3,000円）"
@@ -521,7 +521,7 @@ def _why_top2(domain: str, axes: list[str], top_label: str, q: str) -> str:
             l2 = f"2) 待ち時間と予算のバランスで {top_label} が中位プランとして妥当"
         return f"{l1} {l2}"
     if domain == "leisure":
-        return f"1) 静けさ・景観の軸で {top_label} が優位 2) 移動ラク/屋内率の軸で順位が分かれる"
+        return f"1) 没入感と気楽さのバランスで {top_label} に傾く 2) 混雑耐性/移動負荷/予算の優先で傾きが変わる"
     if domain == "travel_safety":
         solo = ("一人" in (q or "")) or ("一人旅" in (q or ""))
         soon = any(k in (q or "") for k in ("来月", "今月", "来週"))
@@ -547,7 +547,7 @@ def _why_loser(domain: str, top_label: str, loser_label: str, q: str) -> str:
         if ("free" in loser_label.lower()) or ("無料" in loser_label):
             return f"{loser_label} はコスト優位だが、回数制限・待ち時間で {top_label} に劣後"
     if domain == "leisure":
-        return f"{loser_label} は優位軸が限定的で、静けさ/移動ラクの優先次第で {top_label} に届かない"
+        return f"{loser_label} は没入/気楽さ/移動負荷の優先次第で、現条件では {top_label} より傾きが弱い"
     if domain == "travel_safety":
         return f"{loser_label} は都市と夜移動条件が不利ならリスクが上振れし、{top_label} より下位化する"
     if domain == "ai_tool_subscription_compare":
@@ -604,6 +604,13 @@ def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], flo
         return ([
             {"id": "a", "label": "大学進学（学歴ルート）"},
             {"id": "b", "label": "専門スキル直行（実務→就職）"},
+        ], 0.95)
+
+    # Leisure short normalization: movie theater vs home rental.
+    if any(k in t for k in ("映画館", "劇場")) and any(k in t for k in ("家", "自宅", "レンタル", "配信")):
+        return ([
+            {"id": "a", "label": "映画館"},
+            {"id": "b", "label": "家レンタル"},
         ], 0.95)
 
     # JP binary-island extraction (prefer local candidate island over long preface)
@@ -1352,7 +1359,7 @@ def _quality_from_after(after_text: str, domain: str = "", input_text: str = "")
     facts_ok = int(len(facts) >= 3 and all(not any(g in f for g in generic_fact_markers) for f in facts))
     falsifier_ok = int(bool(falsifier) and any(k in falsifier for k in ("なら", "場合", "条件", "if", "when")))
     next_txt = " ".join(next_lines)
-    next_ok = int(bool(next_lines) and any(k in next_txt for k in ("職種", "予算", "都市", "期限", "比率", "摂取量", "期間", "移動")))
+    next_ok = int(bool(next_lines) and any(k in next_txt for k in ("職種", "予算", "都市", "期限", "比率", "摂取量", "期間", "移動", "没入", "気楽さ", "混雑")))
 
     total = options_ok + axes_ok + facts_ok + falsifier_ok + next_ok
     if options_ok == 0:

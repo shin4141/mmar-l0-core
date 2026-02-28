@@ -515,10 +515,25 @@
     };
   }
 
+  function displaySanitize(text){
+    const src = String(text || "");
+    const replacements = [
+      [/便通/g, "体調（コンディション）"],
+      [/便秘/g, "お腹の調子"],
+      [/下痢/g, "お腹の調子"],
+    ];
+    let out = src;
+    for (const [pat, rep] of replacements){
+      out = out.replace(pat, rep);
+    }
+    return out;
+  }
+
   function detailsBlock(title, fullText, previewLines, extraClass="", badgeText="", actionHtml="", fullView=false){
+    const safeText = displaySanitize(fullText || "(empty)");
     const info = fullView
-      ? { preview: (fullText || "(empty)"), total: (String(fullText || "(empty)").replace(/\r\n/g, "\n").split("\n").length), clippedTo: "full" }
-      : clipLines(fullText, previewLines);
+      ? { preview: safeText, total: (String(safeText).replace(/\r\n/g, "\n").split("\n").length), clippedTo: "full" }
+      : clipLines(safeText, previewLines);
     const meta = fullView
       ? `<span class="small">(${info.total} lines, full)</span>`
       : `<span class="small">(${info.total} lines, preview ${info.clippedTo})</span>`;
@@ -561,12 +576,15 @@
       return "志望職種 / 地域 / 学費上限 / 期限 を追加入力すると精度が上がります。";
     }
     if (d === "food"){
-      if (fields.includes("target_metric")) return "目的指標（血糖/体重/便通）を1つ指定してください。";
+      if (fields.includes("target_metric")) return "目的指標（血糖/体重/体調（コンディション））を1つ指定してください。";
       if (fields.includes("intake_amount")) return "1日の摂取量を具体化すると精度が上がります。";
       return "目的指標 / 摂取量 / 制約 を追加入力すると精度が上がります。";
     }
     if (d === "investing"){
       return "投資期間 / 許容DD / 目的（増やすor守る）を追加入力すると精度が上がります。";
+    }
+    if (d === "leisure"){
+      return "没入 / 気楽さ / 混雑耐性 / 移動負荷 / 予算 のうち優先を1つ指定してください。";
     }
     if (d === "subscription_pricing"){
       return "予算上限 / 仕事利用比率 / 待ち時間許容 を追加入力すると精度が上がります。";
@@ -591,7 +609,7 @@
     const axes_ok = (axes.length >= 3) ? 1 : 0;
     const facts_ok = (facts.length >= 3 && !facts.some(f => /判定条件=未固定|入力語=/.test(f))) ? 1 : 0;
     const falsifier_ok = (falsifier && /(なら|場合|条件|if|when)/i.test(falsifier)) ? 1 : 0;
-    const next_ok = (nexts && /(職種|予算|都市|期限|比率|摂取量|期間|移動)/.test(nexts)) ? 1 : 0;
+    const next_ok = (nexts && /(職種|予算|都市|期限|比率|摂取量|期間|移動|没入|気楽さ|混雑)/.test(nexts)) ? 1 : 0;
     return {
       options_ok, axes_ok, facts_ok, falsifier_ok, next_ok,
       total: options_ok + axes_ok + facts_ok + falsifier_ok + next_ok,
@@ -710,7 +728,7 @@
         </div>`
       : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
-      ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing))}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">強化ヒント: ${escapeHtml(displaySanitize(strengthHintFromMissing(deepMetaDomain, deepMetaMissingFields, deepMetaMissing)))}</div>`
       : "";
     const readLine = (body, key) => {
       const m = String(body || "").match(new RegExp(`(?:^|\\n)\\s*${key}:\\s*([^\\n]+)`));
@@ -721,7 +739,7 @@
     const split = readLine(after || "", "LEAN_SPLIT");
     const gap = readLine(after || "", "WHY_GAP") || readLine(after || "", "GAP");
     const winnerBlock = lean
-      ? `<div class="winnerBanner"><span><span class="wKey">LEAN:</span> ${escapeHtml(lean)}</span>${alt ? `<span><span class="wKey">ALT:</span> ${escapeHtml(alt)}</span>` : ""}${split ? `<span><span class="wKey">SPLIT:</span> ${escapeHtml(split)}</span>` : ""}${gap ? `<span><span class="wKey">GAP:</span> ${escapeHtml(gap)}</span>` : ""}</div>`
+      ? `<div class="winnerBanner"><span><span class="wKey">LEAN:</span> ${escapeHtml(displaySanitize(lean))}</span>${alt ? `<span><span class="wKey">ALT:</span> ${escapeHtml(displaySanitize(alt))}</span>` : ""}${split ? `<span><span class="wKey">SPLIT:</span> ${escapeHtml(displaySanitize(split))}</span>` : ""}${gap ? `<span><span class="wKey">GAP:</span> ${escapeHtml(displaySanitize(gap))}</span>` : ""}</div>`
       : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
