@@ -616,6 +616,13 @@
     };
   }
 
+  function pickSectionLines(text, name){
+    const t = String(text || "");
+    const m = t.match(new RegExp(`(?:^|\\n)\\s*${name}:\\s*\\n([\\s\\S]*?)(?=\\n[A-Z_]+\\s*:|$)`, "i"));
+    if (!m) return [];
+    return String(m[1] || "").split("\n").map(s => s.trim()).filter(s => s.startsWith("-")).map(s => s.replace(/^-+\s*/, ""));
+  }
+
   function freezeAfterForMismatch(afterText){
     const raw = String(afterText || "(empty)");
     return raw
@@ -649,7 +656,10 @@
     const sufficiency = (viewDataForBadges && viewDataForBadges.sufficiency && typeof viewDataForBadges.sufficiency === "object")
       ? viewDataForBadges.sufficiency
       : null;
-    const sufficientNow = uiState ? (uiState.deep_enabled !== false) : !(sufficiency && sufficiency.sufficient === false);
+    const insufficientFromAfter = /(?:^|\n)\s*(MODE|CALL):\s*NEED_INFO\b/i.test(String(after || ""));
+    const sufficientNow = uiState
+      ? (uiState.deep_enabled !== false)
+      : (sufficiency ? (sufficiency.sufficient !== false) : !insufficientFromAfter);
     const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
     const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
@@ -696,14 +706,20 @@
     const deepAction = deepReady
       ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !sufficientNow) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!sufficientNow ? "材料不足のためDeep停止中" : "")}" style="padding:2px 8px; margin-right:6px;">${(deepMetaDomain === "asset_allocation" && sufficientNow) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
-    const lockMissing = (uiState && Array.isArray(uiState.missing_top2)) ? uiState.missing_top2 : (sufficiency && Array.isArray(sufficiency.missing_top2) ? sufficiency.missing_top2 : []);
+    const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
+    const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
+    const lockChoicesFromAfter = pickSectionLines(after || "", "CHOICES");
+    const lockMissing = (uiState && Array.isArray(uiState.missing_top2) && uiState.missing_top2.length)
+      ? uiState.missing_top2
+      : (sufficiency && Array.isArray(sufficiency.missing_top2) && sufficiency.missing_top2.length ? sufficiency.missing_top2 : lockMissingFromAfter);
     const lockNext = (uiState && typeof uiState.next_question === "string" && uiState.next_question)
       ? uiState.next_question
-      : (sufficiency && typeof sufficiency.next_question === "string" ? sufficiency.next_question : "");
+      : (sufficiency && typeof sufficiency.next_question === "string" && sufficiency.next_question ? sufficiency.next_question : lockNextFromAfter);
     const lockChoices = (uiState && Array.isArray(uiState.next_choices) && uiState.next_choices.length)
       ? uiState.next_choices
-      : (sufficiency && Array.isArray(sufficiency.next_choices) ? sufficiency.next_choices : []);
-    const deepLockNote = (mode === "live" && deepReady && !sufficientNow)
+      : (sufficiency && Array.isArray(sufficiency.next_choices) && sufficiency.next_choices.length ? sufficiency.next_choices : lockChoicesFromAfter);
+    const deepLockReason = (uiState && typeof uiState.deep_block_reason === "string" && uiState.deep_block_reason) ? uiState.deep_block_reason : "insufficient_context";
+    const deepLockNote = (!sufficientNow)
       ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
@@ -713,8 +729,8 @@
     const statusBadges = (mode === "live" && deepMetaStatus !== "ok")
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : "";
-    const deepLockBadge = (mode === "live" && !sufficientNow)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: need info</span>`
+    const deepLockBadge = (!sufficientNow)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: need info (${escapeHtml(deepLockReason)})</span>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -748,10 +764,10 @@
           <span>Reload after restart</span>
         </div>`
       : "";
-    const needInfoChips = (mode === "live" && !sufficientNow && lockChoices.length)
+    const needInfoChips = (!sufficientNow && lockChoices.length)
       ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${lockChoices.map(c => `<button class="needinfo-chip" data-choice="${escapeHtml(String(c))}" style="padding:2px 8px;">${escapeHtml(displaySanitize(String(c)))}</button>`).join("")}</div>`
       : "";
-    const sufficiencyBanner = (mode === "live" && !sufficientNow)
+    const sufficiencyBanner = (!sufficientNow)
       ? `<div class="infoBanner">材料不足のため判断停止。NEXT: ${escapeHtml(displaySanitize(String(lockNext || "最重要な判断軸を1つ指定してください。")))}${lockMissing.length ? `<br/>不足: ${escapeHtml(displaySanitize(lockMissing.join(" / ")))}` : ""}${needInfoChips}</div>`
       : "";
     const rerunHint = (mode === "live" && deepMetaStatus !== "ok")
