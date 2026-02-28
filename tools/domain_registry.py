@@ -45,10 +45,10 @@ DOMAIN_REGISTRY: dict[str, dict] = {
         "keywords": ["GPT", "ChatGPT", "Gemini", "画像生成", "表計算", "資料作成", "料金", "課金", "サブスク", "プラン"],
         "axes_candidates": ["画像生成の相性", "表計算/資料作成の相性", "料金", "制限（回数/待ち/速度）", "利用頻度"],
         "falsifier_templates": [
+            "表計算/資料作成が主（表計算寄り）ならGemini側へ固定。全体記憶/長期運用が最優先ならGPT側へ反転",
             "画像生成比率が高ければGemini側へ反転",
-            "表計算/資料作成比率が高ければGPT側へ反転",
         ],
-        "next_question_candidates": ["画像生成と表計算、どっちの比率が高い？（画像/半々/表計算）"],
+        "next_question_candidates": ["画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"],
         "banned_axes": ["健康効果"],
         "banned_vocab": ["無料より安定", "Plus", "Pro", "free/plus/pro"],
     },

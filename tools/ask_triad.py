@@ -433,7 +433,7 @@ def _next_hint_from_missing(domain: str, missing_fields: list[str], q: str = "")
     if domain == "travel_safety":
         return "行く都市はどこですか？（例: シェムリアップ/プノンペン/ルアンパバーン/ビエンチャン）"
     if domain == "ai_tool_subscription_compare":
-        return "画像生成と表計算、どちらの比率が高いですか？（画像/半々/表計算）"
+        return "画像生成 : 表計算（/資料作成）の比率は？（画像寄り / 半々 / 表計算寄り）"
     if not missing_fields:
         cands = list(spec.get("next_question_candidates", []))
         return cands[0] if cands else "不足データを1つ埋め、14日以内に再判定"
@@ -706,6 +706,42 @@ def _has_explicit_goal(q: str) -> bool:
 def _facts3_from_q(q: str) -> list[str]:
     t = " ".join((q or "").split())
     domain = _detect_domain(t)
+    low = t.lower()
+    if domain == "ai_tool_subscription_compare":
+        facts_ai: list[str] = []
+        if any(k in t for k in ("全体記憶", "長期", "OS", "育て")):
+            facts_ai.append("方針=全体記憶を重視した長期OS育成")
+        if "画像" in t and ("表計算" in t or "資料作成" in t):
+            facts_ai.append("用途=画像生成+表計算/資料作成")
+        elif "画像" in t:
+            facts_ai.append("用途=画像生成")
+        elif "表計算" in t or "資料作成" in t:
+            facts_ai.append("用途=表計算/資料作成")
+        if "検索程度" in t or "あまり使わない" in t:
+            facts_ai.append("頻度=検索程度（低頻度）")
+        elif "週" in t and "時間" in t:
+            m_hours = re.search(r"週\s*([0-9０-９]+)\s*時間", t)
+            if m_hours:
+                facts_ai.append(f"頻度=週{m_hours.group(1)}時間")
+        if ("gpt" in low or "chatgpt" in low) and ("gemini" in low):
+            facts_ai.append("比較対象=GPT/Gemini")
+        if "料金" in t or "課金" in t:
+            facts_ai.append("論点=料金")
+        if "制限" in t or "待ち" in t:
+            facts_ai.append("論点=制限")
+        dedup_ai: list[str] = []
+        for f in facts_ai:
+            if f not in dedup_ai:
+                dedup_ai.append(f)
+        while len(dedup_ai) < 3:
+            if "比較対象=GPT/Gemini" not in dedup_ai:
+                dedup_ai.append("比較対象=GPT/Gemini")
+            elif "用途=画像生成+表計算/資料作成" not in dedup_ai:
+                dedup_ai.append("用途=画像生成+表計算/資料作成")
+            else:
+                dedup_ai.append("頻度=要確認")
+        return dedup_ai[:3]
+
     facts: list[str] = []
     m_pair = re.search(r"(.+?)と(.+?)(どちら|どっち)", t)
     if m_pair:
