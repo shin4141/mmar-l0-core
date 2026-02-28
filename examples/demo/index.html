@@ -724,6 +724,7 @@
     const lockSatisfiedFields = (uiState && Array.isArray(uiState.satisfied_fields)) ? uiState.satisfied_fields : (sufficiency && Array.isArray(sufficiency.satisfied_fields) ? sufficiency.satisfied_fields : []);
     const lockNeedK = (uiState && typeof uiState.need_k === "number") ? uiState.need_k : ((sufficiency && typeof sufficiency.need_k === "number") ? sufficiency.need_k : Math.max(1, lockRequiredFields.length || 1));
     const lockQuestions = (uiState && Array.isArray(uiState.questions) && uiState.questions.length) ? uiState.questions : (sufficiency && Array.isArray(sufficiency.questions) ? sufficiency.questions : []);
+    const fieldLabel = (f) => ({ horizon: "投資期間", priority_axis: "最優先軸", task_mix_ratio: "主用途比率", use: "用途" }[String(f || "")] || String(f || ""));
     const progressCount = lockRequiredFields.length
       ? Math.min(lockNeedK, lockRequiredFields.filter(f => lockSatisfiedFields.includes(f)).length)
       : (sufficientNow ? lockNeedK : 0);
@@ -732,7 +733,7 @@
       : ((sufficiency && typeof sufficiency.unlock_when_text === "string" && sufficiency.unlock_when_text) ? sufficiency.unlock_when_text : "必須前提を1つ固定すると深掘り可能");
     const deepLockReason = (uiState && typeof uiState.deep_block_reason === "string" && uiState.deep_block_reason) ? uiState.deep_block_reason : "insufficient_context";
     const deepLockNote = (!sufficientNow)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}<br/>Unlock when: ${escapeHtml(displaySanitize(lockUnlockWhen))}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: insufficient context (${progressCount}/${lockNeedK})<br/>Need: ${escapeHtml(displaySanitize(lockMissing.length ? lockMissing.join(" / ") : "前提情報"))}<br/>Next: ${escapeHtml(displaySanitize(lockNext || "最小1問に回答してください"))}<br/>Unlock when: ${escapeHtml(displaySanitize(lockUnlockWhen))}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && deepMetaStatus !== "ok")
@@ -787,11 +788,12 @@
         ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${lockChoices.map(c => `<button class="needinfo-chip" data-field="priority_axis" data-choice="${escapeHtml(String(c))}" style="padding:2px 8px;">${escapeHtml(displaySanitize(String(c)))}</button>`).join("")}</div>`
         : "");
     const unlockChecks = (!sufficientNow && lockRequiredFields.length)
-      ? `<div style="margin-top:6px;">Unlock progress: ${progressCount}/${lockNeedK}${lockRequiredFields.map(f => `<div>${lockSatisfiedFields.includes(f) ? "☑" : "☐"} ${escapeHtml(String(f))}</div>`).join("")}</div>`
+      ? `<div style="margin-top:6px;">Unlock progress: ${progressCount}/${lockNeedK}${lockRequiredFields.map(f => `<div>${lockSatisfiedFields.includes(f) ? "☑" : "☐"} ${escapeHtml(displaySanitize(fieldLabel(f)))}</div>`).join("")}</div>`
       : "";
     const leftUnlockPanel = (!sufficientNow)
       ? `<div id="deep-unlock-panel" class="infoBanner">
-          <div>Deepは前提不足で停止（satisfied ${progressCount}/${lockNeedK}）</div>
+          <div>Deepを解放するには ${lockNeedK}/${lockNeedK} が必要（現在 ${progressCount}/${lockNeedK}）</div>
+          ${lockRequiredFields.length ? `<div style="margin-top:4px;">必須: ${escapeHtml(displaySanitize(lockRequiredFields.map(fieldLabel).join(" / ")))}</div>` : ""}
           ${lockMissing.length ? `<div style="margin-top:4px;">あと${Math.max(0, lockNeedK - progressCount)}つ: ${escapeHtml(displaySanitize(lockMissing.join(" / ")))}</div>` : ""}
           <div style="margin-top:4px;">NEXT: ${escapeHtml(displaySanitize(String(lockNext || "最重要な判断軸を1つ指定してください。")))}</div>
           <div style="margin-top:4px;">UNLOCK_WHEN: ${escapeHtml(displaySanitize(lockUnlockWhen))}</div>

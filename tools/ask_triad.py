@@ -475,6 +475,17 @@ def _canonicalize_question(q: str) -> dict:
 
 def _asset_horizon_bucket(q: str) -> str:
     t = (q or "")
+    m_years = re.search(r"([0-9０-９]+)\s*年", t)
+    if m_years:
+        try:
+            n = int(str(m_years.group(1)).translate(str.maketrans("０１２３４５６７８９", "0123456789")))
+            if n <= 3:
+                return "short"
+            if n <= 10:
+                return "mid"
+            return "long"
+        except Exception:
+            pass
     if any(k in t for k in ("〜3年", "~3年", "3年以内", "短期")):
         return "short"
     if any(k in t for k in ("3–10年", "3-10年", "中期")):
@@ -493,6 +504,23 @@ def _asset_usage_bucket(q: str) -> str:
     if "未定" in t:
         return "undecided"
     return ""
+
+
+def _extract_signals(text: str) -> dict:
+    t = str(text or "")
+    out: dict = {}
+    hb = _asset_horizon_bucket(t)
+    if hb:
+        out["horizon"] = hb
+    if any(k in t for k in ("下がらない", "損したくない", "最大損失", "リスクが少ない", "リスク最小", "円での保有が怖い", "怖い")):
+        out["priority_axis"] = "risk_min"
+    elif any(k in t for k in ("上がる", "リターン", "増やす", "利回り")):
+        out["priority_axis"] = "return_max"
+    elif any(k in t for k in ("すぐ現金化", "売りやすい", "流動性")):
+        out["priority_axis"] = "liquidity"
+    elif any(k in t for k in ("手間", "管理が嫌", "管理負担")):
+        out["priority_axis"] = "effort_min"
+    return out
 
 
 def _preflight_check(q: str, canonical: dict) -> dict:
@@ -515,21 +543,26 @@ def _preflight_check(q: str, canonical: dict) -> dict:
     unlock_when_text = "必須前提を1つ固定すると深掘り可能"
 
     t = (q or "")
+    signals = _extract_signals(t)
     if domain == "asset_allocation":
-        required_fields = ["horizon"]
-        need_k = 1
+        required_fields = ["priority_axis", "horizon"]
+        need_k = 2
         questions = [
             {"field": "horizon", "type": "choice", "label": "投資期間", "choices": ["〜3年", "3–10年", "10年以上"]},
+            {"field": "priority_axis", "type": "choice", "label": "最優先軸", "choices": ["リスク最小", "リターン最大", "流動性", "手間最小"]},
         ]
-        has_horizon = bool(_asset_horizon_bucket(t))
+        has_horizon = bool(signals.get("horizon"))
         if has_horizon:
             satisfied_fields.append("horizon")
-        if any(k in t for k in ("リスク", "最大損失", "損失", "下振れ")):
+        if signals.get("priority_axis"):
             satisfied_fields.append("priority_axis")
         if not has_horizon:
             missing.append("運用期間（〜3年 / 3–10年 / 10年以上）")
             missing_fields_ids.append("horizon")
-        unlock_when_text = "投資期間を選ぶと深掘り可能（〜3年/3–10年/10年以上）"
+        if "priority_axis" not in satisfied_fields:
+            missing.append("最優先軸（リスク最小/リターン最大/流動性/手間最小）")
+            missing_fields_ids.append("priority_axis")
+        unlock_when_text = "優先軸と投資期間の2条件を満たすと深掘り可能"
     elif domain == "leisure":
         required_fields = ["priority_axis"]
         need_k = 1
@@ -564,9 +597,9 @@ def _preflight_check(q: str, canonical: dict) -> dict:
         if any("運用期間" in m for m in missing_top2):
             next_q = "投資期間は？（〜3年 / 3–10年 / 10年以上）"
             next_choices = ["〜3年", "3–10年", "10年以上"]
-        elif any("用途" in m for m in missing_top2):
-            next_q = "用途は？（住む/貸す/未定）"
-            next_choices = ["住む", "貸す", "未定"]
+        elif any("最優先軸" in m for m in missing_top2):
+            next_q = "最優先軸は？（リスク最小 / リターン最大 / 流動性 / 手間最小）"
+            next_choices = ["リスク最小", "リターン最大", "流動性", "手間最小"]
         else:
             next_choices = ["〜3年", "3–10年", "10年以上"]
     elif domain == "leisure":
@@ -841,6 +874,17 @@ def _extract_options_nway(q: str, max_options: int = 5) -> tuple[list[dict], flo
             {"id": "a", "label": "映画館"},
             {"id": "b", "label": "家レンタル"},
         ], 0.95)
+
+    # Asset allocation canonical pair normalization.
+    if domain == "asset_allocation":
+        has_gold = any(k in t for k in ("金", "ゴールド"))
+        has_rolex = "ロレックス" in t
+        has_mansion = any(k in t for k in ("マンション", "不動産"))
+        if (has_gold or has_rolex) and has_mansion:
+            return ([
+                {"id": "a", "label": "金+ロレックス（動産・換金性）"},
+                {"id": "b", "label": "新築マンション（不動産）"},
+            ], 0.95)
 
     if domain in ("investing", "asset_allocation"):
         action_patterns = [
