@@ -943,8 +943,13 @@ def _build_v2_after(
             + listed + "\n"
             "MODE: HOLD\n"
             "CALL: HOLD\n"
+            "LEAN: ほぼ同等\n"
+            "ALT: 候補確定後に提示\n"
+            "LEAN_SPLIT: 候補A 50 / 候補B 50\n"
             "WHY_TOP2: 1) 選択肢定義が未確定 2) 評価軸は仮置き（候補確定後に再採点）\n"
-            "CONFIDENCE: 25%\n"
+            "WHY_GAP: 情報不足のため比較差分は未確定\n"
+            "STABILITY: 25\n"
+            "RESOLUTION: low\n"
             f"ΔSCORE: {int(dscore):+d}\n"
             "AXES:\n"
             + "\n".join([f"- {ax}" for ax in fallback_axes[:3]]) + "\n"
@@ -952,6 +957,7 @@ def _build_v2_after(
             + fallback_scores + "\n"
             + "FACTS_3:\n"
             + f"- {fallback_facts[0]}\n- {fallback_facts[1]}\n- {fallback_facts[2]}\n"
+            + "FLIP:\n- 選択肢定義が確定したら傾きが反転し得る\n"
             + "FALSIFIER:\n- 選択肢定義が確定し次第、結論を再計算\n"
             "NEXT:\n"
             "- 候補を箇条書きで指定してください（最大5）\n"
@@ -1103,18 +1109,25 @@ def _build_v2_after(
     why_gap = f"1位と2位の合計差={margin}"
     loser_id = ranked[2] if len(ranked) >= 3 else (runner_id if len(ranked) >= 2 else "")
     why_loser = _why_loser(domain, top_label, options_map.get(loser_id, ""), q) if loser_id else ""
+    lean_text = f"{top_label}寄り" if margin >= 2 else "ほぼ同等"
+    if margin <= 0:
+        split_top = 50
+    else:
+        split_delta = min(20, max(3, margin * 4))
+        split_top = 50 + split_delta
+    split_runner = 100 - split_top
+    lines.append(f"LEAN: {lean_text}")
+    lines.append(f"ALT: {runner_label}")
+    lines.append(f"LEAN_SPLIT: {top_label} {split_top} / {runner_label} {split_runner}")
+
     if domain == "ai_tool_subscription_compare" and option_count >= 2:
         lines.append("CALL: PROCEED_WITH_CONDITIONS")
-        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
-        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}（用途比率で反転余地）")
         if why_loser:
             lines.append(f"WHY_LOSER: {why_loser}")
     elif option_count == 2 and option_quality >= 0.8 and goal_defined and len(axes) >= 2:
         lines.append("CALL: PROCEED_WITH_CONDITIONS")
-        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
-        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}")
         if why_loser:
@@ -1127,8 +1140,6 @@ def _build_v2_after(
             lines.append(f"WHY_LOSER: {why_loser}")
     elif external_evidence_needed and not has_external_evidence and (can_conditional_proceed or travel_conditional_proceed):
         lines.append("CALL: PROCEED_WITH_CONDITIONS")
-        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
-        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}（都市/夜移動条件で反転余地）")
         if why_loser:
@@ -1140,15 +1151,16 @@ def _build_v2_after(
         if why_loser:
             lines.append(f"WHY_LOSER: {why_loser}")
     else:
-        lines.append(f"RECOMMEND_TOP: {top_label} ({top_id})")
-        lines.append(f"RECOMMEND_RUNNER_UP: {runner_label} ({runner_id})")
+        lines.append("CALL: PROCEED")
         lines.append(f"WHY_TOP2: {why_top2}")
         lines.append(f"WHY_GAP: {why_gap}")
         if why_loser:
             lines.append(f"WHY_LOSER: {why_loser}")
+    lines.append(f"GAP: {margin}")
     lines.extend(
         [
-            f"CONFIDENCE: {int(confidence)}%",
+            f"STABILITY: {int(confidence)}",
+            f"RESOLUTION: {'high' if margin >= 3 else ('medium' if margin >= 1 else 'low')}",
             f"ΔSCORE: {int(dscore):+d}",
             "AXES:",
         ]
@@ -1182,6 +1194,8 @@ def _build_v2_after(
         [
             "RULE:",
             "- 比率条件で暫定順位を採用し、反転条件を先に固定する",
+            "FLIP:",
+            f"- {_falsifier_line(domain, top_label, runner_label, 'A')}",
             "FALSIFIER:",
             f"- {_falsifier_line(domain, top_label, runner_label, 'A')}",
             "NEXT:",
@@ -1218,10 +1232,12 @@ def _stepa_prompt_v2(q: str) -> str:
         "OPTIONS:\n- <option 1>\n- <option 2> ... (max 5)\n"
         "If options cannot be extracted, do NOT output recommendation; output MODE/CALL HOLD and NEXT only.\n"
         "Do not emit long sentence fragments as options.\n"
-        "RECOMMEND_TOP: top1 option\n"
-        "RECOMMEND_RUNNER_UP: second best option\n"
+        "LEAN: leaning direction text (e.g., A寄り / ほぼ同等)\n"
+        "ALT: alternative option label\n"
+        "LEAN_SPLIT: option1 xx / option2 yy (non-probability ratio)\n"
         "CALL: HOLD is allowed when uncertainty is high or options unresolved\n"
-        "CONFIDENCE: integer 0-100 with %\n"
+        "STABILITY: integer 0-100\n"
+        "RESOLUTION: low|medium|high\n"
         "ΔSCORE: signed integer -100..+100\n"
         "AXES:\n- infer 3-5 axes from input domain\n"
         "SCORECARD:\n- <axis>: <option_id>=x ...\n"
@@ -1365,11 +1381,11 @@ def _write_decision_card(
     facts = _section_lines(after_text, "FACTS_3:")
     scorecard = _scorecard_from_after(after_text)
     recommend = {
-        "top": _section_value(after_text, "RECOMMEND_TOP") or _section_value(after_text, "RECOMMEND"),
-        "runner_up": _section_value(after_text, "RECOMMEND_RUNNER_UP"),
+        "top": _section_value(after_text, "LEAN") or _section_value(after_text, "RECOMMEND_TOP") or _section_value(after_text, "RECOMMEND"),
+        "runner_up": _section_value(after_text, "ALT") or _section_value(after_text, "RECOMMEND_RUNNER_UP"),
     }
     confidence = 0
-    m_conf = re.search(r"CONFIDENCE:\s*([0-9]+)", after_text or "")
+    m_conf = re.search(r"STABILITY:\s*([0-9]+)", after_text or "")
     if m_conf:
         try:
             confidence = int(m_conf.group(1))
@@ -1453,10 +1469,10 @@ def _has_stepa_evidence(after_text: str) -> bool:
     t = (after_text or "").strip()
     if not t:
         return False
-    has_recommend = bool(_section_value(t, "RECOMMEND_TOP") or _section_value(t, "RECOMMEND"))
+    has_lean = bool(_section_value(t, "LEAN"))
     has_axes = len(_section_lines(t, "AXES:")) >= 1
     has_next = len(_section_lines(t, "NEXT:")) >= 1
-    return has_recommend and has_axes and has_next
+    return has_lean and has_axes and has_next
 
 def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
     t = (text or "").strip()
@@ -1466,11 +1482,11 @@ def _is_valid_after_full(text: str, min_lines: int = 8) -> bool:
         return False
     if "(unresolved)" in t:
         return False
-    required = ("CONFIDENCE:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:", "NEXT:")
+    required = ("LEAN:", "ALT:", "LEAN_SPLIT:", "STABILITY:", "ΔSCORE:", "AXES:", "SCORECARD:", "FACTS_3:", "FALSIFIER:", "NEXT:")
     if not all(k in t for k in required):
         return False
-    has_recommend = ("RECOMMEND:" in t) or ("RECOMMEND_TOP:" in t and "RECOMMEND_RUNNER_UP:" in t)
-    if not (has_recommend or ("CALL: HOLD" in t)):
+    has_decision = ("LEAN:" in t) or ("CALL: HOLD" in t)
+    if not has_decision:
         return False
     if "MODE: CONDITIONAL" in t and "SCENARIOS:" not in t:
         return False
@@ -1481,7 +1497,7 @@ def _is_pricing_stepa_ready(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    required = ("RECOMMEND_TOP:", "RECOMMEND_RUNNER_UP:", "WHY_TOP2:", "WHY_GAP:", "WHY_LOSER:", "NEXT:")
+    required = ("LEAN:", "ALT:", "LEAN_SPLIT:", "WHY_TOP2:", "WHY_GAP:", "WHY_LOSER:", "NEXT:")
     if not all(k in t for k in required):
         return False
     low = t.lower()
@@ -1558,7 +1574,7 @@ def _decision_sections(q: str) -> str:
 
 
 def _append_decision_sections(text: str, q: str) -> str:
-    if (("RECOMMEND:" in (text or "")) or ("RECOMMEND_TOP:" in (text or "")) or ("CALL: HOLD" in (text or ""))) and "SCORECARD:" in (text or ""):
+    if (("LEAN:" in (text or "")) or ("CALL: HOLD" in (text or ""))) and "SCORECARD:" in (text or ""):
         return text
     if "DOMINANT_AXIS:" in text and "FLIP_THRESHOLD:" in text:
         return text
@@ -1765,7 +1781,7 @@ def main():
         _write_decision_card(
             case_id=case_id,
             input_text=q,
-            after_text="OPTIONS:\n- 候補を箇条書きで指定してください（最大5）\nMODE: HOLD\nCALL: HOLD\nCONFIDENCE: 25%\nΔSCORE: +0\nAXES:\n- コスト\n- リスク\n- 柔軟性\nSCORECARD:\n- コスト: 候補指定後に採点\nFACTS_3:\n- 入力語=比較\n- 入力語=目的\n- 入力語=条件\nFALSIFIER:\n- 候補確定で再計算\nNEXT:\n- 候補を箇条書きで指定してください（最大5）\nOUTCOME: Seed_Placeholder\n",
+            after_text="OPTIONS:\n- 候補を箇条書きで指定してください（最大5）\nMODE: HOLD\nCALL: HOLD\nLEAN: ほぼ同等\nALT: 候補確定後に提示\nLEAN_SPLIT: 候補A 50 / 候補B 50\nSTABILITY: 25\nRESOLUTION: low\nΔSCORE: +0\nAXES:\n- コスト\n- リスク\n- 柔軟性\nSCORECARD:\n- コスト: 候補指定後に採点\nFACTS_3:\n- 入力語=比較\n- 入力語=目的\n- 入力語=条件\nFLIP:\n- 候補確定で反転可能\nFALSIFIER:\n- 候補確定で再計算\nNEXT:\n- 候補を箇条書きで指定してください（最大5）\nOUTCOME: Seed_Placeholder\n",
             domain_guess={"name": str(g.get("name") or "general"), "confidence": float(g.get("confidence") or 0.0)},
             deep_status="seed",
             missing_stages=["seed"],

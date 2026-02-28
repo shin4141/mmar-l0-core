@@ -537,8 +537,8 @@
     const lines = src.split("\n").map(s => s.trim()).filter(Boolean);
     const picks = [];
     for (const s of lines){
-      if (/^(RECOMMEND_TOP:|RECOMMEND_RUNNER_UP:|CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)/i.test(s)){
-        picks.push(s.replace(/^(RECOMMEND_TOP:|RECOMMEND_RUNNER_UP:|CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)\s*/i, ""));
+      if (/^(LEAN:|ALT:|LEAN_SPLIT:|CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)/i.test(s)){
+        picks.push(s.replace(/^(LEAN:|ALT:|LEAN_SPLIT:|CALL:|WHY:|COUNTER:|FLIP:|NEXT:|OUTCOME:)\s*/i, ""));
       } else if (s.startsWith("- ")) {
         picks.push(s.replace(/^-+\s*/, ""));
       }
@@ -601,7 +601,7 @@
   function freezeAfterForMismatch(afterText){
     const raw = String(afterText || "(empty)");
     return raw
-      .replace(/(^|\n)\s*CONFIDENCE:\s*[^\n]*/i, "$1CONFIDENCE: N/A (sha mismatch)")
+      .replace(/(^|\n)\s*STABILITY:\s*[^\n]*/i, "$1STABILITY: N/A (sha mismatch)")
       .replace(/(^|\n)\s*CALL:\s*[^\n]*/i, "$1CALL: N/A (sha mismatch)");
   }
 
@@ -716,11 +716,12 @@
       const m = String(body || "").match(new RegExp(`(?:^|\\n)\\s*${key}:\\s*([^\\n]+)`));
       return m ? String(m[1] || "").trim() : "";
     };
-    const winner = readLine(after || "", "RECOMMEND_TOP") || readLine(after || "", "RECOMMEND");
-    const runner = readLine(after || "", "RECOMMEND_RUNNER_UP");
-    const gap = readLine(after || "", "WHY_GAP");
-    const winnerBlock = winner
-      ? `<div class="winnerBanner"><span><span class="wKey">WINNER:</span> ${escapeHtml(winner)}</span>${runner ? `<span><span class="wKey">RUNNER_UP:</span> ${escapeHtml(runner)}</span>` : ""}${gap ? `<span><span class="wKey">GAP:</span> ${escapeHtml(gap)}</span>` : ""}</div>`
+    const lean = readLine(after || "", "LEAN");
+    const alt = readLine(after || "", "ALT");
+    const split = readLine(after || "", "LEAN_SPLIT");
+    const gap = readLine(after || "", "WHY_GAP") || readLine(after || "", "GAP");
+    const winnerBlock = lean
+      ? `<div class="winnerBanner"><span><span class="wKey">LEAN:</span> ${escapeHtml(lean)}</span>${alt ? `<span><span class="wKey">ALT:</span> ${escapeHtml(alt)}</span>` : ""}${split ? `<span><span class="wKey">SPLIT:</span> ${escapeHtml(split)}</span>` : ""}${gap ? `<span><span class="wKey">GAP:</span> ${escapeHtml(gap)}</span>` : ""}</div>`
       : "";
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
