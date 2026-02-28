@@ -516,29 +516,19 @@ def _preflight_check(q: str, canonical: dict) -> dict:
 
     t = (q or "")
     if domain == "asset_allocation":
-        required_fields = ["horizon", "priority_axis"]
-        need_k = 2
+        required_fields = ["horizon"]
+        need_k = 1
         questions = [
             {"field": "horizon", "type": "choice", "label": "投資期間", "choices": ["〜3年", "3–10年", "10年以上"]},
-            {"field": "use", "type": "choice", "label": "用途", "choices": ["住む", "貸す", "未定"]},
-            {"field": "priority_axis", "type": "choice", "label": "最優先軸", "choices": ["リスク最小", "リターン最大", "流動性", "手間最小"]},
         ]
         has_horizon = bool(_asset_horizon_bucket(t))
-        has_usage = bool(_asset_usage_bucket(t))
         if has_horizon:
             satisfied_fields.append("horizon")
-        if has_usage:
-            satisfied_fields.append("use_case")
         if any(k in t for k in ("リスク", "最大損失", "損失", "下振れ")):
             satisfied_fields.append("priority_axis")
         if not has_horizon:
             missing.append("運用期間（〜3年 / 3–10年 / 10年以上）")
             missing_fields_ids.append("horizon")
-        if not has_usage:
-            missing.append("用途（住む/貸す/未定）")
-            missing_fields_ids.append("use")
-        if "priority_axis" not in satisfied_fields:
-            missing_fields_ids.append("priority_axis")
         unlock_when_text = "投資期間を選ぶと深掘り可能（〜3年/3–10年/10年以上）"
     elif domain == "leisure":
         required_fields = ["priority_axis"]
