@@ -358,6 +358,15 @@
     if (!b.getAttribute("type")) b.setAttribute("type", "button");
   });
   const THINK_UNLOCK_THRESHOLD = 60;
+  const AB_MODE_STORAGE_KEY = "DG_AB_MODE";
+  const AB_KEYWORDS_A = [
+    "アイデア", "案", "章立て", "比喩", "世界観", "たたき台", "発散", "探索", "仮説", "ブレスト",
+    "どう考える", "可能性", "整理して", "分岐", "問い", "論点出し"
+  ];
+  const AB_KEYWORDS_B = [
+    "バグ", "直す", "修正", "原因", "再現", "コミット", "ログ", "指示書", "実装", "設計", "統一",
+    "ssot", "payload", "required_fields", "deep", "ui", "state", "テスト", "pr", "diff"
+  ];
   const slotState = {
     text: "",
     extracted: { amount: null, years: null, goal: null, risk: null, constraint: null },
@@ -374,6 +383,10 @@
     externalNextQuestion: "",
     lastBlockReason: "",
     conflict: [],
+    abMode: "B",
+    abModeSource: "auto",
+    abModeOverride: "auto",
+    abModeHits: [],
     showPanel: false,
     showExtra: false,
   };
@@ -387,6 +400,59 @@
     { key: "constraint", label: "Constraint", values: ["なし", "流動性必要"] },
     { key: "amount", label: "Amount", values: ["小", "中", "大"] },
   ];
+
+  function loadABModeOverride(){
+    try {
+      const v = String(localStorage.getItem(AB_MODE_STORAGE_KEY) || "auto");
+      return (v === "A" || v === "B" || v === "auto") ? v : "auto";
+    } catch (_) {
+      return "auto";
+    }
+  }
+
+  function saveABModeOverride(v){
+    const norm = (v === "A" || v === "B") ? v : "auto";
+    slotState.abModeOverride = norm;
+    try { localStorage.setItem(AB_MODE_STORAGE_KEY, norm); } catch (_) {}
+  }
+
+  function inferABMode(questionText, uiContext){
+    const text = String(questionText || "").toLowerCase();
+    const hitsA = AB_KEYWORDS_A.filter((k) => text.includes(String(k).toLowerCase()));
+    const hitsB = AB_KEYWORDS_B.filter((k) => text.includes(String(k).toLowerCase()));
+    const scoreA = hitsA.length;
+    const scoreB = hitsB.length;
+    let mode = "B";
+    if (scoreA > scoreB) mode = "A";
+    if (scoreB >= scoreA) mode = "B";
+    if (!scoreA && !scoreB) mode = "B";
+    return {
+      mode,
+      hits: (mode === "A" ? hitsA : hitsB).slice(0, 3),
+      scoreA,
+      scoreB,
+      context: uiContext || null,
+    };
+  }
+
+  function decideABMode(questionText, sourceHint){
+    const override = slotState.abModeOverride || "auto";
+    if (override === "A" || override === "B") {
+      slotState.abMode = override;
+      slotState.abModeSource = "manual";
+      slotState.abModeHits = [];
+      return slotState.abMode;
+    }
+    const inf = inferABMode(questionText, sourceHint);
+    slotState.abMode = inf.mode;
+    slotState.abModeSource = "auto";
+    slotState.abModeHits = inf.hits || [];
+    return slotState.abMode;
+  }
+
+  function getABMode(){
+    return decideABMode(slotState.text || qEl.value || "", "get");
+  }
 
   function normalizeDigits(v){
     return String(v || "").replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 65248));
@@ -472,7 +538,11 @@
     return { confidence: conf, conflict: conflicts };
   }
 
-  function chooseRequiredFields(confidence, selected){
+  function chooseRequiredFields(confidence, selected, abMode){
+    if (abMode === "A") {
+      // Mode A keeps requirements lightweight for exploratory flows.
+      return selected && selected.risk == null ? ["risk"] : [];
+    }
     const priority = ["risk", "horizon", "amount", "goal", "constraint"];
     const need = priority.filter((f) => selected[f] == null);
     const k = confidence >= 85 ? 0 : confidence >= 70 ? 1 : confidence >= 50 ? 2 : 3;
@@ -726,6 +796,7 @@
 
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
+    if (!slotState.abMode) decideABMode(slotState.text, "recompute");
     const inputHash = hashText16(slotState.text);
     const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
     const inDeepFallback = slotState.requiredFrom === "deep_fallback";
@@ -745,7 +816,7 @@
     const cc = confidenceScore(slotState.extracted, slotState.selected);
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
-    slotState.requiredClient = chooseRequiredFields(cc.confidence, slotState.selected);
+    slotState.requiredClient = chooseRequiredFields(cc.confidence, slotState.selected, slotState.abMode);
     const keepFallback = inDeepFallback && (
       (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length > 0) ||
       (Array.isArray(slotState.requiredServer) && slotState.requiredServer.length > 0) ||
@@ -774,11 +845,22 @@
       input: submittedInput,
       run_id: runId,
       question: String(lastSubmittedInput || submittedInput || ""),
+      ab_mode: slotState.abMode || "B",
+      ab_mode_source: slotState.abModeSource || "auto",
       required_fields: req,
       slots,
       extra: { ...(slotState.extra || {}) },
       confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
       domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
+    };
+  }
+
+  function buildCorePayload(submittedInput, runId){
+    return {
+      input: submittedInput,
+      run_id: runId,
+      ab_mode: slotState.abMode || "B",
+      ab_mode_source: slotState.abModeSource || "auto",
     };
   }
 
@@ -814,9 +896,25 @@
     const goal = slotState.selected.goal || "未入力";
     const risk = slotState.selected.risk || "未入力";
     const constraint = slotState.selected.constraint || "未入力";
+    const modeNow = slotState.abMode || "B";
+    const taskLinesA = [
+      "- Explore options and hypotheses; do not force a single fixed conclusion.",
+      "- Show branching paths and tradeoffs with short if/then conditions.",
+      "- List concrete unknowns that would narrow the decision.",
+      "- Keep it practical and concise."
+    ];
+    const taskLinesB = [
+      "- Give a decision-oriented answer tailored to the context slots.",
+      "- Start by restating the slots as assumptions (1 line).",
+      "- Provide 2–3 options with conditions (if/then).",
+      "- List 3 key unknowns to ask next (only if needed).",
+      "- Keep it practical; no EV, no long theory."
+    ];
+    const taskLines = (modeNow === "A") ? taskLinesA : taskLinesB;
     return (
       `${q}\n\n`
       + `User question: ${q}\n\n`
+      + `AB mode: ${modeNow}\n`
       + "Context slots (selected by user):\n"
       + `- Amount: ${amount}\n`
       + `- Horizon: ${horizon}\n`
@@ -824,11 +922,7 @@
       + `- Risk: ${risk}\n`
       + `- Constraint: ${constraint}\n\n`
       + "Task:\n"
-      + "- Give a decision-oriented answer tailored to the context slots.\n"
-      + "- Start by restating the slots as assumptions (1 line).\n"
-      + "- Provide 2–3 options with conditions (if/then).\n"
-      + "- List 3 key unknowns to ask next (only if needed).\n"
-      + "- Keep it practical; no EV, no long theory.\n"
+      + `${taskLines.join("\n")}\n`
     );
   }
 
@@ -852,6 +946,18 @@
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
       : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}${(!firstMissing && firstExternalMissing) ? ` / need: ${firstExternalMissing}` : ""}`;
     const debugStatus = `Deep status: enabled=${enabled ? "true" : "false"} / required=${requiredFilled}/${requiredTotal} / missing=${requiredRemaining}${slotState.lastBlockReason ? ` / reason=${slotState.lastBlockReason}` : ""}`;
+    const abOverride = slotState.abModeOverride || "auto";
+    const abMode = slotState.abMode || "B";
+    const abModeLabel = abOverride === "auto" ? `Auto(${abMode})` : abOverride;
+    const modeControls = `
+      <div class="slotRow" style="margin-top:2px;">
+        <span class="slotLabel">Mode</span>
+        <span class="muted" style="font-weight:700;">${escapeHtml(abModeLabel)}</span>
+        <button class="slotChip ${abOverride === "auto" ? "active" : ""}" data-ab-mode="auto">Auto</button>
+        <button class="slotChip ${abOverride === "A" ? "active" : ""}" data-ab-mode="A">A</button>
+        <button class="slotChip ${abOverride === "B" ? "active" : ""}" data-ab-mode="B">B</button>
+      </div>
+    `;
     const constraintMissing = prog.missing.includes("constraint");
     const rows = slotState.showExtra
       ? SLOT_SPEC
@@ -886,6 +992,7 @@
       <div class="muted" style="margin-top:2px;">${escapeHtml(debugStatus)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
       ${externalMissingText}
+      ${modeControls}
       ${rowsHtml}
       ${unknownInputsHtml}
       <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
@@ -900,6 +1007,7 @@
       };
     }
     for (const btn of Array.from(slotPanelEl.querySelectorAll(".slotChip"))){
+      if (btn.hasAttribute("data-ab-mode")) continue;
       btn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -919,6 +1027,22 @@
           requiredTotal: computeRequiredProgress(getEffectiveRequiredFields()).total,
           requiredMissing: computeRequiredProgress(getEffectiveRequiredFields()).missing.length,
           deepEnabled: deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict),
+        });
+        refreshDeepReadiness();
+      };
+    }
+    for (const btn of Array.from(slotPanelEl.querySelectorAll("[data-ab-mode]"))) {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const modeSel = String(btn.getAttribute("data-ab-mode") || "auto");
+        saveABModeOverride(modeSel);
+        decideABMode(slotState.text || qEl.value || "", "manual_toggle");
+        recomputeSlotRequirements(slotState.text || qEl.value || "");
+        console.debug("[DG] ab_mode_decided", {
+          abMode: slotState.abMode,
+          source: slotState.abModeSource,
+          hits: slotState.abModeHits || [],
         });
         refreshDeepReadiness();
       };
@@ -1705,6 +1829,16 @@
     const runId = makeRunId();
     activeRunId = runId;
     const isDeep = (apiMode === "think" || apiMode === "deep");
+    if (!isDeep) {
+      const decided = decideABMode(submittedInput, "run");
+      console.debug("[DG] ab_mode_decided", {
+        abMode: decided,
+        source: slotState.abModeSource,
+        hits: slotState.abModeHits || [],
+      });
+    } else if (!slotState.abMode) {
+      decideABMode(lastSubmittedInput || submittedInput, "deep");
+    }
     const cacheModeKey = isDeep ? "deep" : "core";
     const expectedCacheKey = makeCacheKey(cacheModeKey, inputHash, liveBootSha, liveModelCfgHash);
     const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
@@ -1723,6 +1857,9 @@
       console.debug("[DG]", {
         runId,
         phase: "run_start",
+        abMode: slotState.abMode,
+        abModeSource: slotState.abModeSource,
+        abModeHits: slotState.abModeHits || [],
         confidence: slotState.confidence,
         requiredFields: effReqNow,
         selected: slotState.selected,
@@ -1836,7 +1973,7 @@
         const rCore = await fetch(`${apiBase}/api/triad?mode=core`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: submittedInput, run_id: runId }),
+          body: JSON.stringify(buildCorePayload(submittedInput, runId)),
           signal: wCore.signal,
         });
         if (!rCore.ok) {
@@ -2330,6 +2467,8 @@
     deepRunning = false;
   };
   document.getElementById("reload").onclick = loadActive;
+  slotState.abModeOverride = loadABModeOverride();
+  decideABMode(qEl.value || "", "init");
   mode = "live";
   renderMode();
   renderSlotPanel();
