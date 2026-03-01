@@ -400,6 +400,11 @@
       currentDeepKey: "",
       retryCountByDeepKey: {},
     },
+    runPhase: "idle",
+    runStartAt: 0,
+    runEndAt: 0,
+    runError: "",
+    currentRunId: "",
     showPanel: false,
     showExtra: false,
   };
@@ -807,6 +812,19 @@
     return { data, raw };
   }
 
+  async function safeFetchTextJson(url, payload, signal){
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    const raw = await res.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch (_) {}
+    return { res, raw, data };
+  }
+
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
     if (!slotState.abMode) decideABMode(slotState.text, "recompute");
@@ -880,6 +898,27 @@
       ab_mode: slotState.abMode || "B",
       ab_mode_source: slotState.abModeSource || "auto",
     };
+  }
+
+  function applyCoreResult(coreData, submittedInput){
+    liveData = coreData;
+    liveDataCore = coreData;
+    liveDataDeep = null;
+    liveDataView = "core";
+    lastStableResult = coreData;
+    if (coreData && coreData.health_sha && coreData.model_cfg_hash && coreData.input_hash) {
+      const key = makeCacheKey("core", coreData.input_hash, coreData.health_sha, coreData.model_cfg_hash);
+      liveCache.set(key, { ...coreData, __cached: false });
+    }
+    deepSessionId += 1;
+    deepRunning = false;
+    deepDone = false;
+    isRunning = false;
+    currentJobId = "";
+    stopRequested = false;
+    updateStopButton();
+    lastSubmittedInput = submittedInput;
+    setTimestamp();
   }
 
   function promoteServerMissing(keys, nextQuestion){
@@ -2084,6 +2123,11 @@
       slotState.exec.retryCountByDeepKey = {};
       analysisStatus = "running";
       analysisError = null;
+      slotState.runPhase = "running";
+      slotState.runStartAt = Date.now();
+      slotState.runEndAt = 0;
+      slotState.runError = "";
+      slotState.currentRunId = runId;
       setLastBlockReason("");
       deepDone = false;
       slotState.showPanel = true;
@@ -2109,6 +2153,7 @@
           ...(slotState.conflict.length ? ["conflict_present"] : []),
         ],
       });
+      console.debug("[DG] run_start", { runId, runKey: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "" });
       renderSlotPanel();
     }
     lastApiMode = apiMode;
@@ -2158,6 +2203,12 @@
       isRunning = false;
       liveHintEl.textContent = "Cache hit: same input/sha/model_cfg";
       liveStatus = "ready";
+      if (!isDeep) {
+        slotState.runPhase = "done";
+        slotState.runError = "";
+        slotState.runEndAt = Date.now();
+        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.runEndAt || Date.now()) - (slotState.runStartAt || Date.now())), cached: true });
+      }
       setRunVisual("ready", "2.8s");
       loadActive();
       updateCtrlPanel();
@@ -2202,6 +2253,9 @@
         if (!apiBase) {
           analysisStatus = "error";
           analysisError = "api_base_empty";
+          slotState.runPhase = "error";
+          slotState.runError = "api_base_empty";
+          slotState.runEndAt = Date.now();
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = "Live error: API base is empty";
@@ -2210,17 +2264,26 @@
           isRunning = false;
           return;
         }
-        const wCore = withTimeout(12000);
-        const rCore = await fetch(`${apiBase}/api/triad?mode=core`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildCorePayload(submittedInput, runId)),
-          signal: wCore.signal,
+        const wCore = withTimeout(3000);
+        const corePayload = buildCorePayload(submittedInput, runId);
+        const { res: rCore, raw: rawCore, data: coreJson } = await safeFetchTextJson(
+          `${apiBase}/api/triad?mode=core`,
+          corePayload,
+          wCore.signal
+        );
+        console.debug("[DG] run_http", {
+          runId,
+          ok: rCore.ok,
+          status: rCore.status,
+          rawHead: String(rawCore || "").slice(0, 160),
         });
         if (!rCore.ok) {
           analysisStatus = "error";
           analysisError = `http_${rCore.status}`;
-          const body = await rCore.text();
+          slotState.runPhase = "error";
+          slotState.runError = `http_${rCore.status}`;
+          slotState.runEndAt = Date.now();
+          const body = rawCore;
           const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
@@ -2231,9 +2294,69 @@
           isRunning = false;
           return;
         }
-        const coreData = await rCore.json();
+        let coreData = (coreJson && typeof coreJson === "object") ? coreJson : null;
+        if (!coreData) {
+          analysisStatus = "error";
+          analysisError = "invalid_core_json";
+          slotState.runPhase = "error";
+          slotState.runError = "invalid_core_json";
+          slotState.runEndAt = Date.now();
+          liveHintEl.textContent = "RUN: core error";
+          liveStatus = "error";
+          outEl.textContent = "Live error: invalid core JSON response";
+          setRunVisual("error", "2.8s");
+          wCore.done();
+          isRunning = false;
+          return;
+        }
+        if (coreData && typeof coreData.job_id === "string" && coreData.job_id) {
+          const jobId = coreData.job_id;
+          currentJobId = jobId;
+          updateStopButton();
+          liveHintEl.textContent = `Run job queued (${jobId.slice(0, 8)})`;
+          liveStatus = "running";
+          let done = false;
+          for (let i = 0; i < 15; i += 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
+            if (!jr.ok) continue;
+            const j = await jr.json();
+            const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
+            if (!pollRunId || pollRunId !== activeRunId) {
+              console.debug("[DG] run_apply", { runId, matchedRunId: false, source: "job_poll" });
+              continue;
+            }
+            if (j.status === "done" && j && ["compare", "expand", "diff", "merge"].every(k => typeof j[k] === "string")) {
+              coreData = j;
+              done = true;
+              break;
+            }
+            if (j.status === "error" || j.status === "cancelled") break;
+          }
+          if (!done) {
+            analysisStatus = "error";
+            analysisError = "run_job_timeout";
+            slotState.runPhase = "error";
+            slotState.runError = "run_job_timeout";
+            slotState.runEndAt = Date.now();
+            liveHintEl.textContent = "Run failed: timeout";
+            liveStatus = "error";
+            outEl.textContent = "Run failed: timeout (job not completed)";
+            currentJobId = "";
+            updateStopButton();
+            setRunVisual("error", "2.8s");
+            wCore.done();
+            isRunning = false;
+            return;
+          }
+        }
         const coreRunId = (coreData && typeof coreData.run_id === "string") ? coreData.run_id : "";
+        const matchedRunId = !!(coreRunId && coreRunId === activeRunId);
+        console.debug("[DG] run_apply", { runId, matchedRunId, source: "core_result" });
         if (!coreRunId || coreRunId !== activeRunId) {
+          slotState.runPhase = "error";
+          slotState.runError = "run_id_mismatch";
+          slotState.runEndAt = Date.now();
           liveHintEl.textContent = "stale ignored (core run_id mismatch)";
           wCore.done();
           return;
@@ -2243,24 +2366,7 @@
           wCore.done();
           throw new Error("invalid core response shape");
         }
-        liveData = coreData;
-        liveDataCore = coreData;
-        liveDataDeep = null;
-        liveDataView = "core";
-        lastStableResult = coreData;
-        if (coreData && coreData.health_sha && coreData.model_cfg_hash && coreData.input_hash) {
-          const key = makeCacheKey("core", coreData.input_hash, coreData.health_sha, coreData.model_cfg_hash);
-          liveCache.set(key, { ...coreData, __cached: false });
-        }
-        deepSessionId += 1;
-        deepRunning = false;
-        deepDone = false;
-        isRunning = false;
-        currentJobId = "";
-        stopRequested = false;
-        updateStopButton();
-        lastSubmittedInput = submittedInput;
-        setTimestamp();
+        applyCoreResult(coreData, submittedInput);
         await loadActive();
         if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
           try {
@@ -2271,6 +2377,10 @@
         liveHintEl.textContent = "RUN: core ok";
         analysisStatus = "ok";
         analysisError = null;
+        slotState.runPhase = "done";
+        slotState.runError = "";
+        slotState.runEndAt = Date.now();
+        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.runEndAt || Date.now()) - (slotState.runStartAt || Date.now())) });
         liveStatus = "ready";
         liveResultBadgeEl.textContent = "Core";
         liveResultBadgeEl.style.display = "inline-block";
@@ -2572,6 +2682,9 @@
       if (!isDeep) {
         analysisStatus = "error";
         analysisError = String(e || "core_error");
+        slotState.runPhase = "error";
+        slotState.runError = String(e || "core_error");
+        slotState.runEndAt = Date.now();
       }
       if (apiDown) {
         liveHintEl.textContent = "API unreachable: restart dev_api";
@@ -2602,11 +2715,23 @@
     outEl.textContent = "Loading…";
     if (leftUnlockEl && active !== "compare") leftUnlockEl.innerHTML = "";
     if (mode === "live"){
+      if (slotState.runPhase === "running" && slotState.runStartAt > 0) {
+        const elapsed = Date.now() - slotState.runStartAt;
+        if (elapsed > 10000) {
+          slotState.runPhase = "error";
+          slotState.runError = "run_timeout";
+          slotState.runEndAt = Date.now();
+          isRunning = false;
+          liveStatus = "error";
+          liveHintEl.textContent = "Run failed: timeout. Re-run.";
+        }
+      }
       const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       if (!viewData){
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
-          const banner = `<div class="infoBanner">Running… showing previous result</div>`;
+          const runTag = slotState.currentRunId ? slotState.currentRunId.slice(0, 8) : "-";
+          const banner = `<div class="infoBanner">Running (runId=${escapeHtml(runTag)}). Showing previous result until update.</div>`;
           if (active === "compare") {
             renderCompare(stickyTxt, banner);
           } else {
@@ -2614,8 +2739,12 @@
           }
           return;
         }
-        outEl.textContent = (liveStatus === "running" || liveStatus === "slow" || isRunning)
-          ? "Running..."
+        if (slotState.runPhase === "error") {
+          outEl.textContent = `Run failed: ${slotState.runError || "unknown"}. Re-run.`;
+          return;
+        }
+        outEl.textContent = (liveStatus === "running" || liveStatus === "slow" || isRunning || slotState.runPhase === "running")
+          ? `Running (runId=${(slotState.currentRunId || "-").slice(0, 8)})...`
           : (liveReady ? "Live mode: press Run" : "Live not ready");
         return;
       }
@@ -2623,7 +2752,8 @@
       if (activeRunId && viewRunId !== activeRunId) {
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
-          const banner = `<div class="infoBanner">Running… showing previous result</div>`;
+          const runTag = slotState.currentRunId ? slotState.currentRunId.slice(0, 8) : "-";
+          const banner = `<div class="infoBanner">Running (runId=${escapeHtml(runTag)}). Showing previous result until update.</div>`;
           if (active === "compare") {
             renderCompare(stickyTxt, banner);
           } else {
@@ -2631,7 +2761,7 @@
           }
           return;
         }
-        outEl.textContent = "Running...";
+        outEl.textContent = `Running (runId=${(slotState.currentRunId || "-").slice(0, 8)})...`;
         return;
       }
       const txt = (viewData[active] && viewData[active].trim()) ? viewData[active] : (viewData.expand || "");
