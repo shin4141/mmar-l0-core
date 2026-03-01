@@ -462,7 +462,19 @@
     const v2 = e[field];
     if (v2 !== null && v2 !== undefined && String(v2) !== "") return true;
     const v3 = x[field];
-    return v3 !== null && v3 !== undefined && String(v3) !== "";
+    if (v3 === null || v3 === undefined) return false;
+    const s3 = String(v3).trim();
+    if (!s3) return false;
+    // Guard: key-name echo (e.g. "goal_metric") is treated as not filled.
+    if (s3 === String(field)) return false;
+    return true;
+  }
+
+  function setExtraField(key, value){
+    if (!key) return;
+    slotState.extra = slotState.extra || {};
+    slotState.extra[key] = String(value == null ? "" : value);
+    dgDebug("extra_change", { key, value: slotState.extra[key] });
   }
 
   function deepEnabled(requiredFields, selected, conflict){
@@ -705,7 +717,7 @@
       inp.oninput = () => {
         const key = String(inp.getAttribute("data-extra-key") || "");
         if (!key) return;
-        slotState.extra[key] = String(inp.value || "").trim();
+        setExtraField(key, String(inp.value || "").trim());
         renderSlotPanel();
         if (mode === "live" && active === "compare") loadActive();
       };
@@ -1639,11 +1651,12 @@
       updateCtrlPanel();
 
       const w = withTimeout(30000);
+      const mergedSlots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
       const deepPayload = {
         input: submittedInput,
         run_id: runId,
         question: String(lastSubmittedInput || submittedInput || ""),
-        slots: { ...slotState.selected },
+        slots: mergedSlots,
         extra: { ...(slotState.extra || {}) },
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
         required_fields: getEffectiveRequiredFields(),
