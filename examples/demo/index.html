@@ -249,9 +249,64 @@
       e.stopPropagation();
     }, true);
   }
+  (function(){
+    const KEY = "DG_LOG_RING_V1";
+    let ring = [];
+    try {
+      ring = JSON.parse(localStorage.getItem(KEY) || "[]");
+      if (!Array.isArray(ring)) ring = [];
+    } catch (_) {
+      ring = [];
+    }
+    function asText(v){
+      if (typeof v === "string") return v;
+      try { return JSON.stringify(v); } catch (_) { return String(v); }
+    }
+    function push(line){
+      try {
+        ring.push(line);
+        while (ring.length > 200) ring.shift();
+        localStorage.setItem(KEY, JSON.stringify(ring));
+        if (window.__dgHud) window.__dgHud.textContent = ring.slice(-40).join("\n");
+      } catch (_) {}
+    }
+    function mkHud(){
+      try {
+        const pre = document.createElement("pre");
+        pre.style.cssText = "position:fixed;right:8px;bottom:8px;width:520px;max-height:40vh;overflow:auto;z-index:999999;background:rgba(0,0,0,.85);color:#9ef;padding:10px;border-radius:10px;font:12px/1.35 ui-monospace,Menlo,monospace;white-space:pre-wrap;";
+        pre.textContent = ring.slice(-40).join("\n");
+        document.body.appendChild(pre);
+        window.__dgHud = pre;
+      } catch (_) {}
+    }
+    window.addEventListener("load", mkHud);
+    ["log", "debug", "warn", "error"].forEach((k) => {
+      const orig = console[k] && console[k].bind ? console[k].bind(console) : null;
+      if (!orig) return;
+      console[k] = (...args) => {
+        try { push(`[${k}] ${args.map(asText).join(" ")}`); } catch (_) {}
+        orig(...args);
+      };
+    });
+    window.DG_HUD_CLEAR = () => {
+      try {
+        localStorage.removeItem(KEY);
+        ring = [];
+        if (window.__dgHud) window.__dgHud.textContent = "";
+      } catch (_) {}
+    };
+  })();
   window.addEventListener("beforeunload", () => {
     console.warn("[DG] beforeunload fired (page is reloading/navigating)");
   });
+  document.addEventListener("click", (e) => {
+    if (!window.DG_PANIC || !window.DG_PANIC.swallowAllSubmit) return;
+    const a = e && e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    console.warn("[DG] prevented navigation", a.getAttribute("href"));
+  }, true);
   document.querySelectorAll("button").forEach((b) => {
     if (!b.getAttribute("type")) b.setAttribute("type", "button");
   });
@@ -436,6 +491,20 @@
       });
     } catch (e) {
       console.error("[DG] dgDebug failed", tag, e);
+    }
+  }
+
+  async function dgShield(tag, fn){
+    try {
+      console.debug("[DG] shield_enter", tag);
+      const out = await fn();
+      console.debug("[DG] shield_ok", tag);
+      return out;
+    } catch (e) {
+      console.error("[DG] shield_exception", tag, String(e && e.stack ? e.stack : e));
+      try { isRunning = false; } catch (_) {}
+      try { deepRunning = false; } catch (_) {}
+      return null;
     }
   }
 
@@ -1273,9 +1342,9 @@
     if (deepBtn) {
       deepBtn.type = "button";
       deepBtn.onclick = async (e) => {
-        try {
-          e.preventDefault();
-          e.stopPropagation();
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        await dgShield("deep_click", async () => {
           console.debug("[DG] click_target", {
             id: e && e.target ? e.target.id : "",
             tag: e && e.target ? e.target.tagName : "",
@@ -1302,17 +1371,8 @@
           }
           const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
           await runLive("deep", deepInput);
-        } catch (err) {
-          dgDebug("deep_click_exception", { err: String(err), stack: err && err.stack ? err.stack : "" });
-          deepRunning = false;
-          liveStatus = "error";
-          liveHintEl.textContent = `Deep click error: ${err}`;
-          updateCtrlPanel();
-        } finally {
-          if (liveStatus !== "running") {
-            deepRunning = false;
-          }
-        }
+        });
+        if (liveStatus !== "running") deepRunning = false;
       };
     }
   }
@@ -1895,9 +1955,9 @@
     ctrlPanelEl.classList.remove("open");
   });
   runLiveEl.onclick = async (e) => {
-    try {
-      if (e && e.preventDefault) e.preventDefault();
-      if (e && e.stopPropagation) e.stopPropagation();
+    if (e && e.preventDefault) e.preventDefault();
+    if (e && e.stopPropagation) e.stopPropagation();
+    await dgShield("run_click", async () => {
       console.debug("[DG] click_target", {
         id: e && e.target ? e.target.id : "",
         tag: e && e.target ? e.target.tagName : "",
@@ -1906,12 +1966,9 @@
       console.debug("[DG] run_click");
       liveHintEl.textContent = "RUN: core requested";
       await runLive("core");
-    } catch (err) {
-      console.error("[DG] run_click_exception", err && err.stack ? err.stack : err);
-    } finally {
-      isRunning = false;
-      deepRunning = false;
-    }
+    });
+    isRunning = false;
+    deepRunning = false;
   };
   document.getElementById("reload").onclick = loadActive;
   mode = "live";
