@@ -239,6 +239,16 @@
   let lastStableResult = null;
   let analysisStatus = "idle";
   let analysisError = null;
+  window.DG_PANIC = window.DG_PANIC || {
+    disableDeep: true,
+    swallowAllSubmit: true,
+  };
+  if (window.DG_PANIC && window.DG_PANIC.swallowAllSubmit) {
+    window.addEventListener("submit", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+  }
   const THINK_UNLOCK_THRESHOLD = 60;
   const slotState = {
     text: "",
@@ -421,6 +431,12 @@
     } catch (e) {
       console.error("[DG] dgDebug failed", tag, e);
     }
+  }
+
+  function deepPanicExit(reason){
+    console.warn("[DG] PANIC EXIT:", reason);
+    liveHintEl.textContent = reason;
+    updateCtrlPanel();
   }
 
   async function safeFetchDeep(url, payload, signal){
@@ -1249,11 +1265,17 @@
     }
     const deepBtn = document.getElementById("after-deep-btn");
     if (deepBtn) {
+      deepBtn.type = "button";
       deepBtn.onclick = async (e) => {
         try {
           e.preventDefault();
           e.stopPropagation();
           dgDebug("before_deep_click");
+          if (window.DG_PANIC && window.DG_PANIC.disableDeep) {
+            dgDebug("blocked_no_call", { panic: true });
+            deepPanicExit("Deep is disabled (panic mode). UI will not crash.");
+            return;
+          }
           if (mode !== "live") return;
           if (!lastSubmittedInput) {
             liveHintEl.textContent = "No submitted input";
