@@ -81,6 +81,13 @@
     .winnerBanner .wKey{ color:#0369a1; font-weight:900; }
     .slotGrid{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
     .slotRow{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .slotRow.constraint-missing{
+      border:1px solid #ef4444;
+      border-radius:10px;
+      padding:4px 6px;
+      animation:constraintPulse 1.1s ease-in-out infinite;
+      background:rgba(254,226,226,.55);
+    }
     .slotLabel{ min-width:92px; font-size:12px; color:var(--muted); font-weight:700; }
     .slotChip{ padding:4px 10px; border-radius:999px; border:1px solid var(--line); background:#fff; font-size:12px; font-weight:700; cursor:pointer; }
     .slotChip.active{ border-color:#0ea5e9; background:#e0f2fe; color:#075985; }
@@ -89,6 +96,11 @@
     @keyframes afterHero{
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
+    }
+    @keyframes constraintPulse{
+      0%{ box-shadow:0 0 0 0 rgba(239,68,68,.28); }
+      70%{ box-shadow:0 0 0 8px rgba(239,68,68,0); }
+      100%{ box-shadow:0 0 0 0 rgba(239,68,68,0); }
     }
     /* INSERTED CSS BLOCK: rainbow running bar (below Static/Live/Run controls) */
     .runVisual{
@@ -538,6 +550,7 @@
     const cc = confidenceScore(slotState.extracted, slotState.selected);
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
+    // Recompute required fields at run-time only; later UI shows progress via missing.
     slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
     slotState.requiredFrom = "confidence";
   }
@@ -588,15 +601,17 @@
     const requiredTotal = prog.total;
     const requiredFilled = prog.filled;
     const requiredRemaining = prog.missing.length;
+    const firstMissing = requiredRemaining > 0 ? String(prog.missing[0]) : "";
     const status = enabled
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
-      : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})`;
+      : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}`;
+    const constraintMissing = prog.missing.includes("constraint");
     const rows = slotState.showExtra
       ? SLOT_SPEC
       : req.map((k) => SLOT_SPEC.find((g) => g.key === k)).filter(Boolean);
     const rowsHtml = rows.length
       ? rows.map((g) => `
-        <div class="slotRow">
+        <div class="slotRow ${(g.key === "constraint" && constraintMissing) ? "constraint-missing" : ""}">
           <span class="slotLabel">${escapeHtml(g.label)}</span>
           ${g.values.map((v) => `<button class="slotChip ${slotState.selected[g.key] === v ? "active" : ""}" data-slot="${escapeHtml(g.key)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}
         </div>
@@ -633,7 +648,7 @@
         const cc = confidenceScore(slotState.extracted, slotState.selected);
         slotState.confidence = cc.confidence;
         slotState.conflict = cc.conflict;
-        slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
+        // Keep requiredFields stable; progress is tracked by computeRequiredProgress().missing.
         console.debug("[DG]", {
           phase: "selected_change",
           key,
@@ -1176,8 +1191,9 @@
     const requiredTotal = slotProgress.total;
     const requiredFilled = slotProgress.filled;
     const deepLockRemain = slotProgress.missing.length;
+    const deepLockNext = deepLockRemain > 0 ? String(slotProgress.missing[0]) : "";
     const deepLockNote = (!deepGateOpen && slotState.showPanel)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${deepLockNext ? ` / next: ${escapeHtml(deepLockNext)}` : ""}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && (deepMetaStatus !== "ok" || analysisStatus === "error"))
@@ -1580,7 +1596,7 @@
         question: String(lastSubmittedInput || submittedInput || ""),
         slots: { ...slotState.selected },
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
-        required_fields: Array.isArray(slotState.requiredFields) ? slotState.requiredFields.slice() : [],
+        required_fields: Array.isArray(slotState.requiredFields) ? slotState.requiredFields : [],
       };
       dgDebug("calling_deep_api", { payload: deepPayload });
       const { data: parsedData, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
