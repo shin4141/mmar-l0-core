@@ -450,7 +450,11 @@
   }
 
   function getEffectiveRequiredFields(){
+    const shown = (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length)
+      ? slotState.requiredFields
+      : [];
     return uniqKeys([
+      ...shown,
       ...(slotState.requiredClient || []),
       ...(slotState.requiredServer || []),
       ...(slotState.externalMissingFields || []),
@@ -463,23 +467,23 @@
     return slotState.requiredFields;
   }
 
-  function hasFieldValue(field){
+  function getVal(field){
     const s = slotState.selected || {};
     const e = slotState.extracted || {};
     const x = slotState.extra || {};
-    const v = s[field];
-    if (v !== null && v !== undefined && String(v) !== "") return true;
-    const v2 = e[field];
-    if (v2 !== null && v2 !== undefined && String(v2) !== "") return true;
-    const v3 = x[field];
-    if (v3 === null || v3 === undefined) return false;
-    const s3 = String(v3).trim();
-    if (!s3) return false;
-    // Guard: key-name echo (e.g. "goal_metric") is treated as not filled.
-    if (s3 === String(field)) return false;
-    // Guard: placeholder values are treated as not filled.
-    if (s3 === "未指定" || s3 === "未入力" || s3 === "unknown") return false;
-    return true;
+    const pick = (v) => {
+      if (v === null || v === undefined) return null;
+      const t = String(v).trim();
+      if (!t) return null;
+      if (t === String(field)) return null;
+      if (t === "未指定" || t === "未入力" || t === "unknown") return null;
+      return t;
+    };
+    return pick(s[field]) ?? pick(e[field]) ?? pick(x[field]);
+  }
+
+  function hasFieldValue(field){
+    return getVal(field) != null;
   }
 
   function setExtraField(key, value){
@@ -536,7 +540,7 @@
 
   function computeRequiredProgress(requiredOverride){
     const required = Array.isArray(requiredOverride) ? requiredOverride : getEffectiveRequiredFields();
-    const missing = required.filter((f) => !hasFieldValue(f));
+    const missing = required.filter((f) => !getVal(f));
     const filled = required.length - missing.length;
     return { total: required.length, filled, missing };
   }
@@ -676,6 +680,7 @@
     const k = Array.isArray(keys) ? keys.map((x) => String(x)).filter(Boolean) : [];
     if (!k.length) return;
     slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...k]);
+    slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...k]);
     normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
     syncRequiredFields();
     slotState.requiredFrom = "deep_fallback";
@@ -1512,8 +1517,10 @@
     }
     const deepBtn = document.getElementById("after-deep-btn");
     if (deepBtn) {
-      deepBtn.type = "button";
-      deepBtn.onclick = async (e) => {
+      const cleanBtn = deepBtn.cloneNode(true);
+      deepBtn.parentNode.replaceChild(cleanBtn, deepBtn);
+      cleanBtn.type = "button";
+      cleanBtn.addEventListener("click", async (e) => {
         if (e && e.preventDefault) e.preventDefault();
         if (e && e.stopPropagation) e.stopPropagation();
         await dgShield("deep_click", async () => {
@@ -1522,7 +1529,6 @@
             tag: e && e.target ? e.target.tagName : "",
             type: e && e.target && e.target.getAttribute ? e.target.getAttribute("type") : "",
           });
-          dgDebug("before_deep_click");
           if (window.DG_PANIC && window.DG_PANIC.disableDeep) {
             dgDebug("blocked_no_call", { panic: true });
             deepPanicExit("Deep is disabled (panic mode). UI will not crash.");
@@ -1535,6 +1541,7 @@
           }
           const reqNow = getEffectiveRequiredFields();
           const progNow = computeRequiredProgress(reqNow);
+          snapshot("before_deep_click_effective");
           const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict();
           if (!deepNowEnabled) {
             snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing });
@@ -1553,12 +1560,13 @@
             if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
           }
+          slotState.requiredFields = uniqKeys(effReq);
           snapshot("before_deep_click_effective", { required: effReq, missing: effProg.missing });
           const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
           await runLive("deep", deepInput);
         });
         if (liveStatus !== "running") deepRunning = false;
-      };
+      });
     }
   }
 
