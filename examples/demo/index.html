@@ -342,6 +342,8 @@
     showExtra: false,
   };
   const KNOWN_SLOT_KEYS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
+  const AUTO_FILL_UNKNOWN_REQUIRED = true;
+  const AUTO_FILL_VALUE = "tmp";
   const SLOT_SPEC = [
     { key: "horizon", label: "Horizon", values: ["短期", "長期"] },
     { key: "goal", label: "Goal", values: ["増やす", "守る", "現金優先"] },
@@ -500,6 +502,21 @@
       const s = raw == null ? "" : String(raw).trim();
       if (!s || s === String(k) || s === "未指定" || s === "未入力" || s === "unknown") {
         slotState.extra[k] = "";
+      }
+    }
+  }
+
+  function autoFillMissing(missingKeys){
+    if (!AUTO_FILL_UNKNOWN_REQUIRED) return;
+    slotState.extra = slotState.extra || {};
+    for (const k of (missingKeys || [])) {
+      const key = String(k || "").trim();
+      if (!key) continue;
+      if (KNOWN_SLOT_KEYS.has(key)) continue;
+      const cur = slotState.extra[key];
+      const s = cur == null ? "" : String(cur).trim();
+      if (!s || s === key || s === "未指定" || s === "未入力" || s === "unknown") {
+        slotState.extra[key] = AUTO_FILL_VALUE;
       }
     }
   }
@@ -1552,7 +1569,12 @@
             return;
           }
           const reqNow = getEffectiveRequiredFields();
-          const progNow = computeRequiredProgress(reqNow);
+          let progNow = computeRequiredProgress(reqNow);
+          if (progNow.missing.length > 0) {
+            autoFillMissing(progNow.missing);
+            syncRequiredFields();
+            progNow = computeRequiredProgress(reqNow);
+          }
           snapshot("before_deep_click_effective");
           const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict();
           if (!deepNowEnabled) {
@@ -1685,7 +1707,12 @@
       if (isDeep) {
         // Final guard: never call deep API while effective required still has missing fields.
         const reqNow = getEffectiveRequiredFields();
-        const progNow = computeRequiredProgress(reqNow);
+        let progNow = computeRequiredProgress(reqNow);
+        if (progNow.missing.length > 0) {
+          autoFillMissing(progNow.missing);
+          syncRequiredFields();
+          progNow = computeRequiredProgress(reqNow);
+        }
         if (progNow.missing.length > 0) {
           snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing, stage: "runLive_preflight" });
           liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
