@@ -395,6 +395,26 @@
     return { enabled: blockers.length === 0, blockers, prog };
   }
 
+  function dgDebug(tag, extra = {}){
+    try {
+      const ds = computeDeepState();
+      console.debug("[DG]", tag, {
+        runId: activeRunId,
+        deepEnabled: ds.enabled,
+        blockers: ds.blockers,
+        required: slotState.requiredFields,
+        selected: slotState.selected,
+        extracted: slotState.extracted,
+        requiredProgress: ds.prog,
+        analysisPhase: analysisStatus,
+        deepPhase: deepRunning ? "running" : "idle",
+        ...extra,
+      });
+    } catch (e) {
+      console.error("[DG] dgDebug failed", tag, e);
+    }
+  }
+
   async function safeFetchDeep(url, payload, signal){
     const res = await fetch(url, {
       method: "POST",
@@ -1224,24 +1244,15 @@
       deepBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        dgDebug("before_deep_click");
         if (mode !== "live") return;
         if (!lastSubmittedInput) {
           liveHintEl.textContent = "No submitted input";
           return;
         }
         const ds = computeDeepState();
-        console.debug("[DG]", {
-          runId: activeRunId,
-          phase: "deep_click",
-          requiredTotal: ds.prog.total,
-          requiredMissing: ds.prog.missing.length,
-          deepEnabled: ds.enabled,
-          blockers: ds.blockers,
-          required: slotState.requiredFields,
-          selectedKeys: Object.keys(slotState.selected || {}),
-          analysisPhase: analysisStatus,
-        });
         if (!ds.enabled) {
+          dgDebug("blocked_no_call", { blockers: ds.blockers });
           liveHintEl.textContent = `Deep locked: ${ds.blockers.join(",") || "blocked"}`;
           const panel = document.getElementById("slot-panel");
           if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
@@ -1458,9 +1469,11 @@
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
         required_fields: Array.isArray(slotState.requiredFields) ? slotState.requiredFields.slice() : [],
       };
-      const { data, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
+      dgDebug("calling_deep_api", { payload: deepPayload });
+      const { data: parsedData, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
       const rawText = String(raw || "");
-      const parsed = (data && typeof data === "object") ? data : {};
+      dgDebug("deep_response_received", { httpOk: true, rawHead: rawText.slice(0, 160) });
+      const parsed = (parsedData && typeof parsedData === "object") ? parsedData : {};
       const fallbackStart = (typeof parsed.fallback_reason_primary === "string" && parsed.fallback_reason_primary)
         ? parsed.fallback_reason_primary
         : ((typeof parsed.fallback_reason === "string" && parsed.fallback_reason) ? parsed.fallback_reason : "");
@@ -1471,6 +1484,7 @@
         slotState.requiredFrom = "deep_fallback";
         slotState.showPanel = true;
         renderSlotPanel();
+        dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         deepRunning = false;
         isRunning = false;
         liveStatus = "ready";
@@ -1479,7 +1493,7 @@
         updateCtrlPanel();
         return;
       }
-      const dataObj = (data && typeof data === "object") ? data : null;
+      const dataObj = (parsedData && typeof parsedData === "object") ? parsedData : null;
       if (!dataObj) {
         deepRunning = false;
         isRunning = false;
@@ -1636,14 +1650,9 @@
                 slotState.showPanel = true;
                 renderSlotPanel();
               }
-              console.debug("[DG]", {
-                runId: activeRunId,
-                phase: "deep_failed",
+              dgDebug("deep_failed", {
                 code: deepStatus,
                 fallback: fallbackReason,
-                requiredTotal: computeRequiredProgress().total,
-                requiredMissing: computeRequiredProgress().missing.length,
-                deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict),
               });
             }
             liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
@@ -1701,6 +1710,7 @@
       currentJobId = "";
       updateStopButton();
       deepRunning = false;
+      if (isDeep) dgDebug("deep_exception", { err: String(e) });
       if (!isDeep) {
         analysisStatus = "error";
         analysisError = String(e || "core_error");
