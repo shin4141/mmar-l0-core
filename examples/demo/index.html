@@ -331,6 +331,7 @@
     confidence: null,
     requiredFields: [],
     requiredFrom: "none",
+    requiredInputHash: "",
     conflict: [],
     showPanel: false,
     showExtra: false,
@@ -545,14 +546,21 @@
 
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
+    const inputHash = hashText16(slotState.text);
     slotState.extracted = extractSlotsFromText(slotState.text);
     applyAutoSlots(slotState.extracted);
     const cc = confidenceScore(slotState.extracted, slotState.selected);
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
-    // Recompute required fields at run-time only; later UI shows progress via missing.
-    slotState.requiredFields = chooseRequiredFields(cc.confidence, slotState.selected);
-    slotState.requiredFrom = "confidence";
+    const nextRequired = chooseRequiredFields(cc.confidence, slotState.selected);
+    const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
+    if (slotState.requiredFrom === "deep_fallback" && sameInput) {
+      slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...nextRequired]));
+    } else {
+      slotState.requiredFields = nextRequired;
+      slotState.requiredFrom = "confidence";
+      slotState.requiredInputHash = inputHash;
+    }
   }
 
   function slotFilledCount(){
@@ -1608,9 +1616,12 @@
         : ((typeof parsed.fallback_reason === "string" && parsed.fallback_reason) ? parsed.fallback_reason : "");
       const needInfoStart = parsed.mode === "NEED_INFO0" || /MODE:\s*NEED_INFO0/.test(rawText);
       if (fallbackStart === "insufficient_context" || needInfoStart || /insufficient_context/.test(rawText)) {
-        const add = ["risk", "horizon", "amount", "goal", "constraint"];
+        const add = (Array.isArray(parsed.missing_fields) && parsed.missing_fields.length)
+          ? parsed.missing_fields.map((x) => String(x))
+          : ["constraint"];
         slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
         slotState.requiredFrom = "deep_fallback";
+        slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
         slotState.showPanel = true;
         renderSlotPanel();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
@@ -1772,10 +1783,13 @@
               if (liveData) lastStableResult = liveData;
               liveHintEl.textContent = `Deep failed (${deepStatus}; fallback=${fallbackReason})`;
               if (fallbackReason === "insufficient_context") {
-                const add = ["risk", "horizon", "amount", "goal", "constraint"];
+                const add = (Array.isArray(j.missing_fields) && j.missing_fields.length)
+                  ? j.missing_fields.map((x) => String(x))
+                  : ["constraint"];
                 const nextReq = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
                 slotState.requiredFields = nextReq;
                 slotState.requiredFrom = "deep_fallback";
+                slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
                 slotState.showPanel = true;
                 renderSlotPanel();
               }
