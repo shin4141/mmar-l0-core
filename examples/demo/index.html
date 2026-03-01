@@ -541,6 +541,10 @@
     return { total: required.length, filled, missing };
   }
 
+  function hasConflict(){
+    return !!(Array.isArray(slotState.conflict) && slotState.conflict.length);
+  }
+
   function computeDeepState(){
     const effectiveRequired = getEffectiveRequiredFields();
     const prog = computeRequiredProgress(effectiveRequired);
@@ -552,8 +556,26 @@
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
     if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
-    if (Array.isArray(slotState.conflict) && slotState.conflict.length) blockers.push("conflict_present");
+    if (hasConflict()) blockers.push("conflict_present");
     return { enabled: blockers.length === 0, blockers, prog };
+  }
+
+  function snapshot(tag, extra = {}){
+    const reqClient = slotState.requiredClient || [];
+    const reqServer = slotState.requiredServer || [];
+    const required = getEffectiveRequiredFields();
+    const prog = computeRequiredProgress(required);
+    console.debug("[DG]", tag, {
+      runId: activeRunId,
+      reqClient,
+      reqServer,
+      required,
+      requiredTotal: prog.total,
+      requiredMissing: prog.missing.length,
+      missing: prog.missing,
+      deepEnabled: (prog.missing.length === 0) && hasFieldValue("risk") && !hasConflict(),
+      ...extra,
+    });
   }
 
   window.addEventListener("error", (e) => {
@@ -567,12 +589,15 @@
   function dgDebug(tag, extra = {}){
     try {
       const ds = computeDeepState();
+      const requiredNow = getEffectiveRequiredFields();
       console.debug("[DG]", tag, {
         runId: activeRunId,
         deepEnabled: ds.enabled,
         blockers: ds.blockers,
-        required: getEffectiveRequiredFields(),
-        effectiveRequiredTotal: computeRequiredProgress(getEffectiveRequiredFields()).total,
+        required: requiredNow,
+        reqClient: slotState.requiredClient || [],
+        reqServer: slotState.requiredServer || [],
+        effectiveRequiredTotal: computeRequiredProgress(requiredNow).total,
         selected: slotState.selected,
         extracted: slotState.extracted,
         requiredProgress: ds.prog,
@@ -647,6 +672,20 @@
     }
   }
 
+  function promoteServerMissing(keys, nextQuestion){
+    const k = Array.isArray(keys) ? keys.map((x) => String(x)).filter(Boolean) : [];
+    if (!k.length) return;
+    slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...k]);
+    normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
+    syncRequiredFields();
+    slotState.requiredFrom = "deep_fallback";
+    slotState.requiredInputHash = hashText16(String(lastSubmittedInput || slotState.text || ""));
+    slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
+    slotState.externalNextQuestion = (typeof nextQuestion === "string" && nextQuestion) ? nextQuestion : slotState.externalNextQuestion;
+    slotState.showPanel = true;
+    snapshot("server_missing_promoted");
+  }
+
   function slotFilledCount(){
     return Object.values(slotState.selected).filter(v => v != null).length;
   }
@@ -689,7 +728,7 @@
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
     const req = getEffectiveRequiredFields();
-    const prog = computeRequiredProgress();
+    const prog = computeRequiredProgress(req);
     const requiredTotal = prog.total;
     const requiredFilled = prog.filled;
     const requiredRemaining = prog.missing.length;
@@ -762,8 +801,8 @@
           phase: "selected_change",
           key,
           value,
-          requiredTotal: computeRequiredProgress().total,
-          requiredMissing: computeRequiredProgress().missing.length,
+          requiredTotal: computeRequiredProgress(getEffectiveRequiredFields()).total,
+          requiredMissing: computeRequiredProgress(getEffectiveRequiredFields()).missing.length,
           deepEnabled: deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict),
         });
         refreshDeepReadiness();
@@ -1287,7 +1326,7 @@
           <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
         </span>`
       : "";
-    const slotProgress = computeRequiredProgress();
+    const slotProgress = computeRequiredProgress(getEffectiveRequiredFields());
     const slotReadyNow = slotState.showPanel && deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
     const deepGateOpen = slotReadyNow;
     const deepAction = deepReady
@@ -1494,24 +1533,27 @@
             liveHintEl.textContent = "No submitted input";
             return;
           }
-          const ds = computeDeepState();
-          if (!ds.enabled) {
-            dgDebug("blocked_no_call", { blockers: ds.blockers });
-            liveHintEl.textContent = `Deep locked: ${ds.blockers.join(",") || "blocked"}`;
+          const reqNow = getEffectiveRequiredFields();
+          const progNow = computeRequiredProgress(reqNow);
+          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict();
+          if (!deepNowEnabled) {
+            snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing });
+            liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
             const panel = document.getElementById("slot-panel");
             if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
           }
           // Hard guard: never call deep while effective required fields still have missing items.
-          const effReq = getEffectiveRequiredFields();
-          const effProg = computeRequiredProgress(effReq);
+          const effReq = reqNow;
+          const effProg = progNow;
           if (effProg.missing.length > 0) {
-            dgDebug("blocked_no_call", { blockers: ["required_missing"], effectiveRequired: effReq, missing: effProg.missing });
+            snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: effReq, missing: effProg.missing });
             liveHintEl.textContent = `Deep locked: ${effProg.missing[0] || "required_missing"}`;
             const panel = document.getElementById("slot-panel");
             if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
           }
+          snapshot("before_deep_click_effective", { required: effReq, missing: effProg.missing });
           const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
           await runLive("deep", deepInput);
         });
@@ -1539,13 +1581,14 @@
       deepDone = false;
       slotState.showPanel = true;
       recomputeSlotRequirements(submittedInput);
-      const prog = computeRequiredProgress();
-      const enabledNow = deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
+      const effReqNow = getEffectiveRequiredFields();
+      const prog = computeRequiredProgress(effReqNow);
+      const enabledNow = deepEnabled(effReqNow, slotState.selected, slotState.conflict);
       console.debug("[DG]", {
         runId,
         phase: "run_start",
         confidence: slotState.confidence,
-        requiredFields: getEffectiveRequiredFields(),
+        requiredFields: effReqNow,
         selected: slotState.selected,
         requiredTotal: prog.total,
         requiredMissing: prog.missing.length,
@@ -1741,16 +1784,7 @@
         const missingRaw = (Array.isArray(parsed.missing_fields) && parsed.missing_fields.length)
           ? parsed.missing_fields.map((x) => String(x))
           : [];
-        slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
-        normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
-        syncRequiredFields();
-        slotState.requiredFrom = "deep_fallback";
-        slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
-        slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
-        slotState.externalNextQuestion = (typeof parsed.next_question === "string" && parsed.next_question)
-          ? parsed.next_question
-          : "";
-        slotState.showPanel = true;
+        promoteServerMissing(missingRaw, parsed.next_question);
         refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         deepRunning = false;
@@ -1914,16 +1948,7 @@
                 const missingRaw = (Array.isArray(j.missing_fields) && j.missing_fields.length)
                   ? j.missing_fields.map((x) => String(x))
                   : [];
-                slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
-                normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
-                syncRequiredFields();
-                slotState.requiredFrom = "deep_fallback";
-                slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
-                slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
-                slotState.externalNextQuestion = (typeof j.next_question === "string" && j.next_question)
-                  ? j.next_question
-                  : "";
-                slotState.showPanel = true;
+                promoteServerMissing(missingRaw, j.next_question);
                 refreshDeepReadiness();
               }
               dgDebug("deep_failed", {
