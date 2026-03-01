@@ -450,7 +450,11 @@
   }
 
   function getEffectiveRequiredFields(){
-    return uniqKeys([...(slotState.requiredClient || []), ...(slotState.requiredServer || [])]);
+    return uniqKeys([
+      ...(slotState.requiredClient || []),
+      ...(slotState.requiredServer || []),
+      ...(slotState.externalMissingFields || []),
+    ]);
   }
 
   function syncRequiredFields(){
@@ -490,7 +494,7 @@
       const raw = slotState.extra[k];
       const s = raw == null ? "" : String(raw).trim();
       if (!s || s === String(k)) {
-        slotState.extra[k] = "未指定";
+        slotState.extra[k] = "";
       }
     }
   }
@@ -542,6 +546,8 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
+    const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
+    if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
     if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
     if (Array.isArray(slotState.conflict) && slotState.conflict.length) blockers.push("conflict_present");
