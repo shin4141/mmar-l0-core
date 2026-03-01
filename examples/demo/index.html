@@ -249,7 +249,6 @@
   let deepDone = false;
   let deepSessionId = 0;
   let deepAutoRetryToken = "";
-  let deepFormatRetryToken = "";
   let lastStableResult = null;
   let analysisStatus = "idle";
   let analysisError = null;
@@ -388,6 +387,19 @@
     abModeSource: "auto",
     abModeOverride: "auto",
     abModeHits: [],
+    exec: {
+      runLock: false,
+      deepLock: false,
+      runNonce: "",
+      deepNonce: "",
+      lastRunKey: "",
+      lastDeepKey: "",
+      lastRunAt: 0,
+      lastDeepAt: 0,
+      currentRunKey: "",
+      currentDeepKey: "",
+      retryCountByDeepKey: {},
+    },
     showPanel: false,
     showExtra: false,
   };
@@ -846,6 +858,8 @@
     return {
       input: submittedInput,
       run_id: runId,
+      run_key: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "",
+      deep_key: slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "",
       question: String(lastSubmittedInput || submittedInput || ""),
       ab_mode: slotState.abMode || "B",
       ab_mode_source: slotState.abModeSource || "auto",
@@ -862,6 +876,7 @@
     return {
       input: submittedInput,
       run_id: runId,
+      run_key: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "",
       ab_mode: slotState.abMode || "B",
       ab_mode_source: slotState.abModeSource || "auto",
     };
@@ -1066,6 +1081,9 @@
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
       : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}${(!firstMissing && firstExternalMissing) ? ` / need: ${firstExternalMissing}` : ""}`;
     const debugStatus = `Deep status: enabled=${enabled ? "true" : "false"} / required=${requiredFilled}/${requiredTotal} / missing=${requiredRemaining}${slotState.lastBlockReason ? ` / reason=${slotState.lastBlockReason}` : ""}`;
+    const runKeyShort = (slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8);
+    const deepKeyShort = (slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8);
+    const keyStatus = `Keys: run=${runKeyShort} / deep=${deepKeyShort} / mode=${slotState.abMode || "B"}`;
     const abOverride = slotState.abModeOverride || "auto";
     const abMode = slotState.abMode || "B";
     const abModeLabel = abOverride === "auto" ? `Auto(${abMode})` : abOverride;
@@ -1110,6 +1128,7 @@
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
       <div class="muted" style="margin-top:2px;">${escapeHtml(debugStatus)}</div>
+      <div class="muted" style="margin-top:2px;">${escapeHtml(keyStatus)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
       ${externalMissingText}
       ${modeControls}
@@ -1333,6 +1352,45 @@
       h = Math.imul(h, 16777619);
     }
     return (h >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function stableSlotsForKey(selected, extra){
+    const s = selected || {};
+    const x = extra || {};
+    const selectedKey = {
+      amount: s.amount || null,
+      horizon: s.horizon || null,
+      goal: s.goal || null,
+      risk: s.risk || null,
+      constraint: s.constraint || null,
+    };
+    const extraKey = {};
+    const keys = Object.keys(x).sort();
+    for (const k of keys) {
+      const v = String(x[k] == null ? "" : x[k]).trim();
+      if (v) extraKey[k] = v;
+    }
+    return { selected: selectedKey, extra: extraKey };
+  }
+
+  function buildRunKey(inputText){
+    const payload = {
+      q: String(inputText || ""),
+      ab: slotState.abMode || "B",
+      slots: stableSlotsForKey(slotState.selected, slotState.extra),
+    };
+    return hashText16(JSON.stringify(payload));
+  }
+
+  function buildDeepKey(inputText){
+    const payload = {
+      q: String(inputText || ""),
+      runKey: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "",
+      ab: slotState.abMode || "B",
+      req: getDeepRequiredSnapshot(),
+      slots: stableSlotsForKey(slotState.selected, slotState.extra),
+    };
+    return hashText16(JSON.stringify(payload));
   }
 
   function makeCacheKey(modeKey, inputHash, healthSha, modelCfgHash){
@@ -1736,6 +1794,8 @@
     const sourceBadge = (mode === "live")
       ? `<span class="pillBadge">Source: ${viewSource === "deep" ? "Deep" : "Core"}</span>`
       : "";
+    const runKeyBadge = `<span class="pillBadge">runKey:${escapeHtml((slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8))}</span>`;
+    const deepKeyBadge = `<span class="pillBadge">deepKey:${escapeHtml((slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8))}</span>`;
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">sha mismatch</span>`
       : "";
@@ -1798,7 +1858,7 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
@@ -1951,7 +2011,7 @@
     }
   }
 
-  async function runLive(forceMode, inputOverride){
+  async function runLive(forceMode, inputOverride, opts = {}){
     const apiBase = getApiBase();
     const apiMode = (typeof forceMode === "string" && forceMode) ? forceMode : runMode;
     const rawInput = (typeof inputOverride === "string") ? inputOverride : (qEl.value || "");
@@ -1960,6 +2020,9 @@
     const runId = makeRunId();
     activeRunId = runId;
     const isDeep = (apiMode === "think" || apiMode === "deep");
+    const allowDuplicate = !!(opts && opts.allowDuplicate);
+    const nowMs = Date.now();
+    const lockNonce = makeRunId();
     if (!isDeep) {
       const decided = decideABMode(submittedInput, "run");
       console.debug("[DG] ab_mode_decided", {
@@ -1967,16 +2030,58 @@
         source: slotState.abModeSource,
         hits: slotState.abModeHits || [],
       });
+      const runKey = buildRunKey(submittedInput);
+      if (slotState.exec.runLock) {
+        dgDebug("run_blocked_lock", { runKey });
+        liveHintEl.textContent = "Run locked: previous run still active";
+        return;
+      }
+      if (!allowDuplicate && slotState.exec.lastRunKey === runKey && (nowMs - (slotState.exec.lastRunAt || 0) < 3000)) {
+        dgDebug("run_blocked_dedupe", { runKey });
+        liveHintEl.textContent = "Run deduped: same input";
+        return;
+      }
+      slotState.exec.runLock = true;
+      slotState.exec.runNonce = lockNonce;
+      slotState.exec.currentRunKey = runKey;
+      slotState.exec.lastRunKey = runKey;
+      slotState.exec.lastRunAt = nowMs;
     } else if (!slotState.abMode) {
       decideABMode(lastSubmittedInput || submittedInput, "deep");
     }
+    if (isDeep) {
+      const deepKey = buildDeepKey(submittedInput);
+      if (slotState.exec.deepLock) {
+        dgDebug("deep_blocked_lock", { deepKey });
+        liveHintEl.textContent = "Deep locked: previous deep still active";
+        return;
+      }
+      if (!allowDuplicate && slotState.exec.lastDeepKey === deepKey && (nowMs - (slotState.exec.lastDeepAt || 0) < 3000)) {
+        dgDebug("deep_blocked_dedupe", { deepKey });
+        liveHintEl.textContent = "Deep deduped: same input";
+        return;
+      }
+      slotState.exec.deepLock = true;
+      slotState.exec.deepNonce = lockNonce;
+      slotState.exec.currentDeepKey = deepKey;
+      slotState.exec.lastDeepKey = deepKey;
+      slotState.exec.lastDeepAt = nowMs;
+    }
+    const deepKeyForRun = isDeep ? (slotState.exec.currentDeepKey || buildDeepKey(submittedInput)) : "";
+    const releaseEarlyLock = () => {
+      if (!isDeep) {
+        if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
+      } else {
+        if (slotState.exec.deepNonce === lockNonce) slotState.exec.deepLock = false;
+      }
+    };
     const cacheModeKey = isDeep ? "deep" : "core";
     const expectedCacheKey = makeCacheKey(cacheModeKey, inputHash, liveBootSha, liveModelCfgHash);
     const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
     if (submittedInput && !isDeep) lastSubmittedInput = submittedInput;
     if (!isDeep) {
       deepAutoRetryToken = "";
-      deepFormatRetryToken = "";
+      slotState.exec.retryCountByDeepKey = {};
       analysisStatus = "running";
       analysisError = null;
       setLastBlockReason("");
@@ -2009,11 +2114,13 @@
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
+      releaseEarlyLock();
       return;
     }
     if (isDeep && liveCoreOnly) {
       liveHintEl.textContent = "Deep disabled: CORE ONLY MODE";
       outEl.textContent = "Deep disabled by server setting: MMAR_CORE_ONLY=1";
+      releaseEarlyLock();
       return;
     }
     if (isDeep) {
@@ -2031,6 +2138,7 @@
       setRunVisual("error", "2.8s");
       updateCtrlPanel();
       isRunning = false;
+      releaseEarlyLock();
       return;
     }
     const runSpeed = isDeep ? "1.2s" : "2.8s";
@@ -2054,6 +2162,7 @@
       loadActive();
       updateCtrlPanel();
       renderMode();
+      releaseEarlyLock();
       return;
     }
     stopRequested = false;
@@ -2207,7 +2316,7 @@
         if (AUTO_FILL_UNKNOWN_REQUIRED && postProg.missing.length === 0 && deepAutoRetryToken !== inputHash) {
           deepAutoRetryToken = inputHash;
           dgDebug("deep_autoretry_once", { reason: "insufficient_context_recovered", required: postReq });
-          await runLive("deep", submittedInput);
+          await runLive("deep", submittedInput, { allowDuplicate: true });
           return;
         }
         deepRunning = false;
@@ -2238,6 +2347,9 @@
       if (data && typeof data.job_id === "string") {
         currentJobId = data.job_id;
         updateStopButton();
+        liveHintEl.textContent = "Deep job queued";
+        liveStatus = "running";
+        updateCtrlPanel();
         while (true) {
           if (stopRequested) {
             liveHintEl.textContent = "Stopped";
@@ -2323,10 +2435,11 @@
             const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
             liveDataDeep.deep_lint = lint;
             liveDataDeep.slot_verify = slotCheck;
-            if (!lint.ok && deepFormatRetryToken !== inputHash) {
-              deepFormatRetryToken = inputHash;
+            const retryCount = (slotState.exec.retryCountByDeepKey[deepKeyForRun] || 0);
+            if (!lint.ok && retryCount < 1) {
+              slotState.exec.retryCountByDeepKey[deepKeyForRun] = retryCount + 1;
               dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
-              await runLive("deep", submittedInput);
+              await runLive("deep", submittedInput, { allowDuplicate: true });
               return;
             }
             if (j && j.health_sha && j.model_cfg_hash && j.input_hash) {
@@ -2377,7 +2490,7 @@
                 if (AUTO_FILL_UNKNOWN_REQUIRED && postProg.missing.length === 0 && deepAutoRetryToken !== inputHash) {
                   deepAutoRetryToken = inputHash;
                   dgDebug("deep_autoretry_once", { reason: "job_done_insufficient_recovered", required: postReq });
-                  await runLive("deep", submittedInput);
+                  await runLive("deep", submittedInput, { allowDuplicate: true });
                   return;
                 }
               }
@@ -2431,10 +2544,11 @@
       const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
       liveDataDeep.deep_lint = lint;
       liveDataDeep.slot_verify = slotCheck;
-      if (!lint.ok && deepFormatRetryToken !== inputHash) {
-        deepFormatRetryToken = inputHash;
+      const retryCount = (slotState.exec.retryCountByDeepKey[deepKeyForRun] || 0);
+      if (!lint.ok && retryCount < 1) {
+        slotState.exec.retryCountByDeepKey[deepKeyForRun] = retryCount + 1;
         dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
-        await runLive("deep", submittedInput);
+        await runLive("deep", submittedInput, { allowDuplicate: true });
         return;
       }
       liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
@@ -2474,6 +2588,11 @@
       setRunVisual("error", "2.8s");
       updateCtrlPanel();
     } finally {
+      if (!isDeep) {
+        if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
+      } else {
+        if (slotState.exec.deepNonce === lockNonce) slotState.exec.deepLock = false;
+      }
       renderMode();
     }
   }
