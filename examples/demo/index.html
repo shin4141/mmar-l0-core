@@ -332,10 +332,13 @@
     requiredFields: [],
     requiredFrom: "none",
     requiredInputHash: "",
+    externalMissingFields: [],
+    externalNextQuestion: "",
     conflict: [],
     showPanel: false,
     showExtra: false,
   };
+  const SUPPORTED_SLOT_FIELDS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
   const SLOT_SPEC = [
     { key: "horizon", label: "Horizon", values: ["短期", "長期"] },
     { key: "goal", label: "Goal", values: ["増やす", "守る", "現金優先"] },
@@ -473,6 +476,7 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
+    if (Array.isArray(slotState.externalMissingFields) && slotState.externalMissingFields.length > 0) blockers.push("external_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
     if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
     if (Array.isArray(slotState.conflict) && slotState.conflict.length) blockers.push("conflict_present");
@@ -547,13 +551,17 @@
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
     const inputHash = hashText16(slotState.text);
+    const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
+    if (!sameInput) {
+      slotState.externalMissingFields = [];
+      slotState.externalNextQuestion = "";
+    }
     slotState.extracted = extractSlotsFromText(slotState.text);
     applyAutoSlots(slotState.extracted);
     const cc = confidenceScore(slotState.extracted, slotState.selected);
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
     const nextRequired = chooseRequiredFields(cc.confidence, slotState.selected);
-    const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
     if (slotState.requiredFrom === "deep_fallback" && sameInput) {
       slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...nextRequired]));
     } else {
@@ -610,9 +618,11 @@
     const requiredFilled = prog.filled;
     const requiredRemaining = prog.missing.length;
     const firstMissing = requiredRemaining > 0 ? String(prog.missing[0]) : "";
+    const externalMissing = Array.isArray(slotState.externalMissingFields) ? slotState.externalMissingFields : [];
+    const firstExternalMissing = externalMissing.length ? String(externalMissing[0]) : "";
     const status = enabled
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
-      : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}`;
+      : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}${(!firstMissing && firstExternalMissing) ? ` / need: ${firstExternalMissing}` : ""}`;
     const constraintMissing = prog.missing.includes("constraint");
     const rows = slotState.showExtra
       ? SLOT_SPEC
@@ -628,10 +638,14 @@
     const conflictText = slotState.conflict.length
       ? `<div class="muted" style="margin-top:4px;">Conflict: ${escapeHtml(slotState.conflict.map((c) => `${c.field}(${c.extracted} vs ${c.selected})`).join(", "))}</div>`
       : "";
+    const externalMissingText = externalMissing.length
+      ? `<div class="muted" style="margin-top:4px; color:#b45309;">Deep missing (server): ${escapeHtml(externalMissing.join(", "))}${slotState.externalNextQuestion ? ` / next: ${escapeHtml(slotState.externalNextQuestion)}` : ""}</div>`
+      : "";
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
+      ${externalMissingText}
       ${rowsHtml}
       <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
       ${conflictText}
@@ -1616,12 +1630,18 @@
         : ((typeof parsed.fallback_reason === "string" && parsed.fallback_reason) ? parsed.fallback_reason : "");
       const needInfoStart = parsed.mode === "NEED_INFO0" || /MODE:\s*NEED_INFO0/.test(rawText);
       if (fallbackStart === "insufficient_context" || needInfoStart || /insufficient_context/.test(rawText)) {
-        const add = (Array.isArray(parsed.missing_fields) && parsed.missing_fields.length)
+        const missingRaw = (Array.isArray(parsed.missing_fields) && parsed.missing_fields.length)
           ? parsed.missing_fields.map((x) => String(x))
-          : ["constraint"];
+          : [];
+        const add = missingRaw.filter((x) => SUPPORTED_SLOT_FIELDS.has(x));
+        const external = missingRaw.filter((x) => !SUPPORTED_SLOT_FIELDS.has(x));
         slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
         slotState.requiredFrom = "deep_fallback";
         slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
+        slotState.externalMissingFields = external;
+        slotState.externalNextQuestion = (typeof parsed.next_question === "string" && parsed.next_question)
+          ? parsed.next_question
+          : "";
         slotState.showPanel = true;
         renderSlotPanel();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
@@ -1783,13 +1803,19 @@
               if (liveData) lastStableResult = liveData;
               liveHintEl.textContent = `Deep failed (${deepStatus}; fallback=${fallbackReason})`;
               if (fallbackReason === "insufficient_context") {
-                const add = (Array.isArray(j.missing_fields) && j.missing_fields.length)
+                const missingRaw = (Array.isArray(j.missing_fields) && j.missing_fields.length)
                   ? j.missing_fields.map((x) => String(x))
-                  : ["constraint"];
+                  : [];
+                const add = missingRaw.filter((x) => SUPPORTED_SLOT_FIELDS.has(x));
+                const external = missingRaw.filter((x) => !SUPPORTED_SLOT_FIELDS.has(x));
                 const nextReq = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
                 slotState.requiredFields = nextReq;
                 slotState.requiredFrom = "deep_fallback";
                 slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
+                slotState.externalMissingFields = external;
+                slotState.externalNextQuestion = (typeof j.next_question === "string" && j.next_question)
+                  ? j.next_question
+                  : "";
                 slotState.showPanel = true;
                 renderSlotPanel();
               }
