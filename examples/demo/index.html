@@ -395,6 +395,14 @@
     return { enabled: blockers.length === 0, blockers, prog };
   }
 
+  window.addEventListener("error", (e) => {
+    console.error("[DG] window.error", e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack ? e.error.stack : e.error);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    const reason = e && e.reason ? e.reason : e;
+    console.error("[DG] unhandledrejection", reason && reason.stack ? reason.stack : reason);
+  });
+
   function dgDebug(tag, extra = {}){
     try {
       const ds = computeDeepState();
@@ -1060,7 +1068,7 @@
     const slotReadyNow = slotState.showPanel && deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
     const deepGateOpen = slotReadyNow;
     const deepAction = deepReady
-      ? `<button id="after-deep-btn" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${slotProgress.missing.length}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
+      ? `<button id="after-deep-btn" type="button" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${slotProgress.missing.length}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
     const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
@@ -1242,24 +1250,32 @@
     const deepBtn = document.getElementById("after-deep-btn");
     if (deepBtn) {
       deepBtn.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dgDebug("before_deep_click");
-        if (mode !== "live") return;
-        if (!lastSubmittedInput) {
-          liveHintEl.textContent = "No submitted input";
-          return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+          dgDebug("before_deep_click");
+          if (mode !== "live") return;
+          if (!lastSubmittedInput) {
+            liveHintEl.textContent = "No submitted input";
+            return;
+          }
+          const ds = computeDeepState();
+          if (!ds.enabled) {
+            dgDebug("blocked_no_call", { blockers: ds.blockers });
+            liveHintEl.textContent = `Deep locked: ${ds.blockers.join(",") || "blocked"}`;
+            const panel = document.getElementById("slot-panel");
+            if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
+            return;
+          }
+          const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
+          await runLive("deep", deepInput);
+        } catch (err) {
+          dgDebug("deep_click_exception", { err: String(err), stack: err && err.stack ? err.stack : "" });
+          deepRunning = false;
+          liveStatus = "error";
+          liveHintEl.textContent = `Deep click error: ${err}`;
+          updateCtrlPanel();
         }
-        const ds = computeDeepState();
-        if (!ds.enabled) {
-          dgDebug("blocked_no_call", { blockers: ds.blockers });
-          liveHintEl.textContent = `Deep locked: ${ds.blockers.join(",") || "blocked"}`;
-          const panel = document.getElementById("slot-panel");
-          if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
-          return;
-        }
-        const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
-        await runLive("deep", deepInput);
       };
     }
   }
