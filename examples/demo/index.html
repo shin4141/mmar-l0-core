@@ -464,6 +464,13 @@
     ]);
   }
 
+  function getDeepRequiredSnapshot(){
+    const base = getEffectiveRequiredFields();
+    const serverMissing = Array.isArray(slotState.externalMissingFields) ? slotState.externalMissingFields : [];
+    const extraKeys = Object.keys(slotState.extra || {}).filter((k) => !KNOWN_SLOT_KEYS.has(k));
+    return uniqKeys([...(slotState.requiredFields || []), ...base, ...serverMissing, ...extraKeys]);
+  }
+
   function syncRequiredFields(){
     // Non-destructive sync: do not mutate requiredClient/requiredServer here.
     slotState.requiredFields = getEffectiveRequiredFields();
@@ -690,10 +697,15 @@
     const inputHash = hashText16(slotState.text);
     const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
     if (!sameInput) {
+      const keepServerMissing = (slotState.requiredFrom === "deep_fallback") && Array.isArray(slotState.externalMissingFields) && slotState.externalMissingFields.length > 0;
       slotState.requiredServer = [];
       slotState.externalMissingFields = [];
       slotState.externalNextQuestion = "";
       slotState.extra = {};
+      if (keepServerMissing) {
+        slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...(slotState.requiredFields || [])]);
+        slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
+      }
     }
     slotState.extracted = extractSlotsFromText(slotState.text);
     applyAutoSlots(slotState.extracted);
@@ -1582,7 +1594,7 @@
             refreshDeepReadiness(false);
             return;
           }
-          const reqNow = getEffectiveRequiredFields();
+          const reqNow = getDeepRequiredSnapshot();
           let progNow = computeRequiredProgress(reqNow);
           if (progNow.missing.length > 0) {
             autoFillMissing(progNow.missing);
@@ -1727,7 +1739,7 @@
     try {
       if (isDeep) {
         // Final guard: never call deep API while effective required still has missing fields.
-        const reqNow = getEffectiveRequiredFields();
+        const reqNow = getDeepRequiredSnapshot();
         let progNow = computeRequiredProgress(reqNow);
         if (progNow.missing.length > 0) {
           autoFillMissing(progNow.missing);
@@ -1847,6 +1859,7 @@
       const w = withTimeout(30000);
       sanitizeExtraState();
       const mergedSlots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
+      const deepReq = getDeepRequiredSnapshot();
       const deepPayload = {
         input: submittedInput,
         run_id: runId,
@@ -1854,7 +1867,7 @@
         slots: mergedSlots,
         extra: { ...(slotState.extra || {}) },
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
-        required_fields: getEffectiveRequiredFields(),
+        required_fields: deepReq,
         domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
       };
       dgDebug("calling_deep_api", { payload: deepPayload });
