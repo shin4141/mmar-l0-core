@@ -312,6 +312,40 @@
   window.addEventListener("beforeunload", () => {
     console.warn("[DG] beforeunload fired (page is reloading/navigating)");
   });
+  (() => {
+    if (window.__dgNavTraceInstalled) return;
+    window.__dgNavTraceInstalled = true;
+    try {
+      const p = Location.prototype;
+      ["reload", "assign", "replace"].forEach((fn) => {
+        const orig = p && p[fn];
+        if (typeof orig !== "function") return;
+        p[fn] = function (...args) {
+          console.trace(`[DG][NAV] location.${fn} called`, args);
+          return orig.apply(this, args);
+        };
+      });
+    } catch (e) {
+      console.warn("[DG][NAV] location trace install failed", String(e));
+    }
+    try {
+      const f = HTMLFormElement && HTMLFormElement.prototype;
+      const origSubmit = f && f.submit;
+      if (typeof origSubmit === "function") {
+        f.submit = function (...args) {
+          console.trace("[DG][NAV] form.submit called", args);
+          return origSubmit.apply(this, args);
+        };
+      }
+    } catch (e) {
+      console.warn("[DG][NAV] form trace install failed", String(e));
+    }
+    document.addEventListener("click", (e) => {
+      const a = e && e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      if (!a) return;
+      console.warn("[DG][NAV] anchor click", a.getAttribute("href"));
+    }, true);
+  })();
   document.addEventListener("click", (e) => {
     if (!window.DG_PANIC || !window.DG_PANIC.swallowAllSubmit) return;
     const a = e && e.target && e.target.closest ? e.target.closest("a[href]") : null;
