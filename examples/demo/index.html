@@ -1275,6 +1275,10 @@
           liveStatus = "error";
           liveHintEl.textContent = `Deep click error: ${err}`;
           updateCtrlPanel();
+        } finally {
+          if (liveStatus !== "running") {
+            deepRunning = false;
+          }
         }
       };
     }
