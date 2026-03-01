@@ -453,11 +453,10 @@
   }
 
   function getEffectiveRequiredFields(){
-    const shown = (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length)
-      ? slotState.requiredFields
-      : [];
+    if (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length) {
+      return uniqKeys(slotState.requiredFields);
+    }
     return uniqKeys([
-      ...shown,
       ...(slotState.requiredClient || []),
       ...(slotState.requiredServer || []),
       ...(slotState.externalMissingFields || []),
@@ -465,10 +464,10 @@
   }
 
   function getDeepRequiredSnapshot(){
-    const base = getEffectiveRequiredFields();
-    const serverMissing = Array.isArray(slotState.externalMissingFields) ? slotState.externalMissingFields : [];
-    const extraKeys = Object.keys(slotState.extra || {}).filter((k) => !KNOWN_SLOT_KEYS.has(k));
-    return uniqKeys([...(slotState.requiredFields || []), ...base, ...serverMissing, ...extraKeys]);
+    const shown = (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length)
+      ? slotState.requiredFields
+      : getEffectiveRequiredFields();
+    return uniqKeys(shown);
   }
 
   function syncRequiredFields(){
@@ -713,13 +712,31 @@
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
     slotState.requiredClient = chooseRequiredFields(cc.confidence, slotState.selected);
-    if (slotState.requiredFrom === "deep_fallback" && sameInput) {
-      syncRequiredFields();
-    } else {
-      syncRequiredFields();
-      slotState.requiredFrom = "confidence";
+    const keepFallback = slotState.requiredFrom === "deep_fallback" && Array.isArray(slotState.requiredFields) && slotState.requiredFields.length > 0;
+    if (keepFallback) {
+      slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...(slotState.requiredClient || [])]);
       slotState.requiredInputHash = inputHash;
+      return;
     }
+    syncRequiredFields();
+    slotState.requiredFrom = "confidence";
+    slotState.requiredInputHash = inputHash;
+  }
+
+  function buildDeepPayload(submittedInput, runId){
+    sanitizeExtraState();
+    const req = getDeepRequiredSnapshot();
+    const slots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
+    return {
+      input: submittedInput,
+      run_id: runId,
+      question: String(lastSubmittedInput || submittedInput || ""),
+      required_fields: req,
+      slots,
+      extra: { ...(slotState.extra || {}) },
+      confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
+      domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
+    };
   }
 
   function promoteServerMissing(keys, nextQuestion){
@@ -1857,19 +1874,7 @@
       updateCtrlPanel();
 
       const w = withTimeout(30000);
-      sanitizeExtraState();
-      const mergedSlots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
-      const deepReq = getDeepRequiredSnapshot();
-      const deepPayload = {
-        input: submittedInput,
-        run_id: runId,
-        question: String(lastSubmittedInput || submittedInput || ""),
-        slots: mergedSlots,
-        extra: { ...(slotState.extra || {}) },
-        confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
-        required_fields: deepReq,
-        domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
-      };
+      const deepPayload = buildDeepPayload(submittedInput, runId);
       dgDebug("calling_deep_api", { payload: deepPayload });
       setLastBlockReason("");
       refreshDeepReadiness(false);
