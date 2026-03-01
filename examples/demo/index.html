@@ -1753,14 +1753,22 @@
       updateStopButton();
       deepRunning = false;
       if (isDeep) dgDebug("deep_exception", { err: String(e) });
+      const errText = String(e || "");
+      const apiDown = /Failed to fetch|NetworkError|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|Couldn'?t connect/i.test(errText);
       if (!isDeep) {
         analysisStatus = "error";
         analysisError = String(e || "core_error");
       }
-      liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
+      if (apiDown) {
+        liveHintEl.textContent = "API unreachable: restart dev_api";
+      } else {
+        liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
+      }
       liveStatus = "error";
       isRunning = false;
-      outEl.textContent = `Live run failed\n\n${e}`;
+      outEl.textContent = apiDown
+        ? "Live run failed\n\nAPI unreachable.\nRun: bash tools/restart_dev_api.sh"
+        : `Live run failed\n\n${e}`;
       setRunVisual("error", "2.8s");
       updateCtrlPanel();
     } finally {
