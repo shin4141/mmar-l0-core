@@ -841,6 +841,7 @@
     sanitizeExtraState();
     const req = getDeepRequiredSnapshot();
     const slots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
+    const normalizedSlots = normalizeSlots(slotState.selected || {}, slotState.extra || {});
     return {
       input: submittedInput,
       run_id: runId,
@@ -849,6 +850,7 @@
       ab_mode_source: slotState.abModeSource || "auto",
       required_fields: req,
       slots,
+      normalized_slots: normalizedSlots,
       extra: { ...(slotState.extra || {}) },
       confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
       domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
@@ -889,6 +891,63 @@
     return deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
   }
 
+  function normalizeSlots(selected, extra){
+    const s = selected || {};
+    const x = extra || {};
+    const riskMap = { "低": 1, "中": 2, "高": 3 };
+    const horizonMap = { "短期": 7, "長期": 365 };
+    const amountMap = { "小": "low", "中": "med", "大": "high" };
+    const goalMap = { "増やす": "growth", "守る": "preserve", "現金優先": "liquidity" };
+    const constraintList = [];
+    if (s.constraint === "流動性必要") constraintList.push("liquidity_required");
+    if (s.constraint === "なし") constraintList.push("none");
+    return {
+      risk: s.risk || null,
+      risk_level: riskMap[s.risk] || null,
+      horizon: s.horizon || null,
+      horizon_days: horizonMap[s.horizon] || null,
+      amount: s.amount || null,
+      stakes: amountMap[s.amount] || null,
+      goal: s.goal || null,
+      objective: goalMap[s.goal] || null,
+      constraint: s.constraint || null,
+      constraints: constraintList,
+      goal_metric: (x.goal_metric && String(x.goal_metric).trim()) ? String(x.goal_metric).trim() : null,
+      priority_axis: (x.priority_axis && String(x.priority_axis).trim()) ? String(x.priority_axis).trim() : null,
+    };
+  }
+
+  function assumptionsLineFromSlots(selected, extra){
+    const s = selected || {};
+    const x = extra || {};
+    const risk = s.risk || "未入力";
+    const horizon = s.horizon || "未入力";
+    const amount = s.amount || "未入力";
+    const goal = s.goal || "未入力";
+    const constraint = s.constraint || "未入力";
+    const goalMetric = (x.goal_metric && String(x.goal_metric).trim()) ? String(x.goal_metric).trim() : "未指定";
+    const priorityAxis = (x.priority_axis && String(x.priority_axis).trim()) ? String(x.priority_axis).trim() : "未指定";
+    return `Assumptions: Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}, GoalMetric=${goalMetric}, PriorityAxis=${priorityAxis}`;
+  }
+
+  function ensureDeepAssumptionsText(text){
+    const src = String(text || "");
+    const line = assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {});
+    if (/^\s*Assumptions:\s*/i.test(src)) return src;
+    return `${line}\n${src}`.trim();
+  }
+
+  function enforceDeepAssumptionsInData(data){
+    if (!data || typeof data !== "object") return data;
+    const out = { ...data };
+    for (const k of ["compare", "expand", "merge"]) {
+      if (typeof out[k] === "string" && out[k].trim()) {
+        out[k] = ensureDeepAssumptionsText(out[k]);
+      }
+    }
+    return out;
+  }
+
   function buildDeepContextQuestion(baseQuestion){
     const q = String(baseQuestion || "").trim();
     const amount = slotState.selected.amount || "未入力";
@@ -896,21 +955,29 @@
     const goal = slotState.selected.goal || "未入力";
     const risk = slotState.selected.risk || "未入力";
     const constraint = slotState.selected.constraint || "未入力";
+    const normalized = normalizeSlots(slotState.selected || {}, slotState.extra || {});
+    const assumptionsLine = assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {});
     const modeNow = slotState.abMode || "B";
+    const taskLinesCommon = [
+      '- Output MUST start with exactly one line formatted as:',
+      `  "${assumptionsLine}"`,
+      "- Then provide 2-3 options in If/Then form. Each option must reference at least one slot.",
+      "- If Risk is 高, include at least one mitigation/guardrail.",
+      "- If Horizon is 長期, include a staged plan; if 短期, include immediate checks.",
+      "- If Amount is 大, include conservative/reversible steps.",
+      "- Keep it practical. No EV math and no long theory.",
+    ];
     const taskLinesA = [
-      "- Explore options and hypotheses; do not force a single fixed conclusion.",
-      "- Show branching paths and tradeoffs with short if/then conditions.",
-      "- List concrete unknowns that would narrow the decision.",
-      "- Keep it practical and concise."
+      "- Mode A: exploratory. Emphasize branches/hypotheses and alternatives.",
+      ...taskLinesCommon,
+      "- Do not force one absolute conclusion when uncertainty remains.",
     ];
     const taskLinesB = [
-      "- Give a decision-oriented answer tailored to the context slots.",
-      "- Start by restating the slots as assumptions (1 line).",
-      "- Provide 2–3 options with conditions (if/then).",
-      "- List 3 key unknowns to ask next (only if needed).",
-      "- Keep it practical; no EV, no long theory."
+      "- Mode B: implementation. Emphasize concrete steps, checks, and reproducibility.",
+      ...taskLinesCommon,
+      "- End with one actionable next question if needed.",
     ];
-    const taskLines = (modeNow === "A") ? taskLinesA : taskLinesB;
+    const taskLines = modeNow === "A" ? taskLinesA : taskLinesB;
     return (
       `${q}\n\n`
       + `User question: ${q}\n\n`
@@ -921,6 +988,7 @@
       + `- Goal: ${goal}\n`
       + `- Risk: ${risk}\n`
       + `- Constraint: ${constraint}\n\n`
+      + `Normalized slots: ${JSON.stringify(normalized)}\n\n`
       + "Task:\n"
       + `${taskLines.join("\n")}\n`
     );
@@ -1661,6 +1729,8 @@
     const winnerBlock = lean
       ? `<div class="winnerBanner"><span><span class="wKey">LEAN:</span> ${escapeHtml(displaySanitize(lean))}</span>${alt ? `<span><span class="wKey">ALT:</span> ${escapeHtml(displaySanitize(alt))}</span>` : ""}${split ? `<span><span class="wKey">SPLIT:</span> ${escapeHtml(displaySanitize(split))}</span>` : ""}${gap ? `<span><span class="wKey">GAP:</span> ${escapeHtml(displaySanitize(gap))}</span>` : ""}</div>`
       : "";
+    const appliedSlotsLine = assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {});
+    const appliedSlotsBlock = `<div class="muted" style="margin-top:-4px;">Applied slots: ${escapeHtml(displaySanitize(appliedSlotsLine))}</div>`;
     if (leftUnlockEl) leftUnlockEl.innerHTML = leftUnlockPanel;
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
@@ -1669,6 +1739,7 @@
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
         ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
         ${diffBlock}
@@ -1992,20 +2063,10 @@
         }
         const coreData = await rCore.json();
         const coreRunId = (coreData && typeof coreData.run_id === "string") ? coreData.run_id : "";
-        if (coreRunId && coreRunId !== activeRunId) {
-          // Failsafe: avoid permanent "Running..." lock when run_id drift happens.
-          // If nothing is rendered yet, accept first complete payload as current run.
-          if (!liveDataCore && !liveDataDeep && !liveData) {
-            coreData.run_id = activeRunId;
-            liveHintEl.textContent = "stale recovered (core)";
-          } else {
-            liveHintEl.textContent = "stale ignored (core)";
-            wCore.done();
-            return;
-          }
-        }
-        if (!coreRunId && coreData && typeof coreData === "object") {
-          coreData.run_id = activeRunId; // backward compatibility for older dev_api responses
+        if (!coreRunId || coreRunId !== activeRunId) {
+          liveHintEl.textContent = "stale ignored (core run_id mismatch)";
+          wCore.done();
+          return;
         }
         const okCore = coreData && ["compare", "expand", "diff", "merge"].every(k => typeof coreData[k] === "string");
         if (!okCore) {
@@ -2104,17 +2165,9 @@
       }
       const data = dataObj;
       const startRunId = (data && typeof data.run_id === "string") ? data.run_id : "";
-      if (startRunId && startRunId !== activeRunId) {
-        if (!liveDataDeep && !liveData) {
-          data.run_id = activeRunId;
-          liveHintEl.textContent = "stale recovered (deep-start)";
-        } else {
-          liveHintEl.textContent = "stale ignored (deep-start)";
-          return;
-        }
-      }
-      if (!startRunId && data && typeof data === "object") {
-        data.run_id = activeRunId; // backward compatibility for older dev_api responses
+      if (!startRunId || startRunId !== activeRunId) {
+        liveHintEl.textContent = "stale ignored (deep-start run_id mismatch)";
+        return;
       }
       if (data && typeof data.job_id === "string") {
         currentJobId = data.job_id;
@@ -2134,17 +2187,9 @@
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
           const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
-          if (pollRunId && pollRunId !== activeRunId) {
-            if (!liveDataDeep && !liveData) {
-              j.run_id = activeRunId;
-              liveHintEl.textContent = "stale recovered (deep-poll)";
-            } else {
-              liveHintEl.textContent = "stale ignored (deep-poll)";
-              return;
-            }
-          }
-          if (!pollRunId && j && typeof j === "object") {
-            j.run_id = activeRunId; // backward compatibility for older dev_api responses
+          if (!pollRunId || pollRunId !== activeRunId) {
+            liveHintEl.textContent = "stale ignored (deep-poll run_id mismatch)";
+            return;
           }
           if (myDeepSession !== deepSessionId) {
             return;
@@ -2206,10 +2251,10 @@
           }
           if (j.status === "done") {
             if (myDeepSession !== deepSessionId) return;
-            liveDataDeep = j;
+            liveDataDeep = enforceDeepAssumptionsInData(j);
             if (j && j.health_sha && j.model_cfg_hash && j.input_hash) {
               const key = makeCacheKey("deep", j.input_hash, j.health_sha, j.model_cfg_hash);
-              liveCache.set(key, { ...j, __cached: false });
+              liveCache.set(key, { ...enforceDeepAssumptionsInData(j), __cached: false });
             }
             currentJobId = "";
             updateStopButton();
@@ -2301,7 +2346,7 @@
       const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
       if (!ok) throw new Error("invalid response shape");
       if (myDeepSession !== deepSessionId) return;
-      liveDataDeep = data;
+      liveDataDeep = enforceDeepAssumptionsInData(data);
       liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
       liveHintEl.textContent = "Live ready";
       liveStatus = "ready";
