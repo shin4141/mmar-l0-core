@@ -99,6 +99,46 @@ def _input_hash(text: str) -> str:
     return hashlib.sha256(src.encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
+def _augment_input_with_context(user_input: str, data: dict) -> str:
+    base = str(user_input or "").strip()
+    if not isinstance(data, dict):
+        return base
+    slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
+    extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+    merged = {}
+    merged.update(slots)
+    merged.update(extra)
+    if not merged:
+        return base
+
+    key_map = {
+        "goal_metric": "目的指標",
+        "priority_axis": "優先軸",
+        "task_mix_ratio": "主用途比率",
+        "horizon": "投資期間",
+        "city": "都市",
+        "night_move": "夜移動",
+        "budget_cap": "予算上限",
+        "work_ratio": "仕事利用比率",
+        "operation_horizon": "運用期間",
+        "leverage_allowed": "レバレッジ可否",
+    }
+    lines: list[str] = []
+    for k, v in merged.items():
+        if v is None:
+            continue
+        s = str(v).strip()
+        if not s:
+            continue
+        if s == str(k).strip():
+            continue
+        label = key_map.get(str(k), str(k))
+        lines.append(f"{label}={s}")
+    if not lines:
+        return base
+    return f"{base}\n" + "\n".join(lines)
+
+
 def _model_cfg_hash(mode: str, env_extra: dict | None = None) -> str:
     data = {"mode": mode, **_runtime_env_snapshot()}
     if env_extra:
@@ -532,8 +572,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(user_input, str):
                 self._send_json(400, {"ok": False, "error": "input must be string"})
                 return
+            user_input_aug = _augment_input_with_context(user_input, data)
             run_id = str(data.get("run_id") or "").strip() or str(uuid.uuid4())
-            input_hash = _input_hash(user_input)
+            input_hash = _input_hash(user_input_aug)
             server_sha_start = GIT_SHA
 
             def _resp_meta() -> dict:
@@ -550,7 +591,7 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "deep":
                 deep_env = {"MMAR_LLM_TIMEOUT": "30", "MMAR_OPENAI_RETRIES": "1", "MMAR_TIME_BUDGET_S": "85"}
                 job_id = _start_full_job(
-                    user_input,
+                    user_input_aug,
                     run_id=run_id,
                     input_hash=input_hash,
                     model_cfg_hash=_model_cfg_hash("deep", deep_env),
@@ -573,7 +614,7 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "seed":
                 seed_env = {"MMAR_SEED_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "4"}
                 proc = _run_ask_triad(
-                    user_input,
+                    user_input_aug,
                     timeout_s=8,
                     env_extra=seed_env,
                 )
@@ -617,7 +658,7 @@ class Handler(BaseHTTPRequestHandler):
 
             core_env = {"MMAR_CORE_ONLY": "1", "MMAR_NO_LLM": "1", "MMAR_LLM_TIMEOUT": "6"}
             proc = _run_ask_triad(
-                user_input,
+                user_input_aug,
                 timeout_s=12,
                 env_extra=core_env,
             )

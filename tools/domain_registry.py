@@ -141,6 +141,11 @@ def guess_domain(text: str) -> dict:
         if name == "general":
             continue
         hits = sum(1 for kw in spec.get("keywords", []) if kw and kw in t)
+        if name == "travel_safety" and hits > 0:
+            # Guard against false positives like geopolitical conflict text that only mentions "危険".
+            travel_context = any(k in t for k in ("旅行", "渡航", "観光", "ホテル", "一人旅", "行く", "滞在", "行き先", "夜移動", "都市", "カンボジア", "ラオス"))
+            if not travel_context:
+                hits = 0
         if hits > 0:
             scores[name] = hits
     if not scores:
