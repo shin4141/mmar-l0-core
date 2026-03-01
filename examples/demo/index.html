@@ -249,6 +249,7 @@
   let deepDone = false;
   let deepSessionId = 0;
   let deepAutoRetryToken = "";
+  let deepFormatRetryToken = "";
   let lastStableResult = null;
   let analysisStatus = "idle";
   let analysisError = null;
@@ -927,14 +928,21 @@
     const constraint = s.constraint || "未入力";
     const goalMetric = (x.goal_metric && String(x.goal_metric).trim()) ? String(x.goal_metric).trim() : "未指定";
     const priorityAxis = (x.priority_axis && String(x.priority_axis).trim()) ? String(x.priority_axis).trim() : "未指定";
-    return `Assumptions: Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}, GoalMetric=${goalMetric}, PriorityAxis=${priorityAxis}`;
+    return `Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}, GoalMetric=${goalMetric}, PriorityAxis=${priorityAxis}`;
   }
 
   function ensureDeepAssumptionsText(text){
     const src = String(text || "");
-    const line = assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {});
-    if (/^\s*Assumptions:\s*/i.test(src)) return src;
-    return `${line}\n${src}`.trim();
+    const applied = `Applied slots: ${assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {})}`;
+    const assumptions = `Assumptions: ${assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {})}`;
+    const hasApplied = /^\s*Applied slots:\s*/im.test(src);
+    const hasAssumptions = /^\s*Assumptions:\s*/im.test(src);
+    if (hasApplied && hasAssumptions) return src;
+    const lines = [];
+    if (!hasApplied) lines.push(applied);
+    if (!hasAssumptions) lines.push(assumptions);
+    lines.push(src);
+    return lines.join("\n").trim();
   }
 
   function enforceDeepAssumptionsInData(data){
@@ -948,7 +956,32 @@
     return out;
   }
 
-  function buildDeepContextQuestion(baseQuestion){
+  function lintDeepOutputByMode(text, mode){
+    const src = String(text || "");
+    const needA = ["Hypotheses:", "Branches:", "Experiments:", "Open questions:"];
+    const needB = ["Assumptions:", "Options:", "Guardrails:", "Next step:"];
+    const required = (mode === "A") ? needA : needB;
+    const missing = required.filter((k) => !new RegExp(`(^|\\n)\\s*${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i").test(src));
+    return { ok: missing.length === 0, missing, mode };
+  }
+
+  function verifyAppliedSlots(text, selected, extra){
+    const src = String(text || "");
+    const m = src.match(/^\s*Applied slots:\s*(.+)$/im);
+    if (!m) return { ok: false, reason: "missing_applied_slots", mismatched: [] };
+    const line = String(m[1] || "");
+    const target = assumptionsLineFromSlots(selected || {}, extra || {});
+    const keys = ["Risk=", "Horizon=", "Amount=", "Goal=", "Constraint="];
+    const mismatched = [];
+    for (const k of keys) {
+      const expected = (target.match(new RegExp(`${k}[^,]+`)) || [])[0] || "";
+      const got = (line.match(new RegExp(`${k}[^,]+`)) || [])[0] || "";
+      if (expected && got && expected !== got) mismatched.push(`${k.replace("=", "")}:${got}->${expected}`);
+    }
+    return { ok: mismatched.length === 0, reason: mismatched.length ? "slot_mismatch" : "ok", mismatched };
+  }
+
+  function buildDeepPrompt(baseQuestion){
     const q = String(baseQuestion || "").trim();
     const amount = slotState.selected.amount || "未入力";
     const horizon = slotState.selected.horizon || "未入力";
@@ -958,28 +991,47 @@
     const normalized = normalizeSlots(slotState.selected || {}, slotState.extra || {});
     const assumptionsLine = assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {});
     const modeNow = slotState.abMode || "B";
+    const modeHeader = modeNow === "A" ? "MODE=A (EXPLORE)" : "MODE=B (BUILD)";
+    const assumptionsExact = `Assumptions: ${assumptionsLine}`;
+    const appliedExact = `Applied slots: ${assumptionsLine}`;
     const taskLinesCommon = [
-      '- Output MUST start with exactly one line formatted as:',
-      `  "${assumptionsLine}"`,
-      "- Then provide 2-3 options in If/Then form. Each option must reference at least one slot.",
-      "- If Risk is 高, include at least one mitigation/guardrail.",
-      "- If Horizon is 長期, include a staged plan; if 短期, include immediate checks.",
-      "- If Amount is 大, include conservative/reversible steps.",
-      "- Keep it practical. No EV math and no long theory.",
+      `- Output MUST include this line exactly once: "${appliedExact}"`,
+      `- Output MUST include this line exactly once: "${assumptionsExact}"`,
+      "- Mention at least two slots explicitly across the answer.",
     ];
     const taskLinesA = [
-      "- Mode A: exploratory. Emphasize branches/hypotheses and alternatives.",
+      "- MODE=A (EXPLORE). Keep uncertainty explicit and do not lock one final conclusion.",
       ...taskLinesCommon,
-      "- Do not force one absolute conclusion when uncertainty remains.",
+      "- Required headings (exact):",
+      "  Hypotheses:",
+      "  Branches:",
+      "  Experiments:",
+      "  Open questions:",
+      "- Hypotheses: provide exactly 3 bullet points.",
+      "- Branches: provide exactly 3 if/then branches, each referencing at least one slot (risk/horizon/amount/goal/constraint).",
+      "- Experiments: provide exactly 2 items that can be observed within 72h.",
+      "- Open questions: provide exactly 3 concrete questions.",
+      "- Do not write a fixed final verdict sentence such as 'Therefore X'.",
     ];
     const taskLinesB = [
-      "- Mode B: implementation. Emphasize concrete steps, checks, and reproducibility.",
+      "- MODE=B (BUILD). Focus on concrete decision and implementation.",
       ...taskLinesCommon,
-      "- End with one actionable next question if needed.",
+      "- Required headings (exact):",
+      "  Assumptions:",
+      "  Options:",
+      "  Guardrails:",
+      "  Next step:",
+      "  Unknowns:",
+      "- Options: provide 2-3 if/then lines, each referencing at least one slot.",
+      "- Guardrails: provide exactly 3 bullets; stricter when Risk=高.",
+      "- Next step: provide exactly one concrete action line.",
+      "- Unknowns: up to 3 bullets, only if truly needed.",
+      "- Avoid long abstract essays.",
     ];
     const taskLines = modeNow === "A" ? taskLinesA : taskLinesB;
     return (
       `${q}\n\n`
+      + `${modeHeader}\n`
       + `User question: ${q}\n\n`
       + `AB mode: ${modeNow}\n`
       + "Context slots (selected by user):\n"
@@ -1619,6 +1671,8 @@
       ? liveDataDeep.fallback_reason_secondary.join(",")
       : "-";
     const deepTimings = (liveDataDeep && liveDataDeep.timings && typeof liveDataDeep.timings === "object") ? JSON.stringify(liveDataDeep.timings) : "-";
+    const deepLint = (liveDataDeep && liveDataDeep.deep_lint && typeof liveDataDeep.deep_lint === "object") ? liveDataDeep.deep_lint : null;
+    const slotVerify = (liveDataDeep && liveDataDeep.slot_verify && typeof liveDataDeep.slot_verify === "object") ? liveDataDeep.slot_verify : null;
     const serverQuality = (liveDataDeep && liveDataDeep.quality && typeof liveDataDeep.quality === "object") ? liveDataDeep.quality : null;
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
@@ -1668,6 +1722,12 @@
     const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
+    const formatBadge = (deepLint && deepLint.ok === false)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Format mismatch: re-run recommended</span>`
+      : "";
+    const slotBadge = (slotVerify && slotVerify.ok === false)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Slot mismatch</span>`
+      : "";
     const deepLockBadge = (!deepGateOpen && slotState.showPanel)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: ${escapeHtml(deepLockNext || "fill required fields")}</span>`
       : "";
@@ -1738,7 +1798,7 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
@@ -1883,7 +1943,7 @@
           setLastBlockReason("");
           refreshDeepReadiness(false);
           snapshot("before_deep_click_effective", { required: effReq, missing: effProg.missing });
-          const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
+          const deepInput = buildDeepPrompt(lastSubmittedInput || qEl.value || "");
           await runLive("deep", deepInput);
         });
         if (liveStatus !== "running") deepRunning = false;
@@ -1916,6 +1976,7 @@
     if (submittedInput && !isDeep) lastSubmittedInput = submittedInput;
     if (!isDeep) {
       deepAutoRetryToken = "";
+      deepFormatRetryToken = "";
       analysisStatus = "running";
       analysisError = null;
       setLastBlockReason("");
@@ -2117,6 +2178,11 @@
 
       const w = withTimeout(30000);
       const deepPayload = buildDeepPayload(submittedInput, runId);
+      console.debug("[DG] ab_mode_applied", {
+        mode: slotState.abMode || "B",
+        source: slotState.abModeSource || "auto",
+        hits: slotState.abModeHits || [],
+      });
       dgDebug("calling_deep_api", { payload: deepPayload });
       setLastBlockReason("");
       refreshDeepReadiness(false);
@@ -2252,9 +2318,20 @@
           if (j.status === "done") {
             if (myDeepSession !== deepSessionId) return;
             liveDataDeep = enforceDeepAssumptionsInData(j);
+            const lintText = String(liveDataDeep.compare || liveDataDeep.expand || liveDataDeep.merge || "");
+            const lint = lintDeepOutputByMode(lintText, slotState.abMode || "B");
+            const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
+            liveDataDeep.deep_lint = lint;
+            liveDataDeep.slot_verify = slotCheck;
+            if (!lint.ok && deepFormatRetryToken !== inputHash) {
+              deepFormatRetryToken = inputHash;
+              dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
+              await runLive("deep", submittedInput);
+              return;
+            }
             if (j && j.health_sha && j.model_cfg_hash && j.input_hash) {
               const key = makeCacheKey("deep", j.input_hash, j.health_sha, j.model_cfg_hash);
-              liveCache.set(key, { ...enforceDeepAssumptionsInData(j), __cached: false });
+              liveCache.set(key, { ...liveDataDeep, __cached: false });
             }
             currentJobId = "";
             updateStopButton();
@@ -2280,7 +2357,9 @@
               liveDataView = "deep";
               liveData = liveDataDeep;
               lastStableResult = liveDataDeep;
-              liveHintEl.textContent = `Live ready (view=deep; status=${deepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
+              liveHintEl.textContent = !lint.ok
+                ? `Live ready (view=deep; status=${deepStatus}; format mismatch)`
+                : `Live ready (view=deep; status=${deepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
             } else {
               liveDataView = "core";
               liveData = liveDataCore || liveDataDeep;
@@ -2347,8 +2426,19 @@
       if (!ok) throw new Error("invalid response shape");
       if (myDeepSession !== deepSessionId) return;
       liveDataDeep = enforceDeepAssumptionsInData(data);
+      const lintText = String(liveDataDeep.compare || liveDataDeep.expand || liveDataDeep.merge || "");
+      const lint = lintDeepOutputByMode(lintText, slotState.abMode || "B");
+      const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
+      liveDataDeep.deep_lint = lint;
+      liveDataDeep.slot_verify = slotCheck;
+      if (!lint.ok && deepFormatRetryToken !== inputHash) {
+        deepFormatRetryToken = inputHash;
+        dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
+        await runLive("deep", submittedInput);
+        return;
+      }
       liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
-      liveHintEl.textContent = "Live ready";
+      liveHintEl.textContent = lint.ok ? "Live ready" : "Live ready (format mismatch)";
       liveStatus = "ready";
       isRunning = false;
       lastStableResult = liveData;

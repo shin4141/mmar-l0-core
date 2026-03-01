@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {
+      "id": "case_a_explore",
+      "text": "新規事業の章立て案を探索したい。論点出しと分岐を整理して。",
+      "expected_mode": "A",
+      "required_headers": ["Hypotheses:", "Branches:", "Experiments:", "Open questions:"]
+    },
+    {
+      "id": "case_b_build",
+      "text": "Deep unlockループのバグ原因を特定して修正手順を実装したい。",
+      "expected_mode": "B",
+      "required_headers": ["Assumptions:", "Options:", "Guardrails:", "Next step:"]
+    }
+  ]
+}
