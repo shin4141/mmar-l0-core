@@ -493,6 +493,17 @@
     dgDebug("extra_change", { key, value: slotState.extra[key] });
   }
 
+  function sanitizeExtraState(){
+    slotState.extra = slotState.extra || {};
+    for (const k of Object.keys(slotState.extra)) {
+      const raw = slotState.extra[k];
+      const s = raw == null ? "" : String(raw).trim();
+      if (!s || s === String(k) || s === "未指定" || s === "未入力" || s === "unknown") {
+        slotState.extra[k] = "";
+      }
+    }
+  }
+
   function normalizeExtraForRequired(requiredKeys){
     slotState.extra = slotState.extra || {};
     for (const k of (requiredKeys || [])) {
@@ -525,6 +536,7 @@
   }
 
   function refreshDeepReadiness(renderOutput = true){
+    sanitizeExtraState();
     syncRequiredFields();
     renderSlotPanel();
     if (renderOutput && mode === "live" && active === "compare") loadActive();
@@ -1670,6 +1682,21 @@
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
     try {
+      if (isDeep) {
+        // Final guard: never call deep API while effective required still has missing fields.
+        const reqNow = getEffectiveRequiredFields();
+        const progNow = computeRequiredProgress(reqNow);
+        if (progNow.missing.length > 0) {
+          snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing, stage: "runLive_preflight" });
+          liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
+          liveStatus = "ready";
+          setRunVisual("ready", "2.8s");
+          isRunning = false;
+          deepRunning = false;
+          updateCtrlPanel();
+          return;
+        }
+      }
       if (!isDeep) {
         if (!apiBase) {
           analysisStatus = "error";
@@ -1768,6 +1795,7 @@
       updateCtrlPanel();
 
       const w = withTimeout(30000);
+      sanitizeExtraState();
       const mergedSlots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
       const deepPayload = {
         input: submittedInput,
