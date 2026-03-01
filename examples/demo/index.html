@@ -453,6 +453,11 @@
     return uniqKeys([...(slotState.requiredClient || []), ...(slotState.requiredServer || [])]);
   }
 
+  function syncRequiredFields(){
+    slotState.requiredFields = getEffectiveRequiredFields();
+    return slotState.requiredFields;
+  }
+
   function hasFieldValue(field){
     const s = slotState.selected || {};
     const e = slotState.extracted || {};
@@ -467,6 +472,8 @@
     if (!s3) return false;
     // Guard: key-name echo (e.g. "goal_metric") is treated as not filled.
     if (s3 === String(field)) return false;
+    // Guard: placeholder values are treated as not filled.
+    if (s3 === "未指定" || s3 === "未入力" || s3 === "unknown") return false;
     return true;
   }
 
@@ -486,6 +493,32 @@
         slotState.extra[k] = "未指定";
       }
     }
+  }
+
+  function inferDomainHintFromInput(inputText){
+    const d1 = (liveDataDeep && typeof liveDataDeep.domain === "string" && liveDataDeep.domain) ? liveDataDeep.domain : "";
+    if (d1) return d1;
+    const d2 = (liveDataCore && typeof liveDataCore.domain === "string" && liveDataCore.domain) ? liveDataCore.domain : "";
+    if (d2) return d2;
+    const g1 = (liveDataDeep && liveDataDeep.domain_guess && typeof liveDataDeep.domain_guess.name === "string")
+      ? liveDataDeep.domain_guess.name
+      : "";
+    if (g1) return g1;
+    const g2 = (liveDataCore && liveDataCore.domain_guess && typeof liveDataCore.domain_guess.name === "string")
+      ? liveDataCore.domain_guess.name
+      : "";
+    if (g2) return g2;
+    const t = String(inputText || "");
+    if (/(金|ロレックス|マンション|投資|利回り|損失|リスク)/.test(t)) return "asset_allocation";
+    if (/(無料|Plus|Pro|プラン|課金)/i.test(t)) return "subscription_pricing";
+    if (/(旅行|治安|都市|夜移動|カンボジア|ラオス)/.test(t)) return "travel_safety";
+    return "general";
+  }
+
+  function refreshDeepReadiness(){
+    syncRequiredFields();
+    renderSlotPanel();
+    if (mode === "live" && active === "compare") loadActive();
   }
 
   function deepEnabled(requiredFields, selected, conflict){
@@ -530,7 +563,7 @@
         runId: activeRunId,
         deepEnabled: ds.enabled,
         blockers: ds.blockers,
-        required: slotState.requiredFields,
+        required: getEffectiveRequiredFields(),
         selected: slotState.selected,
         extracted: slotState.extracted,
         requiredProgress: ds.prog,
@@ -597,9 +630,9 @@
     slotState.conflict = cc.conflict;
     slotState.requiredClient = chooseRequiredFields(cc.confidence, slotState.selected);
     if (slotState.requiredFrom === "deep_fallback" && sameInput) {
-      slotState.requiredFields = getEffectiveRequiredFields();
+      syncRequiredFields();
     } else {
-      slotState.requiredFields = getEffectiveRequiredFields();
+      syncRequiredFields();
       slotState.requiredFrom = "confidence";
       slotState.requiredInputHash = inputHash;
     }
@@ -610,7 +643,7 @@
   }
 
   function slotDeepEnabled(){
-    return deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
+    return deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
   }
 
   function buildDeepContextQuestion(baseQuestion){
@@ -680,7 +713,7 @@
       ? `<div class="slotRow" style="margin-top:6px;"><span class="slotLabel">Extra</span>
         ${unknownRequired.map((k) => {
           const rawVal = String((slotState.extra && slotState.extra[k]) || "");
-          const safeVal = (rawVal.trim() === String(k)) ? "" : rawVal;
+          const safeVal = (rawVal.trim() === String(k) || rawVal.trim() === "未指定" || rawVal.trim() === "未入力") ? "" : rawVal;
           return `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-right:8px;">${escapeHtml(k)}<input data-extra-key="${escapeHtml(k)}" value="${escapeHtml(safeVal)}" placeholder="${escapeHtml(k)}" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;min-width:140px;"></label>`;
         }).join("")}
       </div>`
@@ -722,22 +755,20 @@
           value,
           requiredTotal: computeRequiredProgress().total,
           requiredMissing: computeRequiredProgress().missing.length,
-          deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict),
+          deepEnabled: deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict),
         });
-        renderSlotPanel();
-        if (mode === "live" && active === "compare") loadActive();
-      };
-    }
-    for (const inp of Array.from(slotPanelEl.querySelectorAll("input[data-extra-key]"))){
-      inp.oninput = () => {
-        const key = String(inp.getAttribute("data-extra-key") || "");
-        if (!key) return;
-        setExtraField(key, String(inp.value || "").trim());
-        renderSlotPanel();
-        if (mode === "live" && active === "compare") loadActive();
+        refreshDeepReadiness();
       };
     }
   }
+
+  document.addEventListener("input", (e) => {
+    const target = e && e.target ? e.target : null;
+    const key = target && target.dataset ? String(target.dataset.extraKey || "") : "";
+    if (!key) return;
+    setExtraField(key, String(target.value || "").trim());
+    refreshDeepReadiness();
+  }, true);
 
   function currentLimit(){
     if (mode === "static") return 600;
@@ -1247,7 +1278,7 @@
         </span>`
       : "";
     const slotProgress = computeRequiredProgress();
-    const slotReadyNow = slotState.showPanel && deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
+    const slotReadyNow = slotState.showPanel && deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
     const deepGateOpen = slotReadyNow;
     const deepAction = deepReady
       ? `<button id="after-deep-btn" type="button" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${slotProgress.missing.length}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
@@ -1282,7 +1313,7 @@
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
     const deepLockBadge = (!deepGateOpen && slotState.showPanel)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: fill required fields</span>`
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: ${escapeHtml(deepLockNext || "fill required fields")}</span>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -1489,12 +1520,12 @@
       slotState.showPanel = true;
       recomputeSlotRequirements(submittedInput);
       const prog = computeRequiredProgress();
-      const enabledNow = deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict);
+      const enabledNow = deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
       console.debug("[DG]", {
         runId,
         phase: "run_start",
         confidence: slotState.confidence,
-        requiredFields: slotState.requiredFields,
+        requiredFields: getEffectiveRequiredFields(),
         selected: slotState.selected,
         requiredTotal: prog.total,
         requiredMissing: prog.missing.length,
@@ -1675,6 +1706,7 @@
         extra: { ...(slotState.extra || {}) },
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
         required_fields: getEffectiveRequiredFields(),
+        domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
       };
       dgDebug("calling_deep_api", { payload: deepPayload });
       const { data: parsedData, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
@@ -1691,7 +1723,7 @@
           : [];
         slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
         normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
-        slotState.requiredFields = getEffectiveRequiredFields();
+        syncRequiredFields();
         slotState.requiredFrom = "deep_fallback";
         slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
         slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
@@ -1699,7 +1731,7 @@
           ? parsed.next_question
           : "";
         slotState.showPanel = true;
-        renderSlotPanel();
+        refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         deepRunning = false;
         isRunning = false;
@@ -1864,7 +1896,7 @@
                   : [];
                 slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
                 normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
-                slotState.requiredFields = getEffectiveRequiredFields();
+                syncRequiredFields();
                 slotState.requiredFrom = "deep_fallback";
                 slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
                 slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
@@ -1872,7 +1904,7 @@
                   ? j.next_question
                   : "";
                 slotState.showPanel = true;
-                renderSlotPanel();
+                refreshDeepReadiness();
               }
               dgDebug("deep_failed", {
                 code: deepStatus,
