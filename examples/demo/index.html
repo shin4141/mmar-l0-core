@@ -458,6 +458,7 @@
   }
 
   function syncRequiredFields(){
+    // Non-destructive sync: do not mutate requiredClient/requiredServer here.
     slotState.requiredFields = getEffectiveRequiredFields();
     return slotState.requiredFields;
   }
@@ -519,10 +520,10 @@
     return "general";
   }
 
-  function refreshDeepReadiness(){
+  function refreshDeepReadiness(renderOutput = true){
     syncRequiredFields();
     renderSlotPanel();
-    if (mode === "live" && active === "compare") loadActive();
+    if (renderOutput && mode === "live" && active === "compare") loadActive();
   }
 
   function deepEnabled(requiredFields, selected, conflict){
@@ -533,15 +534,16 @@
     return requiredOk && riskOk && conflictOk;
   }
 
-  function computeRequiredProgress(){
-    const required = getEffectiveRequiredFields();
+  function computeRequiredProgress(requiredOverride){
+    const required = Array.isArray(requiredOverride) ? requiredOverride : getEffectiveRequiredFields();
     const missing = required.filter((f) => !hasFieldValue(f));
     const filled = required.length - missing.length;
     return { total: required.length, filled, missing };
   }
 
   function computeDeepState(){
-    const prog = computeRequiredProgress();
+    const effectiveRequired = getEffectiveRequiredFields();
+    const prog = computeRequiredProgress(effectiveRequired);
     const blockers = [];
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
@@ -570,6 +572,7 @@
         deepEnabled: ds.enabled,
         blockers: ds.blockers,
         required: getEffectiveRequiredFields(),
+        effectiveRequiredTotal: computeRequiredProgress(getEffectiveRequiredFields()).total,
         selected: slotState.selected,
         extracted: slotState.extracted,
         requiredProgress: ds.prog,
@@ -773,7 +776,8 @@
     const key = target && target.dataset ? String(target.dataset.extraKey || "") : "";
     if (!key) return;
     setExtraField(key, String(target.value || "").trim());
-    refreshDeepReadiness();
+    // Keep typing stable: avoid full output re-render on each keystroke.
+    refreshDeepReadiness(false);
   }, true);
 
   function currentLimit(){
@@ -1494,6 +1498,16 @@
           if (!ds.enabled) {
             dgDebug("blocked_no_call", { blockers: ds.blockers });
             liveHintEl.textContent = `Deep locked: ${ds.blockers.join(",") || "blocked"}`;
+            const panel = document.getElementById("slot-panel");
+            if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
+            return;
+          }
+          // Hard guard: never call deep while effective required fields still have missing items.
+          const effReq = getEffectiveRequiredFields();
+          const effProg = computeRequiredProgress(effReq);
+          if (effProg.missing.length > 0) {
+            dgDebug("blocked_no_call", { blockers: ["required_missing"], effectiveRequired: effReq, missing: effProg.missing });
+            liveHintEl.textContent = `Deep locked: ${effProg.missing[0] || "required_missing"}`;
             const panel = document.getElementById("slot-panel");
             if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
