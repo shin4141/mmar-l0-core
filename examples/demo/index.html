@@ -330,15 +330,18 @@
     selectedSource: { amount: null, horizon: null, goal: null, risk: null, constraint: null },
     confidence: null,
     requiredFields: [],
+    requiredClient: [],
+    requiredServer: [],
     requiredFrom: "none",
     requiredInputHash: "",
+    extra: {},
     externalMissingFields: [],
     externalNextQuestion: "",
     conflict: [],
     showPanel: false,
     showExtra: false,
   };
-  const SUPPORTED_SLOT_FIELDS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
+  const KNOWN_SLOT_KEYS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
   const SLOT_SPEC = [
     { key: "horizon", label: "Horizon", values: ["短期", "長期"] },
     { key: "goal", label: "Goal", values: ["増やす", "守る", "現金優先"] },
@@ -442,30 +445,37 @@
     return req;
   }
 
+  function uniqKeys(arr){
+    return Array.from(new Set((arr || []).filter(Boolean).map((x) => String(x))));
+  }
+
+  function getEffectiveRequiredFields(){
+    return uniqKeys([...(slotState.requiredClient || []), ...(slotState.requiredServer || [])]);
+  }
+
+  function hasFieldValue(field){
+    const s = slotState.selected || {};
+    const e = slotState.extracted || {};
+    const x = slotState.extra || {};
+    const v = s[field];
+    if (v !== null && v !== undefined && String(v) !== "") return true;
+    const v2 = e[field];
+    if (v2 !== null && v2 !== undefined && String(v2) !== "") return true;
+    const v3 = x[field];
+    return v3 !== null && v3 !== undefined && String(v3) !== "";
+  }
+
   function deepEnabled(requiredFields, selected, conflict){
-    const req = Array.isArray(requiredFields) ? requiredFields : [];
-    const s = selected || {};
-    const hasValue = (field) => {
-      const v = s[field];
-      if (v !== null && v !== undefined && String(v) !== "") return true;
-      const v2 = slotState.extracted ? slotState.extracted[field] : null;
-      return v2 !== null && v2 !== undefined && String(v2) !== "";
-    };
-    const requiredOk = req.every((f) => hasValue(f));
-    const riskOk = hasValue("risk");
+    const req = Array.isArray(requiredFields) ? requiredFields : getEffectiveRequiredFields();
+    const requiredOk = req.every((f) => hasFieldValue(f));
+    const riskOk = hasFieldValue("risk");
     const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
     return requiredOk && riskOk && conflictOk;
   }
 
   function computeRequiredProgress(){
-    const required = Array.isArray(slotState.requiredFields) ? slotState.requiredFields : [];
-    const hasValue = (field) => {
-      const v = slotState.selected[field];
-      if (v !== null && v !== undefined && String(v) !== "") return true;
-      const v2 = slotState.extracted[field];
-      return v2 !== null && v2 !== undefined && String(v2) !== "";
-    };
-    const missing = required.filter((f) => !hasValue(f));
+    const required = getEffectiveRequiredFields();
+    const missing = required.filter((f) => !hasFieldValue(f));
     const filled = required.length - missing.length;
     return { total: required.length, filled, missing };
   }
@@ -476,7 +486,6 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
-    if (Array.isArray(slotState.externalMissingFields) && slotState.externalMissingFields.length > 0) blockers.push("external_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
     if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
     if (Array.isArray(slotState.conflict) && slotState.conflict.length) blockers.push("conflict_present");
@@ -553,19 +562,21 @@
     const inputHash = hashText16(slotState.text);
     const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
     if (!sameInput) {
+      slotState.requiredServer = [];
       slotState.externalMissingFields = [];
       slotState.externalNextQuestion = "";
+      slotState.extra = {};
     }
     slotState.extracted = extractSlotsFromText(slotState.text);
     applyAutoSlots(slotState.extracted);
     const cc = confidenceScore(slotState.extracted, slotState.selected);
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
-    const nextRequired = chooseRequiredFields(cc.confidence, slotState.selected);
+    slotState.requiredClient = chooseRequiredFields(cc.confidence, slotState.selected);
     if (slotState.requiredFrom === "deep_fallback" && sameInput) {
-      slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...nextRequired]));
+      slotState.requiredFields = getEffectiveRequiredFields();
     } else {
-      slotState.requiredFields = nextRequired;
+      slotState.requiredFields = getEffectiveRequiredFields();
       slotState.requiredFrom = "confidence";
       slotState.requiredInputHash = inputHash;
     }
@@ -612,7 +623,7 @@
     }
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
-    const req = slotState.requiredFields || [];
+    const req = getEffectiveRequiredFields();
     const prog = computeRequiredProgress();
     const requiredTotal = prog.total;
     const requiredFilled = prog.filled;
@@ -627,6 +638,7 @@
     const rows = slotState.showExtra
       ? SLOT_SPEC
       : req.map((k) => SLOT_SPEC.find((g) => g.key === k)).filter(Boolean);
+    const unknownRequired = req.filter((k) => !KNOWN_SLOT_KEYS.has(k));
     const rowsHtml = rows.length
       ? rows.map((g) => `
         <div class="slotRow ${(g.key === "constraint" && constraintMissing) ? "constraint-missing" : ""}">
@@ -641,12 +653,18 @@
     const externalMissingText = externalMissing.length
       ? `<div class="muted" style="margin-top:4px; color:#b45309;">Deep missing (server): ${escapeHtml(externalMissing.join(", "))}${slotState.externalNextQuestion ? ` / next: ${escapeHtml(slotState.externalNextQuestion)}` : ""}</div>`
       : "";
+    const unknownInputsHtml = unknownRequired.length
+      ? `<div class="slotRow" style="margin-top:6px;"><span class="slotLabel">Extra</span>
+        ${unknownRequired.map((k) => `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-right:8px;">${escapeHtml(k)}<input data-extra-key="${escapeHtml(k)}" value="${escapeHtml(String((slotState.extra && slotState.extra[k]) || ""))}" placeholder="${escapeHtml(k)}" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;min-width:140px;"></label>`).join("")}
+      </div>`
+      : "";
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
       ${externalMissingText}
       ${rowsHtml}
+      ${unknownInputsHtml}
       <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
       ${conflictText}
     `;
@@ -679,6 +697,15 @@
           requiredMissing: computeRequiredProgress().missing.length,
           deepEnabled: deepEnabled(slotState.requiredFields, slotState.selected, slotState.conflict),
         });
+        renderSlotPanel();
+        if (mode === "live" && active === "compare") loadActive();
+      };
+    }
+    for (const inp of Array.from(slotPanelEl.querySelectorAll("input[data-extra-key]"))){
+      inp.oninput = () => {
+        const key = String(inp.getAttribute("data-extra-key") || "");
+        if (!key) return;
+        slotState.extra[key] = String(inp.value || "").trim();
         renderSlotPanel();
         if (mode === "live" && active === "compare") loadActive();
       };
@@ -1617,8 +1644,9 @@
         run_id: runId,
         question: String(lastSubmittedInput || submittedInput || ""),
         slots: { ...slotState.selected },
+        extra: { ...(slotState.extra || {}) },
         confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
-        required_fields: Array.isArray(slotState.requiredFields) ? slotState.requiredFields : [],
+        required_fields: getEffectiveRequiredFields(),
       };
       dgDebug("calling_deep_api", { payload: deepPayload });
       const { data: parsedData, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
@@ -1633,12 +1661,11 @@
         const missingRaw = (Array.isArray(parsed.missing_fields) && parsed.missing_fields.length)
           ? parsed.missing_fields.map((x) => String(x))
           : [];
-        const add = missingRaw.filter((x) => SUPPORTED_SLOT_FIELDS.has(x));
-        const external = missingRaw.filter((x) => !SUPPORTED_SLOT_FIELDS.has(x));
-        slotState.requiredFields = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
+        slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
+        slotState.requiredFields = getEffectiveRequiredFields();
         slotState.requiredFrom = "deep_fallback";
         slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
-        slotState.externalMissingFields = external;
+        slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
         slotState.externalNextQuestion = (typeof parsed.next_question === "string" && parsed.next_question)
           ? parsed.next_question
           : "";
@@ -1806,13 +1833,11 @@
                 const missingRaw = (Array.isArray(j.missing_fields) && j.missing_fields.length)
                   ? j.missing_fields.map((x) => String(x))
                   : [];
-                const add = missingRaw.filter((x) => SUPPORTED_SLOT_FIELDS.has(x));
-                const external = missingRaw.filter((x) => !SUPPORTED_SLOT_FIELDS.has(x));
-                const nextReq = Array.from(new Set([...(slotState.requiredFields || []), ...add]));
-                slotState.requiredFields = nextReq;
+                slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
+                slotState.requiredFields = getEffectiveRequiredFields();
                 slotState.requiredFrom = "deep_fallback";
                 slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
-                slotState.externalMissingFields = external;
+                slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
                 slotState.externalNextQuestion = (typeof j.next_question === "string" && j.next_question)
                   ? j.next_question
                   : "";
