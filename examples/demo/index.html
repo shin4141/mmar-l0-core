@@ -477,6 +477,17 @@
     dgDebug("extra_change", { key, value: slotState.extra[key] });
   }
 
+  function normalizeExtraForRequired(requiredKeys){
+    slotState.extra = slotState.extra || {};
+    for (const k of (requiredKeys || [])) {
+      const raw = slotState.extra[k];
+      const s = raw == null ? "" : String(raw).trim();
+      if (!s || s === String(k)) {
+        slotState.extra[k] = "未指定";
+      }
+    }
+  }
+
   function deepEnabled(requiredFields, selected, conflict){
     const req = Array.isArray(requiredFields) ? requiredFields : getEffectiveRequiredFields();
     const requiredOk = req.every((f) => hasFieldValue(f));
@@ -667,7 +678,11 @@
       : "";
     const unknownInputsHtml = unknownRequired.length
       ? `<div class="slotRow" style="margin-top:6px;"><span class="slotLabel">Extra</span>
-        ${unknownRequired.map((k) => `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-right:8px;">${escapeHtml(k)}<input data-extra-key="${escapeHtml(k)}" value="${escapeHtml(String((slotState.extra && slotState.extra[k]) || ""))}" placeholder="${escapeHtml(k)}" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;min-width:140px;"></label>`).join("")}
+        ${unknownRequired.map((k) => {
+          const rawVal = String((slotState.extra && slotState.extra[k]) || "");
+          const safeVal = (rawVal.trim() === String(k)) ? "" : rawVal;
+          return `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-right:8px;">${escapeHtml(k)}<input data-extra-key="${escapeHtml(k)}" value="${escapeHtml(safeVal)}" placeholder="${escapeHtml(k)}" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;min-width:140px;"></label>`;
+        }).join("")}
       </div>`
       : "";
     slotPanelEl.innerHTML = `
@@ -1675,6 +1690,7 @@
           ? parsed.missing_fields.map((x) => String(x))
           : [];
         slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
+        normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
         slotState.requiredFields = getEffectiveRequiredFields();
         slotState.requiredFrom = "deep_fallback";
         slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
@@ -1847,6 +1863,7 @@
                   ? j.missing_fields.map((x) => String(x))
                   : [];
                 slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...missingRaw]);
+                normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
                 slotState.requiredFields = getEffectiveRequiredFields();
                 slotState.requiredFrom = "deep_fallback";
                 slotState.requiredInputHash = hashText16(String(lastSubmittedInput || submittedInput || ""));
