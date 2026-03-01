@@ -125,12 +125,12 @@
       <textarea id="q" placeholder="Question (for display only)"></textarea>
       <div id="slot-panel" class="slotGrid"></div>
       <div class="row" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <button id="mode-static" class="active" style="display:none;">Static</button>
-        <button id="mode-live" style="display:none;">Live</button>
-        <button id="run-fast" class="active" title="Insert template">Template</button>
-        <button id="run-full" title="Thinking (deeper, may take longer)" style="display:none;">Think</button>
-        <button id="run-live" disabled>Run</button>
-        <button id="stop-live" title="Stop" style="display:none; padding:8px 10px;">■</button>
+        <button id="mode-static" type="button" class="active" style="display:none;">Static</button>
+        <button id="mode-live" type="button" style="display:none;">Live</button>
+        <button id="run-fast" type="button" class="active" title="Insert template">Template</button>
+        <button id="run-full" type="button" title="Thinking (deeper, may take longer)" style="display:none;">Think</button>
+        <button id="run-live" type="button" disabled>Run</button>
+        <button id="stop-live" type="button" title="Stop" style="display:none; padding:8px 10px;">■</button>
         <span id="live-result-badge" class="pillBadge" style="display:none;"></span>
         <span id="live-api-base" class="muted"></span>
         <span id="live-last-run" class="muted"></span>
@@ -140,7 +140,7 @@
       </div>
       <div id="left-unlock" style="margin-top:10px;"></div>
       <div class="row" style="margin-top:10px;">
-        <button id="reload">Reload files</button>
+        <button id="reload" type="button">Reload files</button>
         <span id="counter" class="counter"></span>
       </div>
       <details class="muted" style="margin-top:10px;">
@@ -249,6 +249,12 @@
       e.stopPropagation();
     }, true);
   }
+  window.addEventListener("beforeunload", () => {
+    console.warn("[DG] beforeunload fired (page is reloading/navigating)");
+  });
+  document.querySelectorAll("button").forEach((b) => {
+    if (!b.getAttribute("type")) b.setAttribute("type", "button");
+  });
   const THINK_UNLOCK_THRESHOLD = 60;
   const slotState = {
     text: "",
@@ -1270,6 +1276,11 @@
         try {
           e.preventDefault();
           e.stopPropagation();
+          console.debug("[DG] click_target", {
+            id: e && e.target ? e.target.id : "",
+            tag: e && e.target ? e.target.tagName : "",
+            type: e && e.target && e.target.getAttribute ? e.target.getAttribute("type") : "",
+          });
           dgDebug("before_deep_click");
           if (window.DG_PANIC && window.DG_PANIC.disableDeep) {
             dgDebug("blocked_no_call", { panic: true });
@@ -1883,9 +1894,24 @@
     if (ctrlPanelEl.contains(e.target) || ctrlGearEl.contains(e.target)) return;
     ctrlPanelEl.classList.remove("open");
   });
-  runLiveEl.onclick = () => {
-    liveHintEl.textContent = "RUN: core requested";
-    runLive("core");
+  runLiveEl.onclick = async (e) => {
+    try {
+      if (e && e.preventDefault) e.preventDefault();
+      if (e && e.stopPropagation) e.stopPropagation();
+      console.debug("[DG] click_target", {
+        id: e && e.target ? e.target.id : "",
+        tag: e && e.target ? e.target.tagName : "",
+        type: e && e.target && e.target.getAttribute ? e.target.getAttribute("type") : "",
+      });
+      console.debug("[DG] run_click");
+      liveHintEl.textContent = "RUN: core requested";
+      await runLive("core");
+    } catch (err) {
+      console.error("[DG] run_click_exception", err && err.stack ? err.stack : err);
+    } finally {
+      isRunning = false;
+      deepRunning = false;
+    }
   };
   document.getElementById("reload").onclick = loadActive;
   mode = "live";
