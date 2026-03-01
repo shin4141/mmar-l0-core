@@ -423,7 +423,12 @@ def _canonicalize_question(q: str) -> dict:
     if not ok:
         missing_fields.append("options_list")
     if domain_conf < 0.55:
-        missing_fields.extend(["goal_metric", "priority_axis"])
+        has_goal_marker = bool(re.search(r"(?:目的指標|goal_metric)\s*[:=：]\s*([^\s\n,，]+)", q or "", flags=re.IGNORECASE))
+        has_axis_marker = bool(re.search(r"(?:優先軸|priority_axis)\s*[:=：]\s*([^\s\n,，]+)", q or "", flags=re.IGNORECASE))
+        if not has_goal_marker and not _has_explicit_goal(q):
+            missing_fields.append("goal_metric")
+        if not has_axis_marker and not any(k in (q or "") for k in ("優先軸", "重視", "リスク最小", "リターン最大", "流動性", "手間最小")):
+            missing_fields.append("priority_axis")
     elif domain == "travel_safety":
         if not any(k in (q or "") for k in ("都市", "市", "地域")):
             missing_fields.append("city")
@@ -509,6 +514,16 @@ def _asset_usage_bucket(q: str) -> str:
 def _extract_signals(text: str) -> dict:
     t = str(text or "")
     out: dict = {}
+    m_goal = re.search(r"(?:目的指標|goal_metric)\s*[:=：]\s*([^\s\n,，]+)", t, flags=re.IGNORECASE)
+    if m_goal:
+        gm = str(m_goal.group(1) or "").strip()
+        if gm and gm.lower() not in ("tmp", "unspecified", "unknown", "未指定", "未入力"):
+            out["goal_metric"] = gm
+    m_axis = re.search(r"(?:優先軸|priority_axis)\s*[:=：]\s*([^\s\n,，]+)", t, flags=re.IGNORECASE)
+    if m_axis:
+        pa = str(m_axis.group(1) or "").strip()
+        if pa and pa.lower() not in ("tmp", "unspecified", "unknown", "未指定", "未入力"):
+            out["priority_axis"] = pa
     hb = _asset_horizon_bucket(t)
     if hb:
         out["horizon"] = hb
@@ -538,13 +553,31 @@ def _preflight_check(q: str, canonical: dict) -> dict:
     required_fields: list[str] = []
     satisfied_fields: list[str] = []
     missing_fields_ids: list[str] = []
-    need_k = 1
+    need_k = 0
     questions: list[dict] = []
     unlock_when_text = "必須前提を1つ固定すると深掘り可能"
 
     t = (q or "")
     signals = _extract_signals(t)
-    if domain == "asset_allocation":
+    if domain_conf < 0.55:
+        required_fields = ["goal_metric", "priority_axis"]
+        need_k = 2
+        questions = [
+            {"field": "goal_metric", "type": "choice", "label": "目的指標", "choices": ["リスク最小", "リターン最大", "費用最小"]},
+            {"field": "priority_axis", "type": "choice", "label": "優先軸", "choices": ["リスク最小", "リターン最大", "流動性", "手間最小"]},
+        ]
+        if signals.get("goal_metric") or _has_explicit_goal(t):
+            satisfied_fields.append("goal_metric")
+        if signals.get("priority_axis"):
+            satisfied_fields.append("priority_axis")
+        if "goal_metric" not in satisfied_fields:
+            missing.append("目的指標（何を最適化するか）")
+            missing_fields_ids.append("goal_metric")
+        if "priority_axis" not in satisfied_fields:
+            missing.append("優先軸（リスク最小/リターン最大/流動性/手間最小）")
+            missing_fields_ids.append("priority_axis")
+        unlock_when_text = "目的指標と優先軸の2条件を満たすと深掘り可能"
+    elif domain == "asset_allocation":
         required_fields = ["priority_axis", "horizon"]
         need_k = 2
         questions = [
@@ -613,7 +646,10 @@ def _preflight_check(q: str, canonical: dict) -> dict:
     for rf in required_fields:
         if rf in satisfied_fields:
             required_satisfied += 1
-    sufficient = required_satisfied >= max(1, int(need_k))
+    if not required_fields:
+        sufficient = True
+    else:
+        sufficient = required_satisfied >= max(1, int(need_k))
     cap_split = 55 if (not sufficient and domain == "asset_allocation") else 70
     return {
         "sufficient": sufficient,
