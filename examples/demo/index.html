@@ -248,6 +248,7 @@
   let isRunning = false;
   let deepDone = false;
   let deepSessionId = 0;
+  let deepAutoRetryToken = "";
   let lastStableResult = null;
   let analysisStatus = "idle";
   let analysisError = null;
@@ -1667,6 +1668,7 @@
     const cached = (!liveShaMismatch && liveBootSha && liveModelCfgHash) ? liveCache.get(expectedCacheKey) : null;
     if (submittedInput && !isDeep) lastSubmittedInput = submittedInput;
     if (!isDeep) {
+      deepAutoRetryToken = "";
       analysisStatus = "running";
       analysisError = null;
       setLastBlockReason("");
@@ -1894,6 +1896,14 @@
         refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
+        const postReq = getDeepRequiredSnapshot();
+        const postProg = computeRequiredProgress(postReq);
+        if (AUTO_FILL_UNKNOWN_REQUIRED && postProg.missing.length === 0 && deepAutoRetryToken !== inputHash) {
+          deepAutoRetryToken = inputHash;
+          dgDebug("deep_autoretry_once", { reason: "insufficient_context_recovered", required: postReq });
+          await runLive("deep", submittedInput);
+          return;
+        }
         deepRunning = false;
         isRunning = false;
         liveStatus = "ready";
@@ -2059,6 +2069,14 @@
                 promoteServerMissing(missingRaw, j.next_question);
                 refreshDeepReadiness();
                 setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
+                const postReq = getDeepRequiredSnapshot();
+                const postProg = computeRequiredProgress(postReq);
+                if (AUTO_FILL_UNKNOWN_REQUIRED && postProg.missing.length === 0 && deepAutoRetryToken !== inputHash) {
+                  deepAutoRetryToken = inputHash;
+                  dgDebug("deep_autoretry_once", { reason: "job_done_insufficient_recovered", required: postReq });
+                  await runLive("deep", submittedInput);
+                  return;
+                }
               }
               dgDebug("deep_failed", {
                 code: deepStatus,
