@@ -488,10 +488,8 @@
   }
 
   function getEffectiveRequiredFields(){
-    if (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length) {
-      return uniqKeys(slotState.requiredFields);
-    }
     return uniqKeys([
+      ...(slotState.requiredFields || []),
       ...(slotState.requiredClient || []),
       ...(slotState.requiredServer || []),
       ...(slotState.externalMissingFields || []),
@@ -730,7 +728,8 @@
     slotState.text = String(text || "");
     const inputHash = hashText16(slotState.text);
     const sameInput = !!(slotState.requiredInputHash && slotState.requiredInputHash === inputHash);
-    if (!sameInput) {
+    const inDeepFallback = slotState.requiredFrom === "deep_fallback";
+    if (!sameInput && !inDeepFallback) {
       const keepServerMissing = (slotState.requiredFrom === "deep_fallback") && Array.isArray(slotState.externalMissingFields) && slotState.externalMissingFields.length > 0;
       slotState.requiredServer = [];
       slotState.externalMissingFields = [];
@@ -747,9 +746,18 @@
     slotState.confidence = cc.confidence;
     slotState.conflict = cc.conflict;
     slotState.requiredClient = chooseRequiredFields(cc.confidence, slotState.selected);
-    const keepFallback = slotState.requiredFrom === "deep_fallback" && Array.isArray(slotState.requiredFields) && slotState.requiredFields.length > 0;
+    const keepFallback = inDeepFallback && (
+      (Array.isArray(slotState.requiredFields) && slotState.requiredFields.length > 0) ||
+      (Array.isArray(slotState.requiredServer) && slotState.requiredServer.length > 0) ||
+      (Array.isArray(slotState.externalMissingFields) && slotState.externalMissingFields.length > 0)
+    );
     if (keepFallback) {
-      slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...(slotState.requiredClient || [])]);
+      slotState.requiredFields = uniqKeys([
+        ...(slotState.requiredFields || []),
+        ...(slotState.requiredClient || []),
+        ...(slotState.requiredServer || []),
+        ...(slotState.externalMissingFields || []),
+      ]);
       slotState.requiredInputHash = inputHash;
       return;
     }
