@@ -716,6 +716,8 @@
     slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...k]);
     slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...k]);
     normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
+    // Escape hatch: immediately fill unknown required keys so deep can proceed.
+    autoFillMissing(k);
     syncRequiredFields();
     slotState.requiredFrom = "deep_fallback";
     slotState.requiredInputHash = hashText16(String(lastSubmittedInput || slotState.text || ""));
