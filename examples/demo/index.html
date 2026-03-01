@@ -337,6 +337,7 @@
     extra: {},
     externalMissingFields: [],
     externalNextQuestion: "",
+    lastBlockReason: "",
     conflict: [],
     showPanel: false,
     showExtra: false,
@@ -559,6 +560,10 @@
     if (renderOutput && mode === "live" && active === "compare") loadActive();
   }
 
+  function setLastBlockReason(reason){
+    slotState.lastBlockReason = String(reason || "");
+  }
+
   function deepEnabled(requiredFields, selected, conflict){
     const req = Array.isArray(requiredFields) ? requiredFields : getEffectiveRequiredFields();
     const requiredOk = req.every((f) => hasFieldValue(f));
@@ -772,6 +777,7 @@
     const status = enabled
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
       : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}${(!firstMissing && firstExternalMissing) ? ` / need: ${firstExternalMissing}` : ""}`;
+    const debugStatus = `Deep status: enabled=${enabled ? "true" : "false"} / required=${requiredFilled}/${requiredTotal} / missing=${requiredRemaining}${slotState.lastBlockReason ? ` / reason=${slotState.lastBlockReason}` : ""}`;
     const constraintMissing = prog.missing.includes("constraint");
     const rows = slotState.showExtra
       ? SLOT_SPEC
@@ -803,6 +809,7 @@
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
+      <div class="muted" style="margin-top:2px;">${escapeHtml(debugStatus)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
       ${externalMissingText}
       ${rowsHtml}
@@ -1521,6 +1528,7 @@
             normalized = /優先軸/.test(base) ? base.replace(/優先軸\s*[:：=]\s*([^\s]+)/, `優先軸=${choice}`) : `${base} 優先軸=${choice}`;
           }
           qEl.value = normalized.trim();
+          setLastBlockReason("");
           await runLive("core", normalized.trim());
         };
       }
@@ -1561,11 +1569,15 @@
           if (window.DG_PANIC && window.DG_PANIC.disableDeep) {
             dgDebug("blocked_no_call", { panic: true });
             deepPanicExit("Deep is disabled (panic mode). UI will not crash.");
+            setLastBlockReason("panic_mode");
+            refreshDeepReadiness(false);
             return;
           }
           if (mode !== "live") return;
           if (!lastSubmittedInput) {
             liveHintEl.textContent = "No submitted input";
+            setLastBlockReason("no_submitted_input");
+            refreshDeepReadiness(false);
             return;
           }
           const reqNow = getEffectiveRequiredFields();
@@ -1580,6 +1592,8 @@
           if (!deepNowEnabled) {
             snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing });
             liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
+            setLastBlockReason(progNow.missing[0] || "required_missing");
+            refreshDeepReadiness(false);
             const panel = document.getElementById("slot-panel");
             if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
@@ -1590,11 +1604,15 @@
           if (effProg.missing.length > 0) {
             snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: effReq, missing: effProg.missing });
             liveHintEl.textContent = `Deep locked: ${effProg.missing[0] || "required_missing"}`;
+            setLastBlockReason(effProg.missing[0] || "required_missing");
+            refreshDeepReadiness(false);
             const panel = document.getElementById("slot-panel");
             if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
           }
           slotState.requiredFields = uniqKeys(effReq);
+          setLastBlockReason("");
+          refreshDeepReadiness(false);
           snapshot("before_deep_click_effective", { required: effReq, missing: effProg.missing });
           const deepInput = buildDeepContextQuestion(lastSubmittedInput || qEl.value || "");
           await runLive("deep", deepInput);
@@ -1620,6 +1638,7 @@
     if (!isDeep) {
       analysisStatus = "running";
       analysisError = null;
+      setLastBlockReason("");
       deepDone = false;
       slotState.showPanel = true;
       recomputeSlotRequirements(submittedInput);
@@ -1716,6 +1735,8 @@
         if (progNow.missing.length > 0) {
           snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing, stage: "runLive_preflight" });
           liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
+          setLastBlockReason(progNow.missing[0] || "required_missing");
+          refreshDeepReadiness(false);
           liveStatus = "ready";
           setRunVisual("ready", "2.8s");
           isRunning = false;
@@ -1835,6 +1856,8 @@
         domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
       };
       dgDebug("calling_deep_api", { payload: deepPayload });
+      setLastBlockReason("");
+      refreshDeepReadiness(false);
       const { data: parsedData, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
       const rawText = String(raw || "");
       dgDebug("deep_response_received", { httpOk: true, rawHead: rawText.slice(0, 160) });
@@ -1850,6 +1873,7 @@
         promoteServerMissing(missingRaw, parsed.next_question);
         refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
+        setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
         deepRunning = false;
         isRunning = false;
         liveStatus = "ready";
@@ -1998,6 +2022,7 @@
               liveHintEl.textContent = `Live ready (${deepStatus}; fallback=${fallbackReason}; timings=${JSON.stringify(j.timings)})`;
             }
             if (deepStatus === "ok" || deepStatus === "partial") {
+              setLastBlockReason("");
               liveDataView = "deep";
               liveData = liveDataDeep;
               lastStableResult = liveDataDeep;
@@ -2013,6 +2038,7 @@
                   : [];
                 promoteServerMissing(missingRaw, j.next_question);
                 refreshDeepReadiness();
+                setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
               }
               dgDebug("deep_failed", {
                 code: deepStatus,
@@ -2083,8 +2109,10 @@
       }
       if (apiDown) {
         liveHintEl.textContent = "API unreachable: restart dev_api";
+        setLastBlockReason("api_unreachable");
       } else {
         liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
+        if (isDeep) setLastBlockReason("deep_exception");
       }
       liveStatus = "error";
       isRunning = false;
