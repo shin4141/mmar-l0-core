@@ -1795,6 +1795,15 @@
       setDeepOverlay({ phase: "queued", runId, jobId: j.job_id, lastReason: "queued" });
       deepOverlayNotice = `Deep: queued (${String(j.job_id).slice(0, 8)})`;
       await renderAll();
+      setTimeout(() => {
+        const cur = slotState.deepOverlay || {};
+        if (String(cur.phase || "") === "queued" && String(cur.jobId || "") === String(j.job_id)) {
+          setDeepOverlay({ phase: "polling", lastReason: "queued_guard_promote" });
+          updateDeepStatusLineOnly();
+        }
+      }, 2000);
+      setDeepOverlay({ phase: "polling", lastReason: "polling_start" });
+      updateDeepStatusLineOnly();
       const ok = await pollDeepOverlayJob(j.job_id, runId);
       if (!ok) await renderAll();
       return;
@@ -2205,6 +2214,26 @@
     return `Running (t=${t}s) runId=${cur} applied=${ap} — showing previous result`;
   }
 
+  function deepOverlayElapsedSec(){
+    const st = slotState.deepOverlay || {};
+    if (!st.startedAt) return 0;
+    return Math.max(0, Math.floor((Date.now() - Number(st.startedAt || 0)) / 1000));
+  }
+
+  function deepOverlayStatusText(){
+    const st = slotState.deepOverlay || {};
+    const phase = String(st.phase || "idle");
+    const polls = Number(st.polls || 0);
+    const t = deepOverlayElapsedSec();
+    return `Deep: ${phase} (t=${t}s, polls=${polls})`;
+  }
+
+  function updateDeepStatusLineOnly(){
+    const el = document.getElementById("deepStatusLine");
+    if (!el) return;
+    el.textContent = deepOverlayStatusText();
+  }
+
   function updateRunningBannerOnly(){
     if (!runningOverlayEl) return;
     const run = slotState.run || {};
@@ -2221,6 +2250,7 @@
   async function renderAll(){
     await loadActive();
     updateRunningBannerOnly();
+    updateDeepStatusLineOnly();
   }
 
   function hashText16(text){
@@ -2749,17 +2779,7 @@
     const comparePairReady = compareHasPair();
     const canCompare = compareIsConfigured();
     const deepGateOpen = canCompare;
-    const deepDisabledReasons = [];
-    if (deepIsBusy()) deepDisabledReasons.push(slotState.deep.phase === "polling" ? "Polling..." : "Deep running...");
-    if (!comparePairReady) deepDisabledReasons.push("Lock Compare to enable Deep");
-    const deepDisabledReason = deepDisabledReasons[0] || "";
-    const deepDisabled = !!deepDisabledReason;
-    const deepAction = (mode === "live")
-      ? `<span style="display:inline-flex; align-items:center; gap:6px; margin-right:6px;">
-          <button id="after-deep-btn" type="button" ${deepDisabled ? "disabled" : ""} title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px; ${(!deepDisabled) ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && !deepDisabled) ? "構造を分解する" : ((slotState.deep && slotState.deep.phase === "done") ? "Re-run" : "Deep ▸")}</button>
-          ${deepDisabledReason ? `<span class="muted">${escapeHtml(deepDisabledReason)}</span>` : ""}
-        </span>`
-      : "";
+    const deepDisabledReason = !comparePairReady ? "Lock Compare to enable Deep" : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
     const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
     const lockChoicesFromAfter = pickSectionLines(after || "", "CHOICES");
@@ -2792,17 +2812,14 @@
     const overlayJob = String(overlay.jobId || "");
     const overlayReason = String(overlay.lastReason || "");
     const overlayHead = String(overlay.lastHttpHead || "");
-    const deepOverlaySummary = `Deep: ${overlayPhase} (polls=${overlayPolls})`;
-    const deepOverlayHeader = (mode === "live") ? `<span class="pillBadge">${escapeHtml(deepOverlaySummary)}</span>` : "";
-    const deepRetryBtn = (mode === "live") ? `<button id="after-retry-deep-btn" type="button" style="padding:2px 8px;">Retry Deep</button>` : "";
+    const deepStatusLine = (mode === "live")
+      ? `<span id="deepStatusLine" class="pillBadge">${escapeHtml(deepOverlayStatusText())}</span>`
+      : "";
+    const deepRetryBtn = (mode === "live")
+      ? `<button id="after-retry-deep-btn" type="button" ${compareIsConfigured() ? "" : "disabled"} style="padding:2px 8px;">Retry</button>`
+      : "";
     const deepOverlayDebug = (mode === "live" && debugUiOn)
-      ? `<span class="pillBadge" style="max-width:42ch;overflow:hidden;text-overflow:ellipsis;">reason:${escapeHtml(overlayReason || "-")} / head:${escapeHtml(overlayHead || "-")}</span>`
-      : "";
-    const fallbackBadge = (mode === "live" && coreCompareV1FallbackActive)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep unavailable → Core Compare-v1 fallback</span>`
-      : "";
-    const deepOverlayBadge = (mode === "live" && deepOverlayNotice)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">${escapeHtml(deepOverlayNotice)}</span>`
+      ? `<span class="muted" style="font-weight:700;">reason=${escapeHtml(overlayReason || "-")} / raw=${escapeHtml(overlayHead || "-")}</span>`
       : "";
     const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
@@ -2885,11 +2902,10 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${deepRetryBtn}${deepOverlayHeader}${deepOverlayDebug}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${fallbackBadge}${deepOverlayBadge}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepStatusLine}${deepRetryBtn}${deepOverlayDebug}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
-        ${(mode === "live" && (overlayPhase === "failed" || overlayPhase === "slow" || deepOverlayNotice)) ? `<div class="muted" style="margin-top:-4px;">Deep attempt: ${escapeHtml(overlayReason || deepOverlayNotice || "unknown")}${overlayJob ? ` (jobId=${escapeHtml(overlayJob)})` : ""}</div>` : ""}
         ${diffBlock}
         ${debugUiOn ? debugDetails : ""}
       </div>
@@ -2983,67 +2999,7 @@
         await loadActive();
       };
     }
-    const deepBtn = document.getElementById("after-deep-btn");
-    if (deepBtn) {
-      const cleanBtn = deepBtn.cloneNode(true);
-      deepBtn.parentNode.replaceChild(cleanBtn, deepBtn);
-      cleanBtn.type = "button";
-      cleanBtn.addEventListener("click", async (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        if (e && e.stopPropagation) e.stopPropagation();
-        await dgShield("deep_click", async () => {
-          console.debug("[DG] click_target", {
-            id: e && e.target ? e.target.id : "",
-            tag: e && e.target ? e.target.tagName : "",
-            type: e && e.target && e.target.getAttribute ? e.target.getAttribute("type") : "",
-          });
-          if (window.DG_PANIC && window.DG_PANIC.disableDeep) {
-            dgDebug("blocked_no_call", { panic: true });
-            deepPanicExit("Deep is disabled (panic mode). UI will not crash.");
-            setLastBlockReason("panic_mode");
-            refreshDeepReadiness(false);
-            return;
-          }
-          if (mode !== "live") return;
-          if (!lastSubmittedInput) {
-            liveHintEl.textContent = "No submitted input";
-            setLastBlockReason("no_submitted_input");
-            refreshDeepReadiness(false);
-            return;
-          }
-          if (!compareIsConfigured() && compareHasPair()) {
-            slotState.compare.locked = true;
-            slotState.compare.a = normalizeCompareText(slotState.compare.a);
-            slotState.compare.b = normalizeCompareText(slotState.compare.b);
-            dgDebug("compare_auto_locked_for_deep", {
-              a: slotState.compare.a,
-              b: slotState.compare.b,
-            });
-          }
-          if (!compareIsConfigured()) {
-            liveHintEl.textContent = "Deep locked: Lock Compare to enable Deep";
-            setLastBlockReason("compare_not_locked");
-            refreshDeepReadiness(false);
-            return;
-          }
-          setLastBlockReason("");
-          refreshDeepReadiness(false);
-          snapshot("before_deep_click_effective", { compareLocked: true });
-          const forceRerun = ((slotState.deep && slotState.deep.phase) || "") === "done";
-          await startDeepOverlay({
-            submittedInput: lastSubmittedInput || qEl.value || "",
-            force: forceRerun,
-            reason: forceRerun ? "rerun" : "deep_button",
-            runId: activeRunId || (slotState.run && slotState.run.currentRunId) || "",
-            compareSSOT: { ...(slotState.compare || {}) },
-            slots: { ...(slotState.selected || {}), ...(slotState.extra || {}) },
-          });
-        });
-        if (liveStatus !== "running" && slotState.deep.phase === "running") {
-          setDeepPhase("idle", { runId: "", tries: 0, errorMsg: "" });
-        }
-      });
-    }
+    // Deep overlay is controlled by a single Retry button in the After header.
   }
 
   async function onClickRunSafe(opts = {}){
@@ -4012,7 +3968,10 @@
   renderTabs();
   checkLiveHealth();
   loadActive();
-  setInterval(updateRunningBannerOnly, 1000);
+  setInterval(() => {
+    updateRunningBannerOnly();
+    updateDeepStatusLineOnly();
+  }, 1000);
 </script>
 </body>
 </html>
