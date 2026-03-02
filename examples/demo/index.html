@@ -102,6 +102,11 @@
     .slotChip.active{ border-color:#0ea5e9; background:#e0f2fe; color:#075985; }
     .slotStatus{ font-size:12px; font-weight:700; color:#0f766e; }
     .slotStatus.locked{ color:#9a3412; }
+    #cmpA, #cmpB{
+      width:100%;
+      min-height:72px;
+      box-sizing:border-box;
+    }
     @keyframes afterHero{
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
@@ -308,8 +313,10 @@
     function mkHud(){
       try {
         const pre = document.createElement("pre");
+        pre.id = "__dgHud";
         pre.style.cssText = "position:fixed;right:8px;bottom:8px;width:520px;max-height:40vh;overflow:auto;z-index:999999;background:rgba(0,0,0,.85);color:#9ef;padding:10px;border-radius:10px;font:12px/1.35 ui-monospace,Menlo,monospace;white-space:pre-wrap;";
         pre.textContent = ring.slice(-40).join("\n");
+        pre.style.pointerEvents = "none";
         let visible = false;
         try { visible = localStorage.getItem(HUD_VISIBLE_KEY) === "1"; } catch (_) {}
         pre.style.display = visible ? "block" : "none";
@@ -337,6 +344,9 @@
       const visible = !!on;
       try { localStorage.setItem(HUD_VISIBLE_KEY, visible ? "1" : "0"); } catch (_) {}
       if (window.__dgHud) window.__dgHud.style.display = visible ? "block" : "none";
+    };
+    window.DG_HUD_SET_INTERACTIVE = (on) => {
+      if (window.__dgHud) window.__dgHud.style.pointerEvents = on ? "auto" : "none";
     };
   })();
   window.addEventListener("beforeunload", () => {
@@ -466,6 +476,15 @@
   function compareIsConfigured(){
     const c = slotState.compare || {};
     return !!(c.locked && normalizeCompareText(c.a) && normalizeCompareText(c.b));
+  }
+
+  function compareStatusText(){
+    const c = slotState.compare || {};
+    const ready = compareIsConfigured();
+    if (ready) {
+      return `Compare SSOT: locked (${normalizeCompareText(c.a)} vs ${normalizeCompareText(c.b)})`;
+    }
+    return "Compare SSOT: not locked";
   }
 
   function loadABModeOverride(){
@@ -734,6 +753,11 @@
     syncRequiredFields();
     renderSlotPanel();
     if (renderOutput && mode === "live" && active === "compare") loadActive();
+  }
+
+  function refreshCompareStatusOnly(){
+    const line = document.getElementById("cmp-status-line");
+    if (line) line.textContent = compareStatusText();
   }
 
   function setLastBlockReason(reason){
@@ -1392,9 +1416,7 @@
     const status = enabled
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
       : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}${(!firstMissing && firstExternalMissing) ? ` / need: ${firstExternalMissing}` : ""}`;
-    const compareStatus = compareReady
-      ? `Compare SSOT: locked (${escapeHtml(displaySanitize(normalizeCompareText(slotState.compare.a)))} vs ${escapeHtml(displaySanitize(normalizeCompareText(slotState.compare.b)))})`
-      : "Compare SSOT: not locked";
+    const compareStatus = compareStatusText();
     const debugStatus = `Deep status: enabled=${enabled ? "true" : "false"} / required=${requiredFilled}/${requiredTotal} / missing=${requiredRemaining}${slotState.lastBlockReason ? ` / reason=${slotState.lastBlockReason}` : ""}`;
     const runKeyShort = (slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8);
     const deepKeyShort = (slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8);
@@ -1443,8 +1465,8 @@
     const compareBlock = `
       <div class="slotRow" style="margin-top:6px; align-items:flex-start; flex-direction:column;">
         <span class="slotLabel">Compare SSOT</span>
-        <textarea id="compare-a" placeholder="Compare A" style="min-height:54px;">${escapeHtml(cmp.a || "")}</textarea>
-        <textarea id="compare-b" placeholder="Compare B" style="min-height:54px;">${escapeHtml(cmp.b || "")}</textarea>
+        <textarea id="cmpA" placeholder="Compare A">${escapeHtml(cmp.a || "")}</textarea>
+        <textarea id="cmpB" placeholder="Compare B">${escapeHtml(cmp.b || "")}</textarea>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
           <button id="compare-use-top2" type="button" class="slotChip">Use TOP2 as draft</button>
           <label class="muted" style="display:flex;align-items:center;gap:6px;">
@@ -1457,7 +1479,7 @@
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
-      <div class="muted" style="margin-top:2px;">${compareStatus}</div>
+      <div id="cmp-status-line" class="muted" style="margin-top:2px;">${escapeHtml(displaySanitize(compareStatus))}</div>
       <div class="muted" style="margin-top:2px;">${escapeHtml(debugStatus)}</div>
       <div class="muted" style="margin-top:2px;">${escapeHtml(keyStatus)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
@@ -1518,20 +1540,22 @@
         refreshDeepReadiness();
       };
     }
-    const compareAEl = document.getElementById("compare-a");
+    const compareAEl = document.getElementById("cmpA");
     if (compareAEl) {
       compareAEl.oninput = () => {
         slotState.compare.a = String(compareAEl.value || "");
         slotState.compare.source = slotState.compare.source === "empty" ? "manual" : slotState.compare.source;
-        refreshDeepReadiness(false);
+        dgDebug("compare_change", { which: "A", len: slotState.compare.a.length });
+        refreshCompareStatusOnly();
       };
     }
-    const compareBEl = document.getElementById("compare-b");
+    const compareBEl = document.getElementById("cmpB");
     if (compareBEl) {
       compareBEl.oninput = () => {
         slotState.compare.b = String(compareBEl.value || "");
         slotState.compare.source = slotState.compare.source === "empty" ? "manual" : slotState.compare.source;
-        refreshDeepReadiness(false);
+        dgDebug("compare_change", { which: "B", len: slotState.compare.b.length });
+        refreshCompareStatusOnly();
       };
     }
     const compareUseTop2Btn = document.getElementById("compare-use-top2");
@@ -3371,6 +3395,7 @@
     slotDebugToggleEl.onchange = () => {
       slotDebugEnabled = !!slotDebugToggleEl.checked;
       if (window.DG_HUD_SET_VISIBLE) window.DG_HUD_SET_VISIBLE(slotDebugEnabled);
+      if (window.DG_HUD_SET_INTERACTIVE) window.DG_HUD_SET_INTERACTIVE(slotDebugEnabled);
       if (slotSensitivityTestEl) slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
       dgDebug("slot_debug_toggle", { enabled: slotDebugEnabled });
     };
@@ -3383,6 +3408,7 @@
       await runSlotSensitivityTest();
     };
   }
+  if (window.DG_HUD_SET_INTERACTIVE) window.DG_HUD_SET_INTERACTIVE(!!slotDebugEnabled);
   slotState.abModeOverride = loadABModeOverride();
   decideABMode(qEl.value || "", "init");
   mode = "live";
