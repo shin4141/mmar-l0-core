@@ -173,6 +173,11 @@
         <div id="ctrl-outcome">Outcome: Unknown</div>
         <div id="quick-quality">Quality: -</div>
         <div id="quick-gate-hint"></div>
+        <label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <input id="slot-debug-toggle" type="checkbox" />
+          Slot debug
+        </label>
+        <button id="slot-sensitivity-test" title="Slot A/B sensitivity test" style="padding:2px 8px; margin-top:4px; display:none;">Slot A/B test</button>
         <button id="quick-skip" title="Skip (soon)" disabled style="padding:2px 8px;">Skip</button>
       </div>
       <div class="runVisual" style="margin-top:4px; margin-bottom:8px;"><div id="run-bar" class="runBar state-idle"></div></div>
@@ -221,6 +226,8 @@
   const ctrlLiveStatusEl = document.getElementById("ctrl-live-status");
   const ctrlLlmStatusEl = document.getElementById("ctrl-llm-status");
   const ctrlOutcomeEl = document.getElementById("ctrl-outcome");
+  const slotDebugToggleEl = document.getElementById("slot-debug-toggle");
+  const slotSensitivityTestEl = document.getElementById("slot-sensitivity-test");
   const PREVIEW_LINES_MAIN = 7;
   const PREVIEW_LINES_DELTA = 3;
   const counterEl = document.getElementById("counter");
@@ -252,6 +259,7 @@
   let lastStableResult = null;
   let analysisStatus = "idle";
   let analysisError = null;
+  let slotDebugEnabled = false;
   window.DG_PANIC = window.DG_PANIC || {
     disableDeep: false,
     swallowAllSubmit: true,
@@ -905,14 +913,15 @@
   }
 
   function applyCoreResult(coreData, submittedInput){
-    liveData = coreData;
-    liveDataCore = coreData;
+    const normalizedCore = enforceDeepAssumptionsInData(coreData);
+    liveData = normalizedCore;
+    liveDataCore = normalizedCore;
     liveDataDeep = null;
     liveDataView = "core";
-    lastStableResult = coreData;
-    if (coreData && coreData.health_sha && coreData.model_cfg_hash && coreData.input_hash) {
-      const key = makeCacheKey("core", coreData.input_hash, coreData.health_sha, coreData.model_cfg_hash);
-      liveCache.set(key, { ...coreData, __cached: false });
+    lastStableResult = normalizedCore;
+    if (normalizedCore && normalizedCore.health_sha && normalizedCore.model_cfg_hash && normalizedCore.input_hash) {
+      const key = makeCacheKey("core", normalizedCore.input_hash, normalizedCore.health_sha, normalizedCore.model_cfg_hash);
+      liveCache.set(key, { ...normalizedCore, __cached: false });
     }
     deepSessionId += 1;
     deepRunning = false;
@@ -922,7 +931,7 @@
     stopRequested = false;
     updateStopButton();
     lastSubmittedInput = submittedInput;
-    slotState.run.appliedRunId = (coreData && typeof coreData.run_id === "string") ? coreData.run_id : slotState.run.appliedRunId;
+    slotState.run.appliedRunId = (normalizedCore && typeof normalizedCore.run_id === "string") ? normalizedCore.run_id : slotState.run.appliedRunId;
     markRunProgress();
     setTimestamp();
   }
@@ -991,35 +1000,112 @@
     return `Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}, GoalMetric=${goalMetric}, PriorityAxis=${priorityAxis}`;
   }
 
+  function appliedSlotsLineFromSlots(selected, extra){
+    return `APPLIED_SLOTS: ${assumptionsLineFromSlots(selected, extra)}`;
+  }
+
   function ensureDeepAssumptionsText(text){
     const src = String(text || "");
     const applied = `Applied slots: ${assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {})}`;
+    const appliedUpper = appliedSlotsLineFromSlots(slotState.selected || {}, slotState.extra || {});
     const assumptions = `Assumptions: ${assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {})}`;
     const hasApplied = /^\s*Applied slots:\s*/im.test(src);
+    const hasAppliedUpper = /^\s*APPLIED_SLOTS:\s*/im.test(src);
     const hasAssumptions = /^\s*Assumptions:\s*/im.test(src);
-    if (hasApplied && hasAssumptions) return src;
+    if (hasApplied && hasAssumptions && hasAppliedUpper) return src;
     const lines = [];
+    if (!hasAppliedUpper) lines.push(appliedUpper);
     if (!hasApplied) lines.push(applied);
     if (!hasAssumptions) lines.push(assumptions);
     lines.push(src);
     return lines.join("\n").trim();
   }
 
+  function upsertTopLine(text, key, value){
+    const src = String(text || "");
+    const re = new RegExp(`^\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*[^\\n]*\\n?`, "im");
+    const line = `${key}: ${value}`;
+    if (re.test(src)) return src.replace(re, `${line}\n`);
+    return `${line}\n${src}`.trim();
+  }
+
+  function makeModeBSectionsFromSlots(){
+    const s = slotState.selected || {};
+    const risk = s.risk || "未入力";
+    const horizon = s.horizon || "未入力";
+    const amount = s.amount || "未入力";
+    const goal = s.goal || "未入力";
+    const constraint = s.constraint || "未入力";
+    const guardByRisk = risk === "高"
+      ? ["損失上限を先に固定（例: 最大損失%）", "中止条件を明示（閾値到達で停止）", "実行前チェックリストを必須化"]
+      : ["損失条件を1つ決める", "見直しタイミングを固定", "記録を残して再評価"];
+    const optionShort = horizon === "短期" ? "即時検証を先に回す" : "段階プランで検証を積む";
+    const amountHint = amount === "大" ? "可逆・分割・保守で進める" : "小さく試行して学習を優先";
+    return (
+      `OPTIONS:\n`
+      + `- If Goal=${goal} then ${optionShort}（Risk=${risk}）\n`
+      + `- If Constraint=${constraint} then 制約を満たす手順を先行（Amount=${amount}）\n`
+      + `GUARDRAILS:\n`
+      + `- ${guardByRisk[0]}\n`
+      + `- ${guardByRisk[1]}\n`
+      + `- ${guardByRisk[2]}\n`
+      + `NEXT_STEP:\n`
+      + `- まず1つの実行条件を定義し、24h以内に再評価する（${amountHint}）\n`
+    );
+  }
+
+  function enforceSlotDrivenContract(text, mode){
+    let out = ensureDeepAssumptionsText(text);
+    if ((mode || slotState.abMode || "B") === "B") {
+      if (!/(^|\n)\s*OPTIONS:\s*/i.test(out) || !/(^|\n)\s*GUARDRAILS:\s*/i.test(out) || !/(^|\n)\s*NEXT_STEP:\s*/i.test(out)) {
+        out = `${out}\n\n${makeModeBSectionsFromSlots()}`.trim();
+      }
+    }
+    const effect = scoreSlotEffect(out);
+    out = upsertTopLine(out, "SLOT_EFFECT", `${effect.score}`);
+    return out;
+  }
+
+  function scoreSlotEffect(text){
+    const src = String(text || "");
+    const s = slotState.selected || {};
+    const slotTokens = [s.risk, s.horizon, s.amount, s.goal, s.constraint].filter(Boolean).map(String);
+    const mentionCount = slotTokens.reduce((acc, tok) => acc + (src.match(new RegExp(tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 0);
+    const ifThenCount = (src.match(/\bIf\b|\bThen\b|\bif\b|\bthen\b/g) || []).length;
+    const hasApplied = (/^\s*APPLIED_SLOTS:\s*/im.test(src) || /^\s*Applied slots:\s*/im.test(src)) ? 1 : 0;
+    const hasOptions = /(^|\n)\s*OPTIONS:\s*/i.test(src) ? 1 : 0;
+    const hasGuardrails = /(^|\n)\s*GUARDRAILS:\s*/i.test(src) ? 1 : 0;
+    const hasNextStep = /(^|\n)\s*NEXT_STEP:\s*/i.test(src) ? 1 : 0;
+    const riskHighGuard = (s.risk === "高" && /(損失上限|中止条件|チェック)/.test(src)) ? 1 : (s.risk === "高" ? 0 : 1);
+    const horizonBehavior = (s.horizon === "短期" && /(即時|24h|短期)/.test(src)) || (s.horizon === "長期" && /(段階|長期|フェーズ)/.test(src)) ? 1 : 0;
+    const amountBehavior = (s.amount === "大" && /(可逆|分割|保守)/.test(src)) || (s.amount !== "大") ? 1 : 0;
+    const raw = (hasApplied * 20) + Math.min(mentionCount * 4, 20) + Math.min(ifThenCount * 3, 15)
+      + (hasOptions * 10) + (hasGuardrails * 10) + (hasNextStep * 10)
+      + (riskHighGuard * 7) + (horizonBehavior * 4) + (amountBehavior * 4);
+    const score = Math.max(0, Math.min(100, raw));
+    const level = score >= 60 ? "strong" : (score >= 35 ? "mid" : "weak");
+    return { score, level };
+  }
+
   function enforceDeepAssumptionsInData(data){
     if (!data || typeof data !== "object") return data;
     const out = { ...data };
+    let slotText = "";
     for (const k of ["compare", "expand", "merge"]) {
       if (typeof out[k] === "string" && out[k].trim()) {
-        out[k] = ensureDeepAssumptionsText(out[k]);
+        out[k] = enforceSlotDrivenContract(out[k], slotState.abMode || "B");
+        if (!slotText) slotText = out[k];
       }
     }
+    if (!slotText && typeof out.diff === "string") slotText = out.diff;
+    if (slotText) out.slot_effect = scoreSlotEffect(slotText);
     return out;
   }
 
   function lintDeepOutputByMode(text, mode){
     const src = String(text || "");
-    const needA = ["Hypotheses:", "Branches:", "Experiments:", "Open questions:"];
-    const needB = ["Assumptions:", "Options:", "Guardrails:", "Next step:"];
+    const needA = ["APPLIED_SLOTS:", "Hypotheses:", "Branches:", "Experiments:", "Open questions:"];
+    const needB = ["APPLIED_SLOTS:", "Assumptions:", "Options:", "Guardrails:", "Next step:"];
     const required = (mode === "A") ? needA : needB;
     const missing = required.filter((k) => !new RegExp(`(^|\\n)\\s*${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i").test(src));
     return { ok: missing.length === 0, missing, mode };
@@ -1027,7 +1113,7 @@
 
   function verifyAppliedSlots(text, selected, extra){
     const src = String(text || "");
-    const m = src.match(/^\s*Applied slots:\s*(.+)$/im);
+    const m = src.match(/^\s*(?:Applied slots|APPLIED_SLOTS):\s*(.+)$/im);
     if (!m) return { ok: false, reason: "missing_applied_slots", mismatched: [] };
     const line = String(m[1] || "");
     const target = assumptionsLineFromSlots(selected || {}, extra || {});
@@ -1053,10 +1139,11 @@
     const modeNow = slotState.abMode || "B";
     const modeHeader = modeNow === "A" ? "MODE=A (EXPLORE)" : "MODE=B (BUILD)";
     const assumptionsExact = `Assumptions: ${assumptionsLine}`;
-    const appliedExact = `Applied slots: ${assumptionsLine}`;
+    const appliedExact = `APPLIED_SLOTS: ${assumptionsLine}`;
     const taskLinesCommon = [
       `- Output MUST include this line exactly once: "${appliedExact}"`,
       `- Output MUST include this line exactly once: "${assumptionsExact}"`,
+      `- Output MUST include a line: "SLOT_EFFECT: <0-100>"`,
       "- Mention at least two slots explicitly across the answer.",
     ];
     const taskLinesA = [
@@ -1477,6 +1564,115 @@
     return hashText16(JSON.stringify(payload));
   }
 
+  function primaryAfterTextFromData(data){
+    if (!data || typeof data !== "object") return "";
+    const cands = [data.compare, data.expand, data.merge, data.diff];
+    for (const t of cands) {
+      if (typeof t === "string" && t.trim()) return t;
+    }
+    return "";
+  }
+
+  function textSimilarityJaccard(a, b){
+    const ta = String(a || "");
+    const tb = String(b || "");
+    if (!ta || !tb) return 0;
+    const ngrams = (s) => {
+      const out = new Set();
+      const x = s.replace(/\s+/g, " ").trim();
+      if (x.length < 3) {
+        if (x) out.add(x);
+        return out;
+      }
+      for (let i = 0; i <= x.length - 3; i += 1) out.add(x.slice(i, i + 3));
+      return out;
+    };
+    const A = ngrams(ta);
+    const B = ngrams(tb);
+    if (!A.size || !B.size) return 0;
+    let inter = 0;
+    for (const x of A) if (B.has(x)) inter += 1;
+    const uni = A.size + B.size - inter;
+    return uni > 0 ? inter / uni : 0;
+  }
+
+  async function runSlotSensitivityTest(){
+    if (mode !== "live") return;
+    const baseQuestion = String(lastSubmittedInput || qEl.value || "").trim();
+    if (!baseQuestion) {
+      liveHintEl.textContent = "Slot A/B test: question is empty";
+      return;
+    }
+    if (slotState.exec.deepLock || deepRunning) {
+      liveHintEl.textContent = "Slot A/B test: deep is busy";
+      return;
+    }
+    const saved = {
+      selected: { ...(slotState.selected || {}) },
+      selectedSource: { ...(slotState.selectedSource || {}) },
+      extra: { ...(slotState.extra || {}) },
+      requiredClient: [...(slotState.requiredClient || [])],
+      requiredServer: [...(slotState.requiredServer || [])],
+      requiredFields: [...(slotState.requiredFields || [])],
+      requiredFrom: slotState.requiredFrom,
+      requiredInputHash: slotState.requiredInputHash,
+      showPanel: slotState.showPanel,
+      showExtra: slotState.showExtra,
+      view: liveDataView,
+    };
+    slotSensitivityTestEl.disabled = true;
+    const applyCase = async (risk, amount) => {
+      slotState.selected.risk = risk;
+      slotState.selected.amount = amount;
+      slotState.selectedSource.risk = "manual";
+      slotState.selectedSource.amount = "manual";
+      recomputeSlotRequirements(baseQuestion);
+      refreshDeepReadiness(false);
+      const deepInput = buildDeepPrompt(baseQuestion);
+      await runLive("deep", deepInput, { allowDuplicate: true });
+      const out = primaryAfterTextFromData(liveDataDeep || {});
+      return { text: out, effect: scoreSlotEffect(out) };
+    };
+    try {
+      liveHintEl.textContent = "Slot A/B test: running case 1/2";
+      const case1 = await applyCase("低", "小");
+      liveHintEl.textContent = "Slot A/B test: running case 2/2";
+      const case2 = await applyCase("高", "大");
+      const sim = textSimilarityJaccard(case1.text, case2.text);
+      const deltaScore = Math.abs((case1.effect.score || 0) - (case2.effect.score || 0));
+      const lowSensitivity = (sim >= 0.92 && deltaScore < 8);
+      if (lowSensitivity) {
+        liveHintEl.textContent = `SlotSensitivity too low (sim=${sim.toFixed(2)}, Δ=${deltaScore})`;
+      } else {
+        liveHintEl.textContent = `SlotSensitivity OK (sim=${sim.toFixed(2)}, Δ=${deltaScore})`;
+      }
+      dgDebug("slot_sensitivity_test", {
+        similarity: Number(sim.toFixed(3)),
+        deltaScore,
+        case1: case1.effect,
+        case2: case2.effect,
+      });
+    } catch (e) {
+      liveHintEl.textContent = `Slot A/B test failed: ${String(e || "unknown")}`;
+      dgDebug("slot_sensitivity_failed", { err: String(e || "unknown") });
+    } finally {
+      slotState.selected = saved.selected;
+      slotState.selectedSource = saved.selectedSource;
+      slotState.extra = saved.extra;
+      slotState.requiredClient = saved.requiredClient;
+      slotState.requiredServer = saved.requiredServer;
+      slotState.requiredFields = saved.requiredFields;
+      slotState.requiredFrom = saved.requiredFrom;
+      slotState.requiredInputHash = saved.requiredInputHash;
+      slotState.showPanel = saved.showPanel;
+      slotState.showExtra = saved.showExtra;
+      liveDataView = saved.view;
+      refreshDeepReadiness(false);
+      slotSensitivityTestEl.disabled = false;
+      await loadActive();
+    }
+  }
+
   function makeCacheKey(modeKey, inputHash, healthSha, modelCfgHash){
     return `${modeKey}|${inputHash || "-"}|${healthSha || "-"}|${modelCfgHash || "-"}`;
   }
@@ -1821,6 +2017,11 @@
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
     const afterNormalized = sanitizeOptionDisplay(after, before || qEl.value || "");
     const afterWithSource = staleDeep ? freezeAfterForMismatch(afterNormalized) : afterNormalized;
+    const slotEffectFromData = (viewDataForBadges && viewDataForBadges.slot_effect && typeof viewDataForBadges.slot_effect === "object")
+      ? viewDataForBadges.slot_effect
+      : null;
+    const slotEffect = slotEffectFromData || scoreSlotEffect(afterWithSource);
+    const slotEffectBadge = `<span class="pillBadge" style="${slotEffect.level === "weak" ? "border-color:#d98b2b;color:#b15f00;" : (slotEffect.level === "strong" ? "border-color:#16a34a;color:#166534;" : "")}">SlotEffect: ${slotEffect.score}/100 (${slotEffect.level})</span>`;
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
     const viewToggle = (mode === "live" && !!liveDataCore)
@@ -1942,7 +2143,7 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
@@ -2898,6 +3099,22 @@
     deepRunning = false;
   };
   document.getElementById("reload").onclick = loadActive;
+  if (slotDebugToggleEl) {
+    slotDebugToggleEl.checked = !!slotDebugEnabled;
+    slotDebugToggleEl.onchange = () => {
+      slotDebugEnabled = !!slotDebugToggleEl.checked;
+      if (slotSensitivityTestEl) slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
+      dgDebug("slot_debug_toggle", { enabled: slotDebugEnabled });
+    };
+  }
+  if (slotSensitivityTestEl) {
+    slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
+    slotSensitivityTestEl.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await runSlotSensitivityTest();
+    };
+  }
   slotState.abModeOverride = loadABModeOverride();
   decideABMode(qEl.value || "", "init");
   mode = "live";
