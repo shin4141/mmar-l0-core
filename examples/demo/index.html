@@ -404,9 +404,9 @@
       phase: "idle",
       startedAt: 0,
       lastProgressAt: 0,
-      endedAt: 0,
       currentRunId: "",
       appliedRunId: "",
+      lastMs: 0,
       errorMsg: "",
     },
     showPanel: false,
@@ -1394,6 +1394,12 @@
     return Math.max(0, Math.floor((Date.now() - slotState.run.startedAt) / 1000));
   }
 
+  function runIdShort(id){
+    if (!id) return "";
+    const s = String(id).split("_")[0];
+    return s.slice(0, 8);
+  }
+
   function markRunProgress(){
     if (!slotState.run) return;
     slotState.run.lastProgressAt = Date.now();
@@ -1401,24 +1407,17 @@
 
   function runStatusLine(isStalled){
     const t = runElapsedSec();
-    const cur = (slotState.run.currentRunId || "-").slice(0, 8);
-    const ap = (slotState.run.appliedRunId || "-").slice(0, 8);
+    const cur = runIdShort(slotState.run.currentRunId) || "-";
+    const ap = runIdShort(slotState.run.appliedRunId) || "-";
     if (isStalled) {
       return `Stalled (t=${t}s) runId=${cur} applied=${ap} — check poll/apply`;
     }
     return `Running (t=${t}s) runId=${cur} applied=${ap} — showing previous result`;
   }
 
-  function renderTick(){
+  function renderTickOnly(){
     if (mode !== "live") return;
     const run = slotState.run || {};
-    if (run.phase === "running" && run.lastProgressAt > 0 && (Date.now() - run.lastProgressAt > 10000)) {
-      run.phase = "stalled";
-      run.errorMsg = "No progress for 10s (likely job/poll/apply mismatch)";
-      liveStatus = "error";
-      isRunning = false;
-      liveHintEl.textContent = "Stalled: No progress for 10s";
-    }
     const meta = document.getElementById("run-sticky-meta");
     if (meta && (run.phase === "running" || run.phase === "stalled")) {
       meta.textContent = runStatusLine(run.phase === "stalled");
@@ -2172,7 +2171,7 @@
       slotState.run.phase = "running";
       slotState.run.startedAt = Date.now();
       slotState.run.lastProgressAt = slotState.run.startedAt;
-      slotState.run.endedAt = 0;
+      slotState.run.lastMs = 0;
       slotState.run.errorMsg = "";
       slotState.run.currentRunId = runId;
       slotState.run.appliedRunId = "";
@@ -2254,10 +2253,10 @@
       if (!isDeep) {
         slotState.run.phase = "done";
         slotState.run.errorMsg = "";
-        slotState.run.endedAt = Date.now();
+        slotState.run.lastMs = Math.max(0, Date.now() - (slotState.run.startedAt || Date.now()));
         slotState.run.appliedRunId = runId;
         markRunProgress();
-        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.run.endedAt || Date.now()) - (slotState.run.startedAt || Date.now())), cached: true });
+        console.debug("[DG] run_done", { runId, ms: slotState.run.lastMs, cached: true });
       }
       setRunVisual("ready", "2.8s");
       loadActive();
@@ -2305,7 +2304,6 @@
           analysisError = "api_base_empty";
           slotState.run.phase = "error";
           slotState.run.errorMsg = "api_base_empty";
-          slotState.run.endedAt = Date.now();
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = "Live error: API base is empty";
@@ -2333,7 +2331,6 @@
           analysisError = `http_${rCore.status}`;
           slotState.run.phase = "error";
           slotState.run.errorMsg = `http_${rCore.status}`;
-          slotState.run.endedAt = Date.now();
           const body = rawCore;
           const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
           liveHintEl.textContent = "RUN: core error";
@@ -2351,7 +2348,6 @@
           analysisError = "invalid_core_json";
           slotState.run.phase = "error";
           slotState.run.errorMsg = "invalid_core_json";
-          slotState.run.endedAt = Date.now();
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = "Live error: invalid core JSON response";
@@ -2390,7 +2386,6 @@
             analysisError = "run_job_timeout";
             slotState.run.phase = "error";
             slotState.run.errorMsg = "run_job_timeout";
-            slotState.run.endedAt = Date.now();
             liveHintEl.textContent = "Run failed: timeout";
             liveStatus = "error";
             outEl.textContent = "Run failed: timeout (job not completed)";
@@ -2408,7 +2403,6 @@
         if (!coreRunId || coreRunId !== activeRunId) {
           slotState.run.phase = "error";
           slotState.run.errorMsg = "run_id_mismatch";
-          slotState.run.endedAt = Date.now();
           liveHintEl.textContent = "stale ignored (core run_id mismatch)";
           wCore.done();
           return;
@@ -2431,10 +2425,10 @@
         analysisError = null;
         slotState.run.phase = "done";
         slotState.run.errorMsg = "";
-        slotState.run.endedAt = Date.now();
+        slotState.run.lastMs = Math.max(0, Date.now() - (slotState.run.startedAt || Date.now()));
         slotState.run.appliedRunId = runId;
         markRunProgress();
-        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.run.endedAt || Date.now()) - (slotState.run.startedAt || Date.now())) });
+        console.debug("[DG] run_done", { runId, ms: slotState.run.lastMs });
         liveStatus = "ready";
         liveResultBadgeEl.textContent = "Core";
         liveResultBadgeEl.style.display = "inline-block";
@@ -2738,7 +2732,6 @@
         analysisError = String(e || "core_error");
         slotState.run.phase = "error";
         slotState.run.errorMsg = String(e || "core_error");
-        slotState.run.endedAt = Date.now();
       }
       if (apiDown) {
         liveHintEl.textContent = "API unreachable: restart dev_api";
@@ -2769,7 +2762,15 @@
     outEl.textContent = "Loading…";
     if (leftUnlockEl && active !== "compare") leftUnlockEl.innerHTML = "";
     if (mode === "live"){
-      renderTick();
+      const run = slotState.run || {};
+      if (run.phase === "running" && run.lastProgressAt > 0 && (Date.now() - run.lastProgressAt > 10000)) {
+        run.phase = "stalled";
+        run.errorMsg = "No progress for 10s (likely job/poll/apply mismatch)";
+        liveStatus = "error";
+        isRunning = false;
+        liveHintEl.textContent = "Stalled: No progress for 10s";
+      }
+      renderTickOnly();
       const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       if (!viewData){
         if (isRunning && lastStableResult) {
@@ -2784,6 +2785,10 @@
         }
         if (slotState.run.phase === "error" || slotState.run.phase === "stalled") {
           outEl.textContent = `Run failed: ${slotState.run.errorMsg || "unknown"}. Re-run.`;
+          return;
+        }
+        if (slotState.run.phase === "done") {
+          outEl.textContent = `Done (ms=${slotState.run.lastMs || 0}) runId=${runIdShort(slotState.run.appliedRunId) || "-"}`;
           return;
         }
         outEl.textContent = (liveStatus === "running" || liveStatus === "slow" || isRunning || slotState.run.phase === "running")
@@ -2901,7 +2906,7 @@
   renderTabs();
   checkLiveHealth();
   loadActive();
-  setInterval(renderTick, 1000);
+  setInterval(renderTickOnly, 1000);
 </script>
 </body>
 </html>
