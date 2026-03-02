@@ -518,6 +518,22 @@
     return !!(c.locked && compareHasPair());
   }
 
+  function ensureCompareLockedForDeep(){
+    if (compareIsConfigured()) return true;
+    if (!compareHasPair()) return false;
+    slotState.compare.locked = true;
+    slotState.compare.a = normalizeCompareText(slotState.compare.a);
+    slotState.compare.b = normalizeCompareText(slotState.compare.b);
+    if (slotState.compare.a && slotState.compare.b && slotState.compare.source === "empty") {
+      slotState.compare.source = "manual";
+    }
+    dgDebug("compare_auto_locked_for_deep", {
+      a: slotState.compare.a,
+      b: slotState.compare.b,
+    });
+    return compareIsConfigured();
+  }
+
   function compareStatusText(){
     const c = slotState.compare || {};
     const pair = compareHasPair();
@@ -1744,7 +1760,7 @@
     const reason = (opts && typeof opts === "object" && opts.reason) ? String(opts.reason) : "auto_overlay";
     const runId = (opts && typeof opts === "object" && opts.runId) ? String(opts.runId) : String(activeRunId || "");
     if (mode !== "live") return;
-    if (!compareIsConfigured()) return;
+    if (!ensureCompareLockedForDeep()) return;
     if (liveCoreOnly) return;
     if (deepIsBusy() && !force) return;
     const apiBase = getApiBase();
@@ -2816,7 +2832,7 @@
       ? `<span id="deepStatusLine" class="pillBadge">${escapeHtml(deepOverlayStatusText())}</span>`
       : "";
     const deepRetryBtn = (mode === "live")
-      ? `<button id="after-retry-deep-btn" type="button" ${compareIsConfigured() ? "" : "disabled"} style="padding:2px 8px;">Retry</button>`
+      ? `<button id="after-retry-deep-btn" type="button" ${compareHasPair() ? "" : "disabled"} style="padding:2px 8px;">Retry</button>`
       : "";
     const deepOverlayDebug = (mode === "live" && debugUiOn)
       ? `<span class="muted" style="font-weight:700;">reason=${escapeHtml(overlayReason || "-")} / raw=${escapeHtml(overlayHead || "-")}</span>`
@@ -2917,6 +2933,10 @@
       retryDeepBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (!ensureCompareLockedForDeep()) {
+          liveHintEl.textContent = "Deep locked: Compare A/B を入力してください";
+          return;
+        }
         await startDeepOverlay({
           force: true,
           reason: "manual_retry",
@@ -3083,6 +3103,7 @@
       slotState.exec.lastRunAt = nowMs;
       deepOverlayNotice = "";
       resetDeepOverlay(runId);
+      ensureCompareLockedForDeep();
       if (compareIsConfigured()) {
         applyCoreCompareV1Fallback("core_instant", runId);
       }
