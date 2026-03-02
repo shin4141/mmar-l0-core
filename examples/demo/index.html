@@ -1554,12 +1554,14 @@
     ].join("\n");
   }
 
-  function applyCoreCompareV1Fallback(reason = "insufficient_context"){
+  function applyCoreCompareV1Fallback(reason = "insufficient_context", runId = ""){
     if (!compareIsConfigured()) return "";
     const text = buildCoreCompareV1Text(slotState.compare || {}, slotState.selected || {});
     const base = (liveDataCore && typeof liveDataCore === "object") ? { ...liveDataCore } : {};
+    const effectiveRunId = String(runId || activeRunId || (base && base.run_id) || "");
     liveDataCore = {
       ...base,
+      run_id: effectiveRunId,
       compare: text,
       expand: text,
       merge: text,
@@ -3223,11 +3225,15 @@
         refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-        applyCoreCompareV1Fallback("insufficient_context");
+        applyCoreCompareV1Fallback("insufficient_context", runId);
         setDeepPhase("done", { runId, errorMsg: "", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
         liveStatus = "ready";
         liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
+        slotState.run.phase = "done";
+        slotState.run.errorMsg = "";
+        slotState.run.appliedRunId = runId;
+        markRunProgress();
         setRunVisual("ready", "2.8s");
         await loadActive();
         updateCtrlPanel();
@@ -3421,7 +3427,7 @@
                 promoteServerMissing(missingRaw, j.next_question);
                 refreshDeepReadiness();
                 setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-                applyCoreCompareV1Fallback("insufficient_context");
+                applyCoreCompareV1Fallback("insufficient_context", runId);
                 liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
               }
               dgDebug("deep_failed", {
@@ -3485,7 +3491,7 @@
         ? liveDataDeep.fallback_reason_primary
         : ((typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "");
       if (finalDeepStatus === "insufficient" || finalFallback === "insufficient_context") {
-        applyCoreCompareV1Fallback("insufficient_context");
+        applyCoreCompareV1Fallback("insufficient_context", runId);
         liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
       } else {
         coreCompareV1FallbackActive = false;
@@ -3496,6 +3502,10 @@
       liveStatus = "ready";
       setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
       isRunning = false;
+      slotState.run.phase = "done";
+      slotState.run.errorMsg = "";
+      slotState.run.appliedRunId = runId;
+      markRunProgress();
       lastStableResult = liveData;
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
@@ -3580,7 +3590,8 @@
         return;
       }
       const viewRunId = (viewData && typeof viewData.run_id === "string") ? viewData.run_id : "";
-      if (activeRunId && viewRunId !== activeRunId) {
+      const isCoreCompareFallback = !!(viewData && viewData.__core_compare_v1_fallback);
+      if (activeRunId && viewRunId && viewRunId !== activeRunId && !isCoreCompareFallback) {
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
           const banner = `<div class="infoBanner"><span id="run-sticky-meta">${escapeHtml(runStatusLine(slotState.run.phase === "stalled"))}</span></div>`;
