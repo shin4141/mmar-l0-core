@@ -2339,7 +2339,8 @@
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
     const compareConfigured = compareIsConfigured();
     const compareNotSetText = compareNotSetMessage();
-    const afterNormalized = compareConfigured
+    const coreCanCompare = (mode === "live" && viewSource === "core");
+    const afterNormalized = (compareConfigured || coreCanCompare)
       ? sanitizeOptionDisplay(after, before || qEl.value || "")
       : compareNotSetText;
     const afterWithSource = staleDeep ? freezeAfterForMismatch(afterNormalized) : afterNormalized;
@@ -2361,8 +2362,19 @@
     const slotProgress = computeRequiredProgress(getEffectiveRequiredFields());
     const slotReadyNow = slotState.showPanel && deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
     const deepGateOpen = slotReadyNow && compareConfigured;
-    const deepAction = deepReady
-      ? `<button id="after-deep-btn" type="button" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${slotProgress.missing.length}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
+    const deepDisabledReasons = [];
+    if (deepRunning || liveStatus === "running") deepDisabledReasons.push("Running...");
+    if (!compareConfigured) deepDisabledReasons.push("Lock Compare to enable Deep");
+    if (slotProgress.missing.length > 0) deepDisabledReasons.push(`Fill required fields: ${slotProgress.missing[0]}`);
+    if (liveCoreOnly) deepDisabledReasons.push("CORE ONLY mode");
+    if (!lastSubmittedInput) deepDisabledReasons.push("Run once first");
+    const deepDisabledReason = deepDisabledReasons[0] || "";
+    const deepDisabled = !!deepDisabledReason;
+    const deepAction = (mode === "live")
+      ? `<span style="display:inline-flex; align-items:center; gap:6px; margin-right:6px;">
+          <button id="after-deep-btn" type="button" ${deepDisabled ? "disabled" : ""} title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px; ${(!deepDisabled) ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && !deepDisabled) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>
+          ${deepDisabledReason ? `<span class="muted">${escapeHtml(deepDisabledReason)}</span>` : ""}
+        </span>`
       : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
     const lockNextFromAfter = pickSectionLines(after || "", "NEXT")[0] || "";
@@ -2740,36 +2752,6 @@
       });
       console.debug("[DG] run_start", { runId, runKey: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "" });
       renderSlotPanel();
-      if (!compareIsConfigured()) {
-        const cmpTxt = compareNotSetMessage();
-        const coreData = {
-          ok: true,
-          run_id: runId,
-          compare: cmpTxt,
-          expand: cmpTxt,
-          diff: "",
-          merge: cmpTxt,
-        };
-        applyCoreResult(coreData, submittedInput);
-        await loadActive();
-        analysisStatus = "ok";
-        analysisError = null;
-        slotState.run.phase = "done";
-        slotState.run.errorMsg = "";
-        slotState.run.lastMs = Math.max(0, Date.now() - (slotState.run.startedAt || Date.now()));
-        slotState.run.appliedRunId = runId;
-        markRunProgress();
-        console.debug("[DG] run_done", { runId, ms: slotState.run.lastMs, compareNotSet: true });
-        liveHintEl.textContent = "COMPARE_NOT_SET: lock Compare A/B first";
-        liveStatus = "ready";
-        liveResultBadgeEl.textContent = "Core";
-        liveResultBadgeEl.style.display = "inline-block";
-        liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
-        setRunVisual("ready", "2.8s");
-        renderMode();
-        updateCtrlPanel();
-        return;
-      }
     }
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
