@@ -277,6 +277,7 @@
   let deepSessionId = 0;
   let deepAutoRetryToken = "";
   let lastStableResult = null;
+  let coreCompareV1FallbackActive = false;
   let analysisStatus = "idle";
   let analysisError = null;
   let slotDebugEnabled = false;
@@ -765,6 +766,27 @@
     }
   }
 
+  function extractPriorityAxisFromText(text){
+    const s = String(text || "");
+    if (!s) return "";
+    const m = s.match(/(?:優先軸|priority_axis|PriorityAxis)\s*[:：=]\s*([^\n,，;；。]+)/i);
+    if (!m) return "";
+    return String(m[1] || "").trim().replace(/^["'`]|["'`]$/g, "");
+  }
+
+  function resolvePriorityAxis(inputText){
+    sanitizeExtraState();
+    const fromExtra = String((slotState.extra && slotState.extra.priority_axis) || "").trim();
+    if (fromExtra) return { value: fromExtra, source: "extra" };
+    const fromInput = extractPriorityAxisFromText(inputText || lastSubmittedInput || qEl.value || "");
+    if (fromInput) {
+      slotState.extra = slotState.extra || {};
+      slotState.extra.priority_axis = fromInput;
+      return { value: fromInput, source: "input" };
+    }
+    return { value: "", source: "none" };
+  }
+
   function autoFillMissing(missingKeys){
     if (!AUTO_FILL_UNKNOWN_REQUIRED) return;
     slotState.extra = slotState.extra || {};
@@ -832,7 +854,7 @@
     const requiredOk = req.every((f) => hasFieldValue(f));
     const riskOk = hasFieldValue("risk");
     const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
-    const compareOk = compareHasPair();
+    const compareOk = compareIsConfigured();
     return requiredOk && riskOk && conflictOk && compareOk;
   }
 
@@ -854,7 +876,7 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
-    if (!compareHasPair()) blockers.push("compare_not_set");
+    if (!compareIsConfigured()) blockers.push("compare_not_locked");
     const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
@@ -911,6 +933,10 @@
     } catch (e) {
       console.error("[DG] dgDebug failed", tag, e);
     }
+  }
+
+  function blockRun(reason, extra = {}){
+    dgDebug("run_blocked", { reason, ...extra });
   }
 
   async function dgShield(tag, fn){
@@ -1008,6 +1034,7 @@
 
   function buildDeepPayload(submittedInput, runId){
     sanitizeExtraState();
+    const priority = resolvePriorityAxis(submittedInput);
     const req = getDeepRequiredSnapshot();
     const slots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
     const normalizedSlots = normalizeSlots(slotState.selected || {}, slotState.extra || {});
@@ -1030,6 +1057,7 @@
       },
       confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
       domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
+      priority_axis_source: priority.source,
     };
   }
 
@@ -1054,6 +1082,7 @@
     liveDataCore = normalizedCore;
     liveDataDeep = null;
     liveDataView = "core";
+    coreCompareV1FallbackActive = false;
     lastStableResult = normalizedCore;
     if (normalizedCore && normalizedCore.health_sha && normalizedCore.model_cfg_hash && normalizedCore.input_hash) {
       const key = makeCacheKey("core", normalizedCore.input_hash, normalizedCore.health_sha, normalizedCore.model_cfg_hash);
@@ -1372,6 +1401,7 @@
 
   function buildDeepPrompt(baseQuestion){
     const q = String(baseQuestion || "").trim();
+    const priority = resolvePriorityAxis(q);
     const amount = slotState.selected.amount || "未入力";
     const horizon = slotState.selected.horizon || "未入力";
     const goal = slotState.selected.goal || "未入力";
@@ -1451,10 +1481,107 @@
       + `- Goal: ${goal}\n`
       + `- Risk: ${risk}\n`
       + `- Constraint: ${constraint}\n\n`
+      + `- PriorityAxis: ${priority.value || "未指定"}\n\n`
       + `Normalized slots: ${JSON.stringify(normalized)}\n\n`
       + "Task:\n"
       + `${taskLines.join("\n")}\n`
     );
+  }
+
+  function clampScore(v){
+    return Math.max(0, Math.min(5, Number(v || 0)));
+  }
+
+  function buildCoreCompareV1Text(compare, selected){
+    const c = compare || {};
+    const s = selected || {};
+    const a = normalizeCompareText(c.a) || "Option A";
+    const b = normalizeCompareText(c.b) || "Option B";
+    const risk = s.risk || "中";
+    const horizon = s.horizon || "短期";
+    const amount = s.amount || "中";
+    const goal = s.goal || "未入力";
+    const constraint = s.constraint || "未入力";
+    const isAHighVol = /(課金|ギャンブル|借金|夜キャバ|投機|ハイリスク)/i.test(a);
+    const isBHighVol = /(課金|ギャンブル|借金|夜キャバ|投機|ハイリスク)/i.test(b);
+    const upsideA = clampScore(3 + (isAHighVol ? 1 : 0) + (goal === "増やす" ? 1 : 0) - (goal === "守る" ? 1 : 0));
+    const upsideB = clampScore(3 + (isBHighVol ? 1 : 0) + (goal === "増やす" ? 1 : 0) - (goal === "守る" ? 1 : 0));
+    let downsideA = clampScore(3 + (isAHighVol ? 2 : 0));
+    let downsideB = clampScore(3 + (isBHighVol ? 2 : 0));
+    let regretA = clampScore(3 + (horizon === "長期" ? (isAHighVol ? 2 : 1) : (isAHighVol ? 1 : 0)));
+    let regretB = clampScore(3 + (horizon === "長期" ? (isBHighVol ? 2 : 1) : (isBHighVol ? 1 : 0)));
+    let revA = clampScore(3 + (amount === "大" ? (isAHighVol ? 2 : 1) : (amount === "小" ? -1 : 0)));
+    let revB = clampScore(3 + (amount === "大" ? (isBHighVol ? 2 : 1) : (amount === "小" ? -1 : 0)));
+    if (risk === "高") {
+      downsideA = clampScore(downsideA + 1);
+      downsideB = clampScore(downsideB + 1);
+      regretA = clampScore(regretA + 1);
+      regretB = clampScore(regretB + 1);
+    }
+    const totalA = clampScore(5 - downsideA) + clampScore(5 - regretA) + clampScore(5 - revA) + upsideA;
+    const totalB = clampScore(5 - downsideB) + clampScore(5 - regretB) + clampScore(5 - revB) + upsideB;
+    const lean = totalA > totalB ? a : (totalB > totalA ? b : "ほぼ同等（暫定）");
+    const caution = (risk === "高" || amount === "大")
+      ? "分割実行・上限設定・途中撤退条件を先に置く"
+      : "小さく試して差分観察";
+    const longHorizonNote = horizon === "長期" ? "長期後悔を重視（短期快楽の反動を割引しない）" : "短期の可逆性を優先";
+    return [
+      "MODE: COMPARE_V1_FALLBACK",
+      "CALL: CORE_COMPARE_V1",
+      `APPLIED_SLOTS: Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}`,
+      "COMPARE:",
+      `- A: ${a}`,
+      `- B: ${b}`,
+      "AXES:",
+      "- UPSIDE（得られるもの）",
+      "- DOWNSIDE（失うもの）",
+      "- REGRET（後悔しやすさ）",
+      "- REVERSIBILITY（引き返し可能性）",
+      "SCORE_TABLE:",
+      `- UPSIDE: A=${upsideA}, B=${upsideB}, note=Goal=${goal}を加味`,
+      `- DOWNSIDE: A=${downsideA}, B=${downsideB}, note=Risk=${risk}なら注意を増やす`,
+      `- REGRET: A=${regretA}, B=${regretB}, note=${longHorizonNote}`,
+      `- REVERSIBILITY: A=${revA}, B=${revB}, note=Amount=${amount}なら可逆性重視`,
+      "TRADEOFFS:",
+      `- Aが勝つ条件: ${a}で得る上振れを取りにいく価値が、下振れ許容より大きい`,
+      `- Bが勝つ条件: ${b}の下振れ管理が優先で、期待値より安定を取る`,
+      `- 共通ガード: ${caution}`,
+      "DECISION:",
+      `- If Risk=高: 高下振れ案は上限と撤退条件を先に固定`,
+      `- If Horizon=長期: 一時満足より長期後悔が小さい案を優先`,
+      `- If Amount=大: 一括より分割・保守寄りで可逆性を確保`,
+      `- Default: ${lean}`,
+    ].join("\n");
+  }
+
+  function applyCoreCompareV1Fallback(reason = "insufficient_context"){
+    if (!compareIsConfigured()) return "";
+    const text = buildCoreCompareV1Text(slotState.compare || {}, slotState.selected || {});
+    const base = (liveDataCore && typeof liveDataCore === "object") ? { ...liveDataCore } : {};
+    liveDataCore = {
+      ...base,
+      compare: text,
+      expand: text,
+      merge: text,
+      diff: "",
+      deep_status: "insufficient",
+      fallback_reason_primary: reason,
+      quality_label: "fallback",
+      __core_compare_v1_fallback: true,
+    };
+    liveDataView = "core";
+    liveData = liveDataCore;
+    lastStableResult = liveDataCore;
+    coreCompareV1FallbackActive = true;
+    dgDebug("core_compare_v1_fallback", {
+      reason,
+      compare_a: normalizeCompareText(slotState.compare && slotState.compare.a),
+      compare_b: normalizeCompareText(slotState.compare && slotState.compare.b),
+      risk: slotState.selected && slotState.selected.risk,
+      horizon: slotState.selected && slotState.selected.horizon,
+      amount: slotState.selected && slotState.selected.amount,
+    });
+    return text;
   }
 
   function renderSlotPanel(){
@@ -2366,12 +2493,21 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const compareConfigured = compareHasPair();
+    const compareConfigured = compareIsConfigured();
     const compareNotSetText = compareNotSetMessage();
-    const coreCanCompare = (mode === "live" && viewSource === "core");
-    const afterNormalized = (compareConfigured || coreCanCompare)
-      ? sanitizeOptionDisplay(after, before || qEl.value || "")
-      : compareNotSetText;
+    const deepSucceeded = (mode === "live" && liveDataDeep && deepMetaStatus === "ok");
+    const deepInsufficient = (mode === "live" && (deepMetaStatus === "insufficient" || deepMetaReason === "insufficient_context"));
+    let afterBase = sanitizeOptionDisplay(after, before || qEl.value || "");
+    if (mode === "live" && !compareConfigured) {
+      afterBase = compareNotSetText;
+    } else if (deepSucceeded) {
+      const deepAfter = primaryAfterTextFromData(liveDataDeep);
+      if (deepAfter) afterBase = sanitizeOptionDisplay(deepAfter, before || qEl.value || "");
+    } else if (compareConfigured && deepInsufficient && coreCompareV1FallbackActive && liveDataCore) {
+      const fallbackAfter = primaryAfterTextFromData(liveDataCore);
+      if (fallbackAfter) afterBase = sanitizeOptionDisplay(fallbackAfter, before || qEl.value || "");
+    }
+    const afterNormalized = afterBase;
     const afterWithSource = staleDeep ? freezeAfterForMismatch(afterNormalized) : afterNormalized;
     const slotEffectFromData = (viewDataForBadges && viewDataForBadges.slot_effect && typeof viewDataForBadges.slot_effect === "object")
       ? viewDataForBadges.slot_effect
@@ -2382,21 +2518,13 @@
       : "";
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
-    const viewToggle = (mode === "live" && !!liveDataCore)
-      ? `<span style="display:inline-flex; gap:4px; margin-right:6px;">
-          <button id="after-view-core" ${liveDataView === "core" ? "disabled" : ""} style="padding:2px 8px;">Core</button>
-          <button id="after-view-deep" ${(liveDataDeep && typeof liveDataDeep === "object") ? "" : "disabled"} ${liveDataView === "deep" ? "disabled" : ""} style="padding:2px 8px;">Deep</button>
-        </span>`
-      : "";
+    const viewToggle = "";
     const slotProgress = computeRequiredProgress(getEffectiveRequiredFields());
-    const slotReadyNow = slotState.showPanel && deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
-    const deepGateOpen = slotReadyNow && compareConfigured;
+    const canCompare = compareIsConfigured();
+    const deepGateOpen = canCompare;
     const deepDisabledReasons = [];
     if (deepIsBusy()) deepDisabledReasons.push(slotState.deep.phase === "polling" ? "Polling..." : "Deep running...");
-    if (!compareConfigured) deepDisabledReasons.push("Set Compare A/B to enable Deep");
-    if (slotProgress.missing.length > 0) deepDisabledReasons.push(`Fill required fields: ${slotProgress.missing[0]}`);
-    if (liveCoreOnly) deepDisabledReasons.push("CORE ONLY mode");
-    if (!lastSubmittedInput) deepDisabledReasons.push("Run once first");
+    if (!canCompare) deepDisabledReasons.push("Lock Compare to enable Deep");
     const deepDisabledReason = deepDisabledReasons[0] || "";
     const deepDisabled = !!deepDisabledReason;
     const deepAction = (mode === "live")
@@ -2422,7 +2550,7 @@
     const deepLockRemain = slotProgress.missing.length;
     const deepLockNext = deepLockRemain > 0 ? String(slotProgress.missing[0]) : "";
     const deepLockNote = (!deepGateOpen && slotState.showPanel)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: ${compareConfigured ? `あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${deepLockNext ? ` / next: ${escapeHtml(deepLockNext)}` : ""}` : "Compare A/B を入力してください"}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: Lock Compare to enable Deep</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && (deepMetaStatus !== "ok" || analysisStatus === "error"))
@@ -2431,6 +2559,9 @@
     const deepStatusShowSet = new Set(["partial", "insufficient", "timeout", "llm_error", "schema_invalid", "error"]);
     const showDeepStatusBadge = (mode === "live" && viewSource === "deep" && deepStatusShowSet.has(deepMetaStatus));
     const showCoreErrorBadge = (mode === "live" && viewSource === "core" && analysisStatus === "error");
+    const fallbackBadge = (mode === "live" && coreCompareV1FallbackActive)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep unavailable → Core Compare-v1 fallback</span>`
+      : "";
     const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
@@ -2441,7 +2572,7 @@
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Slot mismatch</span>`
       : "";
     const deepLockBadge = (!deepGateOpen && slotState.showPanel)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: ${escapeHtml(compareConfigured ? (deepLockNext || "fill required fields") : "compare_not_set")}</span>`
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: lock compare</span>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -2513,7 +2644,7 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${fallbackBadge}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
@@ -2565,6 +2696,7 @@
           } else if (field === "use" || (deepMetaDomain === "asset_allocation" && /(住む|貸す|未定)/.test(choice))) {
             normalized = /用途/.test(base) ? base.replace(/用途\s*[:：=]\s*([^\s]+)/, `用途=${choice}`) : `${base} 用途=${choice}`;
           } else if (field === "priority_axis") {
+            setExtraField("priority_axis", choice);
             normalized = /優先軸/.test(base) ? base.replace(/優先軸\s*[:：=]\s*([^\s]+)/, `優先軸=${choice}`) : `${base} 優先軸=${choice}`;
           } else if (field === "task_mix_ratio" || deepMetaDomain === "ai_tool_subscription_compare") {
             normalized = /主用途比率/.test(base) ? base.replace(/主用途比率\s*[:：=]\s*([^\s]+)/, `主用途比率=${choice}`) : `${base} 主用途比率=${choice}`;
@@ -2624,55 +2756,48 @@
             refreshDeepReadiness(false);
             return;
           }
-          const reqNow = getDeepRequiredSnapshot();
-          let progNow = computeRequiredProgress(reqNow);
-          if (progNow.missing.length > 0) {
-            autoFillMissing(progNow.missing);
-            syncRequiredFields();
-            progNow = computeRequiredProgress(reqNow);
-          }
-          snapshot("before_deep_click_effective");
-          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareHasPair();
-          if (!deepNowEnabled) {
-            if (!compareHasPair()) {
-              liveHintEl.textContent = "Deep locked: compare_not_set";
-              setLastBlockReason("compare_not_set");
-              refreshDeepReadiness(false);
-              const panel = document.getElementById("slot-panel");
-              if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
-              return;
-            }
-            snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing });
-            liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
-            setLastBlockReason(progNow.missing[0] || "required_missing");
+          if (!compareIsConfigured()) {
+            liveHintEl.textContent = "Deep locked: Lock Compare to enable Deep";
+            setLastBlockReason("compare_not_locked");
             refreshDeepReadiness(false);
-            const panel = document.getElementById("slot-panel");
-            if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
             return;
           }
-          // Hard guard: never call deep while effective required fields still have missing items.
-          const effReq = reqNow;
-          const effProg = progNow;
-          if (effProg.missing.length > 0) {
-            snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: effReq, missing: effProg.missing });
-            liveHintEl.textContent = `Deep locked: ${effProg.missing[0] || "required_missing"}`;
-            setLastBlockReason(effProg.missing[0] || "required_missing");
-            refreshDeepReadiness(false);
-            const panel = document.getElementById("slot-panel");
-            if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
-            return;
-          }
-          slotState.requiredFields = uniqKeys(effReq);
           setLastBlockReason("");
           refreshDeepReadiness(false);
-          snapshot("before_deep_click_effective", { required: effReq, missing: effProg.missing });
+          snapshot("before_deep_click_effective", { compareLocked: true });
           const deepInput = buildDeepPrompt(lastSubmittedInput || qEl.value || "");
-          await runLive("deep", deepInput);
+          const forceRerun = ((slotState.deep && slotState.deep.phase) || "") === "done";
+          await onClickRunSafe({
+            mode: "deep",
+            inputOverride: deepInput,
+            force: forceRerun,
+            reason: forceRerun ? "rerun" : "deep_button",
+          });
         });
         if (liveStatus !== "running" && slotState.deep.phase === "running") {
           setDeepPhase("idle", { runId: "", tries: 0, errorMsg: "" });
         }
       });
+    }
+  }
+
+  async function onClickRunSafe(opts = {}){
+    const force = !!(opts && opts.force);
+    const reason = (opts && typeof opts.reason === "string" && opts.reason) ? opts.reason : "run";
+    const forceMode = (opts && typeof opts.mode === "string" && opts.mode) ? opts.mode : "core";
+    const inputOverride = (opts && typeof opts.inputOverride === "string") ? opts.inputOverride : undefined;
+    const allowDuplicate = !!(opts && opts.allowDuplicate);
+    dgDebug("run_invoke", {
+      force,
+      reason,
+      mode: forceMode,
+      runLock: !!(slotState.exec && slotState.exec.runLock),
+      deepPhase: (slotState.deep && slotState.deep.phase) || "idle",
+    });
+    try {
+      await runLive(forceMode, inputOverride, { allowDuplicate, force, reason });
+    } catch (e) {
+      dgDebug("run_exception", { err: String(e), stack: e && e.stack ? e.stack : "" });
     }
   }
 
@@ -2686,8 +2811,28 @@
     activeRunId = runId;
     const isDeep = (apiMode === "think" || apiMode === "deep");
     const allowDuplicate = !!(opts && opts.allowDuplicate);
+    const force = !!(opts && opts.force);
+    const reason = (opts && typeof opts.reason === "string" && opts.reason) ? opts.reason : "run";
     const nowMs = Date.now();
     const lockNonce = makeRunId();
+    if (force) {
+      slotState.exec = slotState.exec || {};
+      slotState.exec.runLock = false;
+      slotState.exec.runNonce = "";
+      slotState.exec.lastRunKey = "";
+      slotState.exec.lastRunAt = 0;
+      slotState.exec.currentRunKey = "";
+      slotState.exec.lastDeepKey = "";
+      slotState.exec.lastDeepAt = 0;
+      slotState.exec.currentDeepKey = "";
+      if (slotState.deep) {
+        slotState.deep.phase = "idle";
+        slotState.deep.jobId = "";
+        slotState.deep.errorMsg = "";
+        slotState.deep.tries = 0;
+      }
+      dgDebug("run_force_reset", { reason, mode: apiMode });
+    }
     if (!isDeep) {
       const decided = decideABMode(submittedInput, "run");
       console.debug("[DG] ab_mode_decided", {
@@ -2697,11 +2842,13 @@
       });
       const runKey = buildRunKey(submittedInput);
       if (slotState.exec.runLock) {
+        blockRun("runLock", { runKey, reason });
         dgDebug("run_blocked_lock", { runKey });
         liveHintEl.textContent = "Run locked: previous run still active";
         return;
       }
-      if (!allowDuplicate && slotState.exec.lastRunKey === runKey && (nowMs - (slotState.exec.lastRunAt || 0) < 3000)) {
+      if (!force && !allowDuplicate && slotState.exec.lastRunKey === runKey && (nowMs - (slotState.exec.lastRunAt || 0) < 3000)) {
+        blockRun("dedupe", { runKey, reason });
         dgDebug("run_blocked_dedupe", { runKey });
         liveHintEl.textContent = "Run deduped: same input";
         return;
@@ -2724,7 +2871,8 @@
           errorMsg: "superseded_by_new_deep",
         });
       }
-      if (!allowDuplicate && slotState.exec.lastDeepKey === deepKey && (nowMs - (slotState.exec.lastDeepAt || 0) < 3000)) {
+      if (!force && !allowDuplicate && slotState.exec.lastDeepKey === deepKey && (nowMs - (slotState.exec.lastDeepAt || 0) < 3000)) {
+        blockRun("dedupe", { deepKey, reason });
         dgDebug("deep_blocked_dedupe", { deepKey });
         liveHintEl.textContent = "Deep deduped: same input";
         return;
@@ -2789,10 +2937,10 @@
       releaseEarlyLock();
       return;
     }
-    if (isDeep && !compareHasPair()) {
-      liveHintEl.textContent = "Deep locked: compare_not_set";
+    if (isDeep && !compareIsConfigured()) {
+      liveHintEl.textContent = "Deep locked: Lock Compare to enable Deep";
       setDeepPhase("idle", { runId: "", jobId: "", errorMsg: "", tries: 0 });
-      setLastBlockReason("compare_not_set");
+      setLastBlockReason("compare_not_locked");
       refreshDeepReadiness(false);
       releaseEarlyLock();
       return;
@@ -3041,6 +3189,11 @@
         source: slotState.abModeSource || "auto",
         hits: slotState.abModeHits || [],
       });
+      dgDebug("deep_payload_check", {
+        priority_axis: (deepPayload.normalized_slots && deepPayload.normalized_slots.priority_axis) || "",
+        priority_axis_source: deepPayload.priority_axis_source || "none",
+        required_fields: deepPayload.required_fields || [],
+      });
       dgDebug("calling_deep_api", { payload: deepPayload });
       setLastBlockReason("");
       refreshDeepReadiness(false);
@@ -3060,19 +3213,13 @@
         refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-        const postReq = getDeepRequiredSnapshot();
-        const postProg = computeRequiredProgress(postReq);
-        if (AUTO_FILL_UNKNOWN_REQUIRED && postProg.missing.length === 0 && deepAutoRetryToken !== inputHash) {
-          deepAutoRetryToken = inputHash;
-          dgDebug("deep_autoretry_once", { reason: "insufficient_context_recovered", required: postReq });
-          await runLive("deep", submittedInput, { allowDuplicate: true });
-          return;
-        }
-        setDeepPhase("error", { runId, errorMsg: "insufficient_context", tries: Number(slotState.deep.tries || 0) });
+        applyCoreCompareV1Fallback("insufficient_context");
+        setDeepPhase("done", { runId, errorMsg: "", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
         liveStatus = "ready";
-        liveHintEl.textContent = "Deep blocked: insufficient_context";
+        liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
         setRunVisual("ready", "2.8s");
+        await loadActive();
         updateCtrlPanel();
         return;
       }
@@ -3245,6 +3392,7 @@
             }
             if (deepStatus === "ok" || deepStatus === "partial") {
               setLastBlockReason("");
+              coreCompareV1FallbackActive = false;
               liveDataView = "deep";
               liveData = liveDataDeep;
               lastStableResult = liveDataDeep;
@@ -3263,14 +3411,8 @@
                 promoteServerMissing(missingRaw, j.next_question);
                 refreshDeepReadiness();
                 setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-                const postReq = getDeepRequiredSnapshot();
-                const postProg = computeRequiredProgress(postReq);
-                if (AUTO_FILL_UNKNOWN_REQUIRED && postProg.missing.length === 0 && deepAutoRetryToken !== inputHash) {
-                  deepAutoRetryToken = inputHash;
-                  dgDebug("deep_autoretry_once", { reason: "job_done_insufficient_recovered", required: postReq });
-                  await runLive("deep", submittedInput, { allowDuplicate: true });
-                  return;
-                }
+                applyCoreCompareV1Fallback("insufficient_context");
+                liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
               }
               dgDebug("deep_failed", {
                 code: deepStatus,
@@ -3328,8 +3470,19 @@
         await runLive("deep", submittedInput, { allowDuplicate: true });
         return;
       }
-      liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
-      liveHintEl.textContent = lint.ok ? "Live ready" : "Live ready (format mismatch)";
+      const finalDeepStatus = (typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "ok";
+      const finalFallback = (typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
+        ? liveDataDeep.fallback_reason_primary
+        : ((typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "");
+      if (finalDeepStatus === "insufficient" || finalFallback === "insufficient_context") {
+        applyCoreCompareV1Fallback("insufficient_context");
+        liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
+      } else {
+        coreCompareV1FallbackActive = false;
+        liveDataView = "deep";
+        liveData = liveDataDeep;
+        liveHintEl.textContent = lint.ok ? "Live ready" : "Live ready (format mismatch)";
+      }
       liveStatus = "ready";
       setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
       isRunning = false;
@@ -3372,6 +3525,7 @@
       if (!isDeep) {
         if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
       }
+      dgDebug("run_unlock", { mode: apiMode, reason });
       renderMode();
     }
   }
@@ -3520,7 +3674,7 @@
       });
       console.debug("[DG] run_click");
       liveHintEl.textContent = "RUN: core requested";
-      await runLive("core");
+      await onClickRunSafe({ mode: "core", reason: "run_button" });
     });
     isRunning = false;
   };
