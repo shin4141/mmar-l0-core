@@ -285,6 +285,7 @@
   }
   (function(){
     const KEY = "DG_LOG_RING_V1";
+    const HUD_VISIBLE_KEY = "DG_HUD_VISIBLE_V1";
     let ring = [];
     try {
       ring = JSON.parse(localStorage.getItem(KEY) || "[]");
@@ -309,6 +310,9 @@
         const pre = document.createElement("pre");
         pre.style.cssText = "position:fixed;right:8px;bottom:8px;width:520px;max-height:40vh;overflow:auto;z-index:999999;background:rgba(0,0,0,.85);color:#9ef;padding:10px;border-radius:10px;font:12px/1.35 ui-monospace,Menlo,monospace;white-space:pre-wrap;";
         pre.textContent = ring.slice(-40).join("\n");
+        let visible = false;
+        try { visible = localStorage.getItem(HUD_VISIBLE_KEY) === "1"; } catch (_) {}
+        pre.style.display = visible ? "block" : "none";
         document.body.appendChild(pre);
         window.__dgHud = pre;
       } catch (_) {}
@@ -328,6 +332,11 @@
         ring = [];
         if (window.__dgHud) window.__dgHud.textContent = "";
       } catch (_) {}
+    };
+    window.DG_HUD_SET_VISIBLE = (on) => {
+      const visible = !!on;
+      try { localStorage.setItem(HUD_VISIBLE_KEY, visible ? "1" : "0"); } catch (_) {}
+      if (window.__dgHud) window.__dgHud.style.display = visible ? "block" : "none";
     };
   })();
   window.addEventListener("beforeunload", () => {
@@ -1096,14 +1105,20 @@
     const optionShort = horizon === "短期" ? "即時検証を先に回す" : "段階プランで検証を積む";
     const amountHint = amount === "大" ? "可逆・分割・保守で進める" : "小さく試行して学習を優先";
     return (
-      `COMPARE_A: ${cmp.a}\n`
-      + `COMPARE_B: ${cmp.b}\n`
+      `COMPARE:\n`
+      + `- A: ${cmp.a}\n`
+      + `- B: ${cmp.b}\n`
+      + `AXES:\n`
+      + `- LEGITIMACY\n`
+      + `- HARM_RISK\n`
+      + `- STABILITY\n`
+      + `- REVERSIBILITY\n`
       + `WEIGHTS: legitimacy=${w.legitimacy} harm=${w.harm} stability=${w.stability} reversibility=${w.reversibility}\n`
       + `SCORE_TABLE:\n`
-      + `- LEGITIMACY: A=${legA}, B=${legB}, note=正当性の主張を比較\n`
-      + `- HARM_RISK: A=${harmA}, B=${harmB}, note=被害拡大リスクを比較\n`
-      + `- STABILITY: A=${stA}, B=${stB}, note=長期安定への寄与を比較\n`
-      + `- REVERSIBILITY: A=${rvA}, B=${rvB}, note=引き返し可能性を比較\n`
+      + `- LEGITIMACY: A=${legA}, B=${legB}, note=正当性の主張を比較（Risk=${risk}）\n`
+      + `- HARM_RISK: A=${harmA}, B=${harmB}, note=被害拡大リスクを比較（Risk=${risk}）\n`
+      + `- STABILITY: A=${stA}, B=${stB}, note=長期安定への寄与を比較（Horizon=${horizon}）\n`
+      + `- REVERSIBILITY: A=${rvA}, B=${rvB}, note=引き返し可能性を比較（Amount=${amount}）\n`
       + `TOTAL: A=${totalA} B=${totalB}\n`
       + `OPTIONS:\n`
       + `- If Goal=${goal} then ${optionShort}（Risk=${risk}）\n`
@@ -1112,10 +1127,15 @@
       + `- ${guardByRisk[0]}\n`
       + `- ${guardByRisk[1]}\n`
       + `- ${guardByRisk[2]}\n`
+      + `TRADEOFFS:\n`
+      + `- Aが勝つ条件: LEGITIMACY/STABILITYが高く、Riskが低〜中のとき\n`
+      + `- Bが勝つ条件: HARM_RISK/REVERSIBILITYで優位、または即時停止余地が高いとき\n`
+      + `- 境界条件: TOTAL差が小さい場合は追加証拠で反転\n`
       + `DECISION:\n`
       + `- If Risk=高: 被害拡大リスクが低い側を採用（HARM_RISK優先）\n`
       + `- If Horizon=長期: 長期安定の点が高い側を採用（STABILITY優先）\n`
-      + `- Otherwise: TOTALが高い側を採用\n`
+      + `- If Amount=大: 可逆性と撤退容易性を優先（REVERSIBILITY優先）\n`
+      + `- Default: TOTALが高い側を採用\n`
       + `NEXT_STEP:\n`
       + `- まず1つの実行条件を定義し、24h以内に再評価する（${amountHint}）\n`
     );
@@ -1172,10 +1192,19 @@
   function lintDeepOutputByMode(text, mode){
     const src = String(text || "");
     const needA = ["APPLIED_SLOTS:", "Hypotheses:", "Branches:", "Experiments:", "Open questions:"];
-    const needB = ["APPLIED_SLOTS:", "COMPARE_A:", "COMPARE_B:", "WEIGHTS:", "SCORE_TABLE:", "TOTAL:", "DECISION:", "Assumptions:", "Options:", "Guardrails:", "Next step:"];
+    const needB = ["APPLIED_SLOTS:", "COMPARE:", "AXES:", "WEIGHTS:", "SCORE_TABLE:", "TRADEOFFS:", "TOTAL:", "DECISION:", "Assumptions:", "Options:", "Guardrails:", "Next step:"];
     const required = (mode === "A") ? needA : needB;
     const missing = required.filter((k) => !new RegExp(`(^|\\n)\\s*${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i").test(src));
-    return { ok: missing.length === 0, missing, mode };
+    if (mode === "B") {
+      if (!/If\s+Risk\s*=\s*高/i.test(src)) missing.push("DECISION:If Risk=高");
+      if (!/If\s+Horizon\s*=\s*長期/i.test(src)) missing.push("DECISION:If Horizon=長期");
+      if (!/If\s+Amount\s*=\s*大/i.test(src)) missing.push("DECISION:If Amount=大");
+      if (!/Default\s*:/i.test(src)) missing.push("DECISION:Default");
+      const rationaleRows = (src.match(/SCORE_TABLE:[\s\S]*?(?:\n[A-Z_]+:|$)/i) || [""])[0];
+      const rationaleHit = (rationaleRows.match(/(Risk|Horizon|Amount)/g) || []).length;
+      if (rationaleHit < 2) missing.push("SCORE_TABLE:rationale_slot_refs");
+    }
+    return { ok: missing.length === 0, missing: uniqKeys(missing), mode };
   }
 
   function verifyAppliedSlots(text, selected, extra){
@@ -1247,18 +1276,23 @@
     const taskLinesB = [
       "- MODE=B (BUILD). Focus on concrete decision and implementation.",
       ...taskLinesCommon,
-      `- Output MUST include: "COMPARE_A: ${cmp.a}"`,
-      `- Output MUST include: "COMPARE_B: ${cmp.b}"`,
+      "- Output MUST include COMPARE section:",
+      `  - A: ${cmp.a}`,
+      `  - B: ${cmp.b}`,
+      "- Output MUST include AXES section with fixed 4 axes: LEGITIMACY, HARM_RISK, STABILITY, REVERSIBILITY.",
       `- Output MUST include: "WEIGHTS: legitimacy=1 harm=${w.harm} stability=${w.stability} reversibility=${w.reversibility}"`,
       "- Output MUST include SCORE_TABLE with exactly 4 rows (LEGITIMACY/HARM_RISK/STABILITY/REVERSIBILITY) in format: Axis: A=x, B=y, note=...",
+      "- At least 2 SCORE_TABLE rationale lines must explicitly include one of: Risk/Horizon/Amount.",
+      "- Output MUST include TRADEOFFS with 3 bullets and include both 'Aが勝つ条件' and 'Bが勝つ条件'.",
       "- Output MUST include TOTAL line: TOTAL: A=<num> B=<num>",
-      "- Output MUST include DECISION with 3 lines: If Risk=高, If Horizon=長期, Otherwise",
+      "- Output MUST include DECISION with exactly 4 lines: If Risk=高, If Horizon=長期, If Amount=大, Default.",
       "- Required headings (exact):",
       "  Assumptions:",
-      "  COMPARE_A:",
-      "  COMPARE_B:",
+      "  COMPARE:",
+      "  AXES:",
       "  WEIGHTS:",
       "  SCORE_TABLE:",
+      "  TRADEOFFS:",
       "  TOTAL:",
       "  DECISION:",
       "  Options:",
@@ -2175,6 +2209,7 @@
     const sourceBadge = (mode === "live")
       ? `<span class="pillBadge">Source: ${viewSource === "deep" ? "Deep" : "Core"}</span>`
       : "";
+    const protocolBadge = `<span class="pillBadge">Protocol: Compare-v1</span>`;
     const runKeyBadge = `<span class="pillBadge">runKey:${escapeHtml((slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8))}</span>`;
     const deepKeyBadge = `<span class="pillBadge">deepKey:${escapeHtml((slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8))}</span>`;
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
@@ -2239,7 +2274,7 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
@@ -3196,9 +3231,11 @@
   };
   document.getElementById("reload").onclick = loadActive;
   if (slotDebugToggleEl) {
+    try { slotDebugEnabled = localStorage.getItem("DG_HUD_VISIBLE_V1") === "1"; } catch (_) {}
     slotDebugToggleEl.checked = !!slotDebugEnabled;
     slotDebugToggleEl.onchange = () => {
       slotDebugEnabled = !!slotDebugToggleEl.checked;
+      if (window.DG_HUD_SET_VISIBLE) window.DG_HUD_SET_VISIBLE(slotDebugEnabled);
       if (slotSensitivityTestEl) slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
       dgDebug("slot_debug_toggle", { enabled: slotDebugEnabled });
     };
