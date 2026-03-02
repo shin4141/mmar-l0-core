@@ -85,6 +85,11 @@
       border:1px solid #7dd3fc; background:#e0f2fe; color:#075985; border-radius:10px;
       padding:8px 10px; font-size:12px; font-weight:700;
     }
+    .runningOverlay{
+      display:none;
+      margin-top:4px;
+      margin-bottom:8px;
+    }
     .winnerBanner{
       border:1px solid #0ea5e9; background:#f0f9ff; color:#0f172a; border-radius:12px;
       padding:10px 12px; font-size:14px; font-weight:800;
@@ -204,6 +209,7 @@
         <button id="quick-skip" title="Skip (soon)" disabled style="padding:2px 8px;">Skip</button>
       </div>
       <div class="runVisual" style="margin-top:4px; margin-bottom:8px;"><div id="run-bar" class="runBar state-idle"></div></div>
+      <div id="running-overlay" class="infoBanner runningOverlay"></div>
       <div id="out">Loading…</div>
     </div>
   </div>
@@ -234,6 +240,7 @@
   const stopLiveEl = document.getElementById("stop-live");
   const quickQualityEl = document.getElementById("quick-quality");
   const quickGateHintEl = document.getElementById("quick-gate-hint");
+  const runningOverlayEl = document.getElementById("running-overlay");
   const liveResultBadgeEl = document.getElementById("live-result-badge");
   const liveApiBaseEl = document.getElementById("live-api-base");
   const liveLastRunEl = document.getElementById("live-last-run");
@@ -1856,6 +1863,7 @@
       liveHintEl.textContent = "Live error: API base is empty";
     }
     coreOnlyBadgeEl.style.display = (mode === "live" && liveCoreOnly) ? "inline-block" : "none";
+    updateRunningBannerOnly();
   }
 
   function formatThinkTime(sec){
@@ -1981,17 +1989,22 @@
     return `Running (t=${t}s) runId=${cur} applied=${ap} — showing previous result`;
   }
 
-  function renderTickOnly(){
-    if (mode !== "live") return;
+  function updateRunningBannerOnly(){
+    if (!runningOverlayEl) return;
     const run = slotState.run || {};
-    const meta = document.getElementById("run-sticky-meta");
-    if (meta && (run.phase === "running" || run.phase === "stalled")) {
-      meta.textContent = runStatusLine(run.phase === "stalled");
-      if (run.phase === "stalled") {
-        meta.style.color = "#b91c1c";
-        meta.style.fontWeight = "800";
-      }
+    const show = (mode === "live") && (liveStatus === "running" || liveStatus === "slow" || isRunning || run.phase === "running" || run.phase === "stalled");
+    if (!show) {
+      runningOverlayEl.style.display = "none";
+      runningOverlayEl.textContent = "";
+      return;
     }
+    runningOverlayEl.style.display = "block";
+    runningOverlayEl.textContent = runStatusLine(run.phase === "stalled");
+  }
+
+  async function renderAll(){
+    await loadActive();
+    updateRunningBannerOnly();
   }
 
   function hashText16(text){
@@ -2157,16 +2170,11 @@
   }
 
   function clearLiveOutputForRun(){
-    liveData = null;
-    liveDataCore = null;
-    liveDataDeep = null;
-    liveDataView = "core";
-    outEl.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:12px;">
-        <details class="beforeBox" open><summary><span class="sumRow"><span class="sumLeft">Before (Single) <span class="small">(running)</span></span></span></summary><div class="preview"><pre class="subpre">Running...</pre></div></details>
-        <details class="afterBox" open><summary><span class="sumRow"><span class="sumLeft">After (MMAR) <span class="small">(running)</span></span></span></summary><div class="preview"><pre class="subpre">Running...</pre></div></details>
-      </div>
-    `;
+    // Keep previous content visible while running; overlay banner shows progress.
+    if (!lastStableResult) {
+      const fallback = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
+      if (fallback) lastStableResult = { ...fallback };
+    }
   }
 
   function updateCtrlPanel(){
@@ -2428,7 +2436,7 @@
     return `${out.join("\n")}\n\nOPTION_WARNING:\n- 抽出が不安定（要修正）\n`;
   }
 
-  function renderCompare(txt, stickyBannerHtml=""){
+  function renderCompare(txt){
     const input  = section(txt, "INPUT", "BEFORE(?:[^\\n]*)");
     let before = section(txt, "BEFORE(?:[^\\n]*)", "AFTER(?:[^\\n]*)");
     if (!before) before = section(txt, "SINGLE \\(seed\\)", "MMAR EXPAND \\(tab output\\)");
@@ -2643,7 +2651,6 @@
     if (leftUnlockEl) leftUnlockEl.innerHTML = leftUnlockPanel;
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
-        ${stickyBannerHtml}
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
@@ -2810,6 +2817,8 @@
       await runLive(forceMode, inputOverride, { allowDuplicate, force, reason });
     } catch (e) {
       dgDebug("run_exception", { err: String(e), stack: e && e.stack ? e.stack : "" });
+    } finally {
+      await renderAll();
     }
   }
 
@@ -3014,7 +3023,7 @@
         console.debug("[DG] run_done", { runId, ms: slotState.run.lastMs, cached: true });
       }
       setRunVisual("ready", "2.8s");
-      loadActive();
+      await renderAll();
       updateCtrlPanel();
       renderMode();
       releaseEarlyLock();
@@ -3145,6 +3154,7 @@
             setRunVisual("error", "2.8s");
             wCore.done();
             isRunning = false;
+            await renderAll();
             return;
           }
         }
@@ -3156,6 +3166,7 @@
           slotState.run.errorMsg = "run_id_mismatch";
           liveHintEl.textContent = "stale ignored (core run_id mismatch)";
           wCore.done();
+          await renderAll();
           return;
         }
         const okCore = coreData && ["compare", "expand", "diff", "merge"].every(k => typeof coreData[k] === "string");
@@ -3164,7 +3175,7 @@
           throw new Error("invalid core response shape");
         }
         applyCoreResult(coreData, submittedInput);
-        await loadActive();
+        await renderAll();
         if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
           try {
             renderCompare((coreData.compare && coreData.compare.trim()) ? coreData.compare : (coreData.expand || ""));
@@ -3235,7 +3246,7 @@
         slotState.run.appliedRunId = runId;
         markRunProgress();
         setRunVisual("ready", "2.8s");
-        await loadActive();
+        await renderAll();
         updateCtrlPanel();
         return;
       }
@@ -3439,7 +3450,7 @@
             setRunVisual("ready", "2.8s");
             runBarEl.style.width = "100%";
             setTimestamp();
-            await loadActive();
+            await renderAll();
             updateCtrlPanel();
             return;
           }
@@ -3510,7 +3521,7 @@
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
       setRunVisual("ready", "2.8s");
       setTimestamp();
-      loadActive();
+      await renderAll();
       updateCtrlPanel();
     } catch (e) {
       if (isDeep && myDeepSession !== deepSessionId) return;
@@ -3541,6 +3552,7 @@
         : `Live run failed\n\n${e}`;
       setRunVisual("error", "2.8s");
       updateCtrlPanel();
+      await renderAll();
     } finally {
       if (!isDeep) {
         if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
@@ -3563,16 +3575,15 @@
         isRunning = false;
         liveHintEl.textContent = "Stalled: No progress for 10s";
       }
-      renderTickOnly();
+      updateRunningBannerOnly();
       const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       if (!viewData){
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
-          const banner = `<div class="infoBanner"><span id="run-sticky-meta">${escapeHtml(runStatusLine(slotState.run.phase === "stalled"))}</span></div>`;
           if (active === "compare") {
-            renderCompare(stickyTxt, banner);
+            renderCompare(stickyTxt);
           } else {
-            outEl.innerHTML = `${banner}<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
+            outEl.innerHTML = `<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
           }
           return;
         }
@@ -3594,11 +3605,10 @@
       if (activeRunId && viewRunId && viewRunId !== activeRunId && !isCoreCompareFallback) {
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
-          const banner = `<div class="infoBanner"><span id="run-sticky-meta">${escapeHtml(runStatusLine(slotState.run.phase === "stalled"))}</span></div>`;
           if (active === "compare") {
-            renderCompare(stickyTxt, banner);
+            renderCompare(stickyTxt);
           } else {
-            outEl.innerHTML = `${banner}<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
+            outEl.innerHTML = `<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
           }
           return;
         }
@@ -3725,7 +3735,7 @@
   renderTabs();
   checkLiveHealth();
   loadActive();
-  setInterval(renderTickOnly, 1000);
+  setInterval(updateRunningBannerOnly, 1000);
 </script>
 </body>
 </html>
