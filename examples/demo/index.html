@@ -471,6 +471,16 @@
       tries: 0,
       errorMsg: "",
     },
+    deepOverlay: {
+      phase: "idle",
+      runId: "",
+      jobId: "",
+      startedAt: 0,
+      polls: 0,
+      lastPollAt: 0,
+      lastHttpHead: "",
+      lastReason: "",
+    },
     showPanel: false,
     showExtra: false,
     compare: {
@@ -527,7 +537,8 @@
 
   function deepIsBusy(){
     const p = slotState.deep && slotState.deep.phase;
-    return p === "running" || p === "polling";
+    const op = slotState.deepOverlay && slotState.deepOverlay.phase;
+    return p === "running" || p === "polling" || op === "starting" || op === "queued" || op === "polling" || op === "slow";
   }
 
   function setDeepPhase(phase, patch = {}){
@@ -549,6 +560,27 @@
       tries: Number(slotState.deep.tries || 0),
       errorMsg: slotState.deep.errorMsg || "",
     });
+  }
+
+  function setDeepOverlay(patch = {}){
+    slotState.deepOverlay = {
+      ...(slotState.deepOverlay || {}),
+      ...patch,
+    };
+    if (!slotState.deepOverlay.startedAt) slotState.deepOverlay.startedAt = Date.now();
+  }
+
+  function resetDeepOverlay(runId = ""){
+    slotState.deepOverlay = {
+      phase: "idle",
+      runId: String(runId || ""),
+      jobId: "",
+      startedAt: 0,
+      polls: 0,
+      lastPollAt: 0,
+      lastHttpHead: "",
+      lastReason: "",
+    };
   }
 
   function setDebugUiMode(on){
@@ -1596,21 +1628,185 @@
     return text;
   }
 
-  function startDeepOverlay(submittedInput){
+  function findDeepResultForRunId(files, runId){
+    const rid = String(runId || "").trim();
+    if (!rid) return null;
+    const entries = Object.entries(files || {});
+    for (const [view, text] of entries) {
+      const body = String(text || "");
+      if (!body.trim()) continue;
+      if (body.includes(rid) || new RegExp(`run[_ ]id\\s*[:=]\\s*${rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(body)) {
+        return { text: body, source: "reload_files", view, runId: rid };
+      }
+    }
+    return null;
+  }
+
+  async function reloadFilesForDeep(){
+    const files = {};
+    for (const spec of TAB_SPEC) {
+      try {
+        files[spec.key] = await fetchText(spec.file);
+      } catch (_) {
+        files[spec.key] = "";
+      }
+    }
+    return files;
+  }
+
+  async function applyDeepOverlayResult(data, runId, source){
+    const rid = String(runId || activeRunId || "");
+    const obj = (data && typeof data === "object") ? data : {};
+    const next = enforceDeepAssumptionsInData({ ...obj, run_id: rid || obj.run_id || "" });
+    liveDataDeep = next;
+    liveDataView = "deep";
+    liveData = liveDataDeep;
+    lastStableResult = liveDataDeep;
+    coreCompareV1FallbackActive = false;
+    deepOverlayNotice = "";
+    setDeepOverlay({
+      phase: "applied",
+      runId: rid,
+      jobId: "",
+      lastReason: `applied:${source}`,
+    });
+    liveHintEl.textContent = "Deep applied";
+    liveStatus = "ready";
+    await renderAll();
+  }
+
+  async function pollDeepOverlayJob(jobId, runId){
+    const apiBase = getApiBase();
+    const rid = String(runId || activeRunId || "");
+    const runPoll = async (intervalMs, limit, slowPhase) => {
+      for (let i = 0; i < limit; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        const polls = Number((slotState.deepOverlay && slotState.deepOverlay.polls) || 0) + 1;
+        setDeepOverlay({
+          phase: slowPhase ? "slow" : "polling",
+          runId: rid,
+          jobId: String(jobId || ""),
+          polls,
+          lastPollAt: Date.now(),
+        });
+        let j = null;
+        try {
+          const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
+          if (!jr.ok) {
+            setDeepOverlay({ lastReason: `poll_http_${jr.status}` });
+            continue;
+          }
+          j = await jr.json();
+          setDeepOverlay({ lastHttpHead: JSON.stringify(j).slice(0, 120) });
+        } catch (e) {
+          setDeepOverlay({ lastReason: `poll_exception:${String(e || "unknown")}` });
+          continue;
+        }
+        if (!j || typeof j !== "object") continue;
+        const pollRunId = (typeof j.run_id === "string") ? j.run_id : rid;
+        if (pollRunId && rid && pollRunId !== rid) {
+          setDeepOverlay({ lastReason: "poll_run_id_mismatch" });
+          continue;
+        }
+        if (j.status === "done") {
+          await applyDeepOverlayResult(j, rid, "job_poll");
+          return true;
+        }
+        if (j.status === "error" || j.status === "cancelled") {
+          setDeepOverlay({ phase: "failed", lastReason: `job_${j.status}:${String(j.error || "")}` });
+          deepOverlayNotice = "Deep attempt: failed";
+          return false;
+        }
+      }
+      return null;
+    };
+
+    const fast = await runPoll(500, 24, false);
+    if (fast != null) return fast;
+    setDeepOverlay({ phase: "slow", lastReason: "switch_to_slow_poll" });
+    deepOverlayNotice = "Deep: slow polling (continuing)";
+    const files = await reloadFilesForDeep();
+    const found = findDeepResultForRunId(files, rid);
+    if (found) {
+      await applyDeepOverlayResult({ compare: found.text, expand: found.text, merge: found.text, diff: "", run_id: rid }, rid, found.source);
+      return true;
+    }
+    const slow = await runPoll(2000, 30, true);
+    if (slow != null) return slow;
+    setDeepOverlay({ phase: "failed", lastReason: "timeout" });
+    deepOverlayNotice = `Deep attempt: timeout (jobId=${jobId})`;
+    return false;
+  }
+
+  async function startDeepOverlay(opts = {}){
+    const submittedInput = (typeof opts === "string") ? opts : (opts.submittedInput || lastSubmittedInput || qEl.value || "");
+    const force = !!(opts && typeof opts === "object" && opts.force);
+    const reason = (opts && typeof opts === "object" && opts.reason) ? String(opts.reason) : "auto_overlay";
+    const runId = (opts && typeof opts === "object" && opts.runId) ? String(opts.runId) : String(activeRunId || "");
     if (mode !== "live") return;
     if (!compareIsConfigured()) return;
     if (liveCoreOnly) return;
-    if (deepIsBusy()) return;
-    const deepInput = buildDeepPrompt(submittedInput || lastSubmittedInput || qEl.value || "");
-    deepOverlayNotice = "";
-    setTimeout(() => {
-      onClickRunSafe({
-        mode: "deep",
-        inputOverride: deepInput,
-        allowDuplicate: true,
-        reason: "auto_deep_overlay",
-      });
-    }, 0);
+    if (deepIsBusy() && !force) return;
+    const apiBase = getApiBase();
+    if (!apiBase) return;
+    const prevJobId = String((slotState.deepOverlay && slotState.deepOverlay.jobId) || (slotState.deep && slotState.deep.jobId) || "");
+    if (force && prevJobId) {
+      try {
+        await fetch(`${apiBase}/api/cancel/${encodeURIComponent(prevJobId)}`, { method: "POST" });
+      } catch (_) {}
+    }
+    resetDeepOverlay(runId);
+    setDeepOverlay({
+      phase: "starting",
+      runId,
+      startedAt: Date.now(),
+      lastReason: reason,
+      polls: 0,
+      jobId: "",
+      lastHttpHead: "",
+    });
+    deepOverlayNotice = "Deep: starting";
+    await renderAll();
+    const payload = buildDeepPayload(normalizeSubmittedInput(extractQuestion(submittedInput)), runId || makeRunId());
+    const w = withTimeout(DEEP_TIMEOUT_MS);
+    let parsedData = null;
+    let raw = "";
+    try {
+      const out = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, payload, w.signal);
+      parsedData = out && out.data ? out.data : null;
+      raw = String((out && out.raw) || "");
+      setDeepOverlay({ lastHttpHead: raw.slice(0, 120) });
+    } catch (e) {
+      setDeepOverlay({ phase: "failed", lastReason: `start_exception:${String(e || "unknown")}` });
+      deepOverlayNotice = "Deep attempt: start failed";
+      await renderAll();
+      return;
+    } finally {
+      w.done();
+    }
+    const j = (parsedData && typeof parsedData === "object") ? parsedData : null;
+    if (!j) {
+      setDeepOverlay({ phase: "failed", lastReason: "non_json_start_response" });
+      deepOverlayNotice = "Deep attempt: invalid response";
+      await renderAll();
+      return;
+    }
+    if (typeof j.job_id === "string" && j.job_id) {
+      setDeepOverlay({ phase: "queued", runId, jobId: j.job_id, lastReason: "queued" });
+      deepOverlayNotice = `Deep: queued (${String(j.job_id).slice(0, 8)})`;
+      await renderAll();
+      const ok = await pollDeepOverlayJob(j.job_id, runId);
+      if (!ok) await renderAll();
+      return;
+    }
+    const full = j && ["compare", "expand", "diff", "merge"].every((k) => typeof j[k] === "string");
+    if (full) {
+      await applyDeepOverlayResult(j, runId, "start_response");
+      return;
+    }
+    setDeepOverlay({ phase: "failed", lastReason: "start_without_job_or_payload" });
+    deepOverlayNotice = "Deep attempt: no job_id";
+    await renderAll();
   }
 
   function renderSlotPanel(){
@@ -2590,6 +2786,18 @@
     const deepStatusShowSet = new Set(["partial", "insufficient", "timeout", "llm_error", "schema_invalid", "error"]);
     const showDeepStatusBadge = (mode === "live" && viewSource === "deep" && deepStatusShowSet.has(deepMetaStatus));
     const showCoreErrorBadge = (mode === "live" && viewSource === "core" && analysisStatus === "error");
+    const overlay = slotState.deepOverlay || {};
+    const overlayPhase = String(overlay.phase || "idle");
+    const overlayPolls = Number(overlay.polls || 0);
+    const overlayJob = String(overlay.jobId || "");
+    const overlayReason = String(overlay.lastReason || "");
+    const overlayHead = String(overlay.lastHttpHead || "");
+    const deepOverlaySummary = `Deep: ${overlayPhase} (polls=${overlayPolls})`;
+    const deepOverlayHeader = (mode === "live") ? `<span class="pillBadge">${escapeHtml(deepOverlaySummary)}</span>` : "";
+    const deepRetryBtn = (mode === "live") ? `<button id="after-retry-deep-btn" type="button" style="padding:2px 8px;">Retry Deep</button>` : "";
+    const deepOverlayDebug = (mode === "live" && debugUiOn)
+      ? `<span class="pillBadge" style="max-width:42ch;overflow:hidden;text-overflow:ellipsis;">reason:${escapeHtml(overlayReason || "-")} / head:${escapeHtml(overlayHead || "-")}</span>`
+      : "";
     const fallbackBadge = (mode === "live" && coreCompareV1FallbackActive)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep unavailable → Core Compare-v1 fallback</span>`
       : "";
@@ -2677,16 +2885,30 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${fallbackBadge}${deepOverlayBadge}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${deepRetryBtn}${deepOverlayHeader}${deepOverlayDebug}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${fallbackBadge}${deepOverlayBadge}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
+        ${(mode === "live" && (overlayPhase === "failed" || overlayPhase === "slow" || deepOverlayNotice)) ? `<div class="muted" style="margin-top:-4px;">Deep attempt: ${escapeHtml(overlayReason || deepOverlayNotice || "unknown")}${overlayJob ? ` (jobId=${escapeHtml(overlayJob)})` : ""}</div>` : ""}
         ${diffBlock}
         ${debugUiOn ? debugDetails : ""}
       </div>
     `;
     const statusBtn = document.getElementById("deep-status-badge");
     const debugEl = document.getElementById("deep-debug-details");
+    const retryDeepBtn = document.getElementById("after-retry-deep-btn");
+    if (retryDeepBtn) {
+      retryDeepBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await startDeepOverlay({
+          force: true,
+          reason: "manual_retry",
+          runId: activeRunId || (slotState.run && slotState.run.currentRunId) || "",
+          submittedInput: lastSubmittedInput || qEl.value || "",
+        });
+      };
+    }
     if (statusBtn && debugEl) {
       statusBtn.onclick = (e) => {
         e.preventDefault();
@@ -2807,13 +3029,14 @@
           setLastBlockReason("");
           refreshDeepReadiness(false);
           snapshot("before_deep_click_effective", { compareLocked: true });
-          const deepInput = buildDeepPrompt(lastSubmittedInput || qEl.value || "");
           const forceRerun = ((slotState.deep && slotState.deep.phase) || "") === "done";
-          await onClickRunSafe({
-            mode: "deep",
-            inputOverride: deepInput,
+          await startDeepOverlay({
+            submittedInput: lastSubmittedInput || qEl.value || "",
             force: forceRerun,
             reason: forceRerun ? "rerun" : "deep_button",
+            runId: activeRunId || (slotState.run && slotState.run.currentRunId) || "",
+            compareSSOT: { ...(slotState.compare || {}) },
+            slots: { ...(slotState.selected || {}), ...(slotState.extra || {}) },
           });
         });
         if (liveStatus !== "running" && slotState.deep.phase === "running") {
@@ -2903,6 +3126,7 @@
       slotState.exec.lastRunKey = runKey;
       slotState.exec.lastRunAt = nowMs;
       deepOverlayNotice = "";
+      resetDeepOverlay(runId);
       if (compareIsConfigured()) {
         applyCoreCompareV1Fallback("core_instant", runId);
       }
@@ -3053,7 +3277,14 @@
       await renderAll();
       updateCtrlPanel();
       renderMode();
-      if (!isDeep) startDeepOverlay(submittedInput);
+      if (!isDeep) {
+        startDeepOverlay({
+          submittedInput,
+          runId,
+          compareSSOT: { ...(slotState.compare || {}) },
+          slots: { ...(slotState.selected || {}), ...(slotState.extra || {}) },
+        });
+      }
       releaseEarlyLock();
       return;
     }
@@ -3229,7 +3460,12 @@
         setRunVisual("ready", "2.8s");
         renderMode();
         updateCtrlPanel();
-        startDeepOverlay(submittedInput);
+        startDeepOverlay({
+          submittedInput,
+          runId,
+          compareSSOT: { ...(slotState.compare || {}) },
+          slots: { ...(slotState.selected || {}), ...(slotState.extra || {}) },
+        });
         return;
       }
 
