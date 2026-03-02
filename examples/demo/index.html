@@ -261,7 +261,6 @@
   let liveDataDeep = null;
   let liveDataView = "core";
   let liveReady = false;
-  let currentJobId = "";
   let stopRequested = false;
   let liveStatus = "unknown";
   let liveCoreOnly = false;
@@ -274,9 +273,7 @@
   let lastApiMode = "";
   let lastSubmittedInput = "";
   let prevLiveData = null;
-  let deepRunning = false;
   let isRunning = false;
-  let deepDone = false;
   let deepSessionId = 0;
   let deepAutoRetryToken = "";
   let lastStableResult = null;
@@ -438,9 +435,7 @@
     abModeHits: [],
     exec: {
       runLock: false,
-      deepLock: false,
       runNonce: "",
-      deepNonce: "",
       lastRunKey: "",
       lastDeepKey: "",
       lastRunAt: 0,
@@ -456,6 +451,15 @@
       currentRunId: "",
       appliedRunId: "",
       lastMs: 0,
+      errorMsg: "",
+    },
+    deep: {
+      phase: "idle",
+      jobId: "",
+      runId: "",
+      startedAt: 0,
+      lastPollAt: 0,
+      tries: 0,
       errorMsg: "",
     },
     showPanel: false,
@@ -507,7 +511,33 @@
   }
 
   function compareNotSetMessage(){
-    return "COMPARE_NOT_SET:\n- A/Bを確定してLock CompareをONにしてください。\n- 左パネルで Compare A / Compare B を入力後、Lock Compare をONにします。";
+    return "COMPARE_NOT_SET:\n- Compare A / Compare B を入力してください。\n- A/Bが入ると比較を開始できます。";
+  }
+
+  function deepIsBusy(){
+    const p = slotState.deep && slotState.deep.phase;
+    return p === "running" || p === "polling";
+  }
+
+  function setDeepPhase(phase, patch = {}){
+    slotState.deep = {
+      ...(slotState.deep || {}),
+      ...patch,
+      phase,
+    };
+    if (phase !== "polling") {
+      slotState.deep.jobId = patch.jobId || "";
+    }
+    if (phase === "done" || phase === "error" || phase === "cancelled" || phase === "idle") {
+      slotState.deep.jobId = "";
+    }
+    console.debug("[DG] deep_phase", {
+      phase: slotState.deep.phase,
+      jobId: slotState.deep.jobId || "",
+      runId: slotState.deep.runId || "",
+      tries: Number(slotState.deep.tries || 0),
+      errorMsg: slotState.deep.errorMsg || "",
+    });
   }
 
   function setDebugUiMode(on){
@@ -802,7 +832,7 @@
     const requiredOk = req.every((f) => hasFieldValue(f));
     const riskOk = hasFieldValue("risk");
     const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
-    const compareOk = compareIsConfigured();
+    const compareOk = compareHasPair();
     return requiredOk && riskOk && conflictOk && compareOk;
   }
 
@@ -824,7 +854,7 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
-    if (!compareIsConfigured()) blockers.push("compare_not_set");
+    if (!compareHasPair()) blockers.push("compare_not_set");
     const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
@@ -875,7 +905,7 @@
         extracted: slotState.extracted,
         requiredProgress: ds.prog,
         analysisPhase: analysisStatus,
-        deepPhase: deepRunning ? "running" : "idle",
+        deepPhase: (slotState.deep && slotState.deep.phase) || "idle",
         ...extra,
       });
     } catch (e) {
@@ -892,7 +922,7 @@
     } catch (e) {
       console.error("[DG] shield_exception", tag, String(e && e.stack ? e.stack : e));
       try { isRunning = false; } catch (_) {}
-      try { deepRunning = false; } catch (_) {}
+      try { if (deepIsBusy()) setDeepPhase("error", { errorMsg: String(e || "shield_exception"), jobId: "" }); } catch (_) {}
       return null;
     }
   }
@@ -1030,10 +1060,8 @@
       liveCache.set(key, { ...normalizedCore, __cached: false });
     }
     deepSessionId += 1;
-    deepRunning = false;
-    deepDone = false;
+    setDeepPhase("idle", { runId: "", startedAt: 0, lastPollAt: 0, tries: 0, errorMsg: "" });
     isRunning = false;
-    currentJobId = "";
     stopRequested = false;
     updateStopButton();
     lastSubmittedInput = submittedInput;
@@ -1437,7 +1465,7 @@
     }
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
-    const compareReady = compareIsConfigured();
+    const compareReady = compareHasPair();
     const req = getEffectiveRequiredFields();
     const prog = computeRequiredProgress(req);
     const requiredTotal = prog.total;
@@ -1743,7 +1771,8 @@
   }
 
   function updateStopButton(){
-    stopLiveEl.style.display = (mode === "live" && !!currentJobId) ? "inline-block" : "none";
+    const show = mode === "live" && deepIsBusy();
+    stopLiveEl.style.display = show ? "inline-block" : "none";
   }
 
   function setLeftPromptIfAllowed(text, source){
@@ -1924,7 +1953,7 @@
       liveHintEl.textContent = "Slot A/B test: question is empty";
       return;
     }
-    if (slotState.exec.deepLock || deepRunning) {
+    if (deepIsBusy()) {
       liveHintEl.textContent = "Slot A/B test: deep is busy";
       return;
     }
@@ -2337,7 +2366,7 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const compareConfigured = compareIsConfigured();
+    const compareConfigured = compareHasPair();
     const compareNotSetText = compareNotSetMessage();
     const coreCanCompare = (mode === "live" && viewSource === "core");
     const afterNormalized = (compareConfigured || coreCanCompare)
@@ -2363,8 +2392,8 @@
     const slotReadyNow = slotState.showPanel && deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
     const deepGateOpen = slotReadyNow && compareConfigured;
     const deepDisabledReasons = [];
-    if (deepRunning || liveStatus === "running") deepDisabledReasons.push("Running...");
-    if (!compareConfigured) deepDisabledReasons.push("Lock Compare to enable Deep");
+    if (deepIsBusy()) deepDisabledReasons.push(slotState.deep.phase === "polling" ? "Polling..." : "Deep running...");
+    if (!compareConfigured) deepDisabledReasons.push("Set Compare A/B to enable Deep");
     if (slotProgress.missing.length > 0) deepDisabledReasons.push(`Fill required fields: ${slotProgress.missing[0]}`);
     if (liveCoreOnly) deepDisabledReasons.push("CORE ONLY mode");
     if (!lastSubmittedInput) deepDisabledReasons.push("Run once first");
@@ -2372,7 +2401,7 @@
     const deepDisabled = !!deepDisabledReason;
     const deepAction = (mode === "live")
       ? `<span style="display:inline-flex; align-items:center; gap:6px; margin-right:6px;">
-          <button id="after-deep-btn" type="button" ${deepDisabled ? "disabled" : ""} title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px; ${(!deepDisabled) ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && !deepDisabled) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>
+          <button id="after-deep-btn" type="button" ${deepDisabled ? "disabled" : ""} title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px; ${(!deepDisabled) ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && !deepDisabled) ? "構造を分解する" : ((slotState.deep && slotState.deep.phase === "done") ? "Re-run" : "Deep ▸")}</button>
           ${deepDisabledReason ? `<span class="muted">${escapeHtml(deepDisabledReason)}</span>` : ""}
         </span>`
       : "";
@@ -2603,9 +2632,9 @@
             progNow = computeRequiredProgress(reqNow);
           }
           snapshot("before_deep_click_effective");
-          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareIsConfigured();
+          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareHasPair();
           if (!deepNowEnabled) {
-            if (!compareIsConfigured()) {
+            if (!compareHasPair()) {
               liveHintEl.textContent = "Deep locked: compare_not_set";
               setLastBlockReason("compare_not_set");
               refreshDeepReadiness(false);
@@ -2640,7 +2669,9 @@
           const deepInput = buildDeepPrompt(lastSubmittedInput || qEl.value || "");
           await runLive("deep", deepInput);
         });
-        if (liveStatus !== "running") deepRunning = false;
+        if (liveStatus !== "running" && slotState.deep.phase === "running") {
+          setDeepPhase("idle", { runId: "", tries: 0, errorMsg: "" });
+        }
       });
     }
   }
@@ -2685,18 +2716,19 @@
     }
     if (isDeep) {
       const deepKey = buildDeepKey(submittedInput);
-      if (slotState.exec.deepLock) {
-        dgDebug("deep_blocked_lock", { deepKey });
-        liveHintEl.textContent = "Deep locked: previous deep still active";
-        return;
+      if (deepIsBusy()) {
+        setDeepPhase("cancelled", {
+          runId: slotState.deep.runId || "",
+          jobId: "",
+          tries: Number(slotState.deep.tries || 0),
+          errorMsg: "superseded_by_new_deep",
+        });
       }
       if (!allowDuplicate && slotState.exec.lastDeepKey === deepKey && (nowMs - (slotState.exec.lastDeepAt || 0) < 3000)) {
         dgDebug("deep_blocked_dedupe", { deepKey });
         liveHintEl.textContent = "Deep deduped: same input";
         return;
       }
-      slotState.exec.deepLock = true;
-      slotState.exec.deepNonce = lockNonce;
       slotState.exec.currentDeepKey = deepKey;
       slotState.exec.lastDeepKey = deepKey;
       slotState.exec.lastDeepAt = nowMs;
@@ -2705,8 +2737,6 @@
     const releaseEarlyLock = () => {
       if (!isDeep) {
         if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
-      } else {
-        if (slotState.exec.deepNonce === lockNonce) slotState.exec.deepLock = false;
       }
     };
     const cacheModeKey = isDeep ? "deep" : "core";
@@ -2726,7 +2756,6 @@
       slotState.run.currentRunId = runId;
       slotState.run.appliedRunId = "";
       setLastBlockReason("");
-      deepDone = false;
       slotState.showPanel = true;
       recomputeSlotRequirements(submittedInput);
       const effReqNow = getEffectiveRequiredFields();
@@ -2756,11 +2785,13 @@
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
+      setDeepPhase("idle", { runId: "", jobId: "", errorMsg: "", tries: 0 });
       releaseEarlyLock();
       return;
     }
-    if (isDeep && !compareIsConfigured()) {
+    if (isDeep && !compareHasPair()) {
       liveHintEl.textContent = "Deep locked: compare_not_set";
+      setDeepPhase("idle", { runId: "", jobId: "", errorMsg: "", tries: 0 });
       setLastBlockReason("compare_not_set");
       refreshDeepReadiness(false);
       releaseEarlyLock();
@@ -2769,6 +2800,7 @@
     if (isDeep && liveCoreOnly) {
       liveHintEl.textContent = "Deep disabled: CORE ONLY MODE";
       outEl.textContent = "Deep disabled by server setting: MMAR_CORE_ONLY=1";
+      setDeepPhase("idle", { runId: "", jobId: "", errorMsg: "", tries: 0 });
       releaseEarlyLock();
       return;
     }
@@ -2776,8 +2808,14 @@
       deepSessionId += 1;
       const v = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       prevLiveData = v ? { ...v } : null;
-      deepRunning = true;
-      deepDone = false;
+      setDeepPhase("running", {
+        runId,
+        startedAt: Date.now(),
+        lastPollAt: Date.now(),
+        tries: 0,
+        errorMsg: "",
+        jobId: "",
+      });
     }
     isRunning = true;
     const myDeepSession = deepSessionId;
@@ -2823,7 +2861,7 @@
       return;
     }
     stopRequested = false;
-    currentJobId = "";
+    setDeepPhase(isDeep ? slotState.deep.phase : "idle", { jobId: "" });
     updateStopButton();
     liveResultBadgeEl.style.display = "none";
     liveHintEl.textContent = isDeep ? "Thinking..." : "Running...";
@@ -2850,7 +2888,7 @@
           liveStatus = "ready";
           setRunVisual("ready", "2.8s");
           isRunning = false;
-          deepRunning = false;
+          setDeepPhase("idle", { runId: "", tries: 0, errorMsg: "" });
           updateCtrlPanel();
           return;
         }
@@ -2915,8 +2953,6 @@
         }
         if (coreData && typeof coreData.job_id === "string" && coreData.job_id) {
           const jobId = coreData.job_id;
-          currentJobId = jobId;
-          updateStopButton();
           liveHintEl.textContent = `Run job queued (${jobId.slice(0, 8)})`;
           liveStatus = "running";
           let done = false;
@@ -2946,8 +2982,6 @@
             liveHintEl.textContent = "Run failed: timeout";
             liveStatus = "error";
             outEl.textContent = "Run failed: timeout (job not completed)";
-            currentJobId = "";
-            updateStopButton();
             setRunVisual("error", "2.8s");
             wCore.done();
             isRunning = false;
@@ -3034,7 +3068,7 @@
           await runLive("deep", submittedInput, { allowDuplicate: true });
           return;
         }
-        deepRunning = false;
+        setDeepPhase("error", { runId, errorMsg: "insufficient_context", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
         liveStatus = "ready";
         liveHintEl.textContent = "Deep blocked: insufficient_context";
@@ -3044,7 +3078,7 @@
       }
       const dataObj = (parsedData && typeof parsedData === "object") ? parsedData : null;
       if (!dataObj) {
-        deepRunning = false;
+        setDeepPhase("error", { runId, errorMsg: "non_json_response", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
         liveStatus = "ready";
         liveHintEl.textContent = "Deep returned non-JSON response";
@@ -3060,16 +3094,41 @@
         return;
       }
       if (data && typeof data.job_id === "string") {
-        currentJobId = data.job_id;
+        setDeepPhase("polling", {
+          runId,
+          jobId: data.job_id,
+          tries: 0,
+          lastPollAt: Date.now(),
+          errorMsg: "",
+        });
         updateStopButton();
         liveHintEl.textContent = "Deep job queued";
         liveStatus = "running";
         updateCtrlPanel();
         while (true) {
+          const curPhase = (slotState.deep && slotState.deep.phase) || "idle";
+          if (curPhase === "cancelled") {
+            liveHintEl.textContent = "Stopped";
+            liveStatus = "cancelled";
+            isRunning = false;
+            setRunVisual("ready", "2.8s");
+            updateCtrlPanel();
+            return;
+          }
+          const triesNow = Number(slotState.deep.tries || 0);
+          if (triesNow >= 30) {
+            setDeepPhase("error", { runId, errorMsg: "timeout waiting deep output", tries: triesNow, jobId: "" });
+            liveHintEl.textContent = "Deep timeout waiting output";
+            liveStatus = "error";
+            setRunVisual("error", "2.8s");
+            updateCtrlPanel();
+            isRunning = false;
+            return;
+          }
           if (stopRequested) {
             liveHintEl.textContent = "Stopped";
             liveStatus = "cancelled";
-            deepRunning = false;
+            setDeepPhase("cancelled", { runId, jobId: "", tries: triesNow, errorMsg: "" });
             isRunning = false;
             setRunVisual("ready", "2.8s");
             updateCtrlPanel();
@@ -3079,6 +3138,13 @@
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
+          setDeepPhase("polling", {
+            runId,
+            jobId: data.job_id,
+            tries: triesNow + 1,
+            lastPollAt: Date.now(),
+            errorMsg: "",
+          });
           const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
           if (!pollRunId || pollRunId !== activeRunId) {
             liveHintEl.textContent = "stale ignored (deep-poll run_id mismatch)";
@@ -3129,9 +3195,8 @@
           }
           if (j.status === "error") {
             if (myDeepSession !== deepSessionId) return;
-            currentJobId = "";
+            setDeepPhase("error", { runId, jobId: "", errorMsg: String(j.error || "job_error"), tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
-            deepRunning = false;
             const detail = JSON.stringify(j);
             const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
             liveHintEl.textContent = `Live error: ${j.error || "job_error"}`;
@@ -3161,10 +3226,8 @@
               const key = makeCacheKey("deep", j.input_hash, j.health_sha, j.model_cfg_hash);
               liveCache.set(key, { ...liveDataDeep, __cached: false });
             }
-            currentJobId = "";
+            setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
-            deepRunning = false;
-            deepDone = true;
             liveStatus = "ready";
             isRunning = false;
             const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
@@ -3224,9 +3287,8 @@
           }
           if (j.status === "cancelled") {
             if (myDeepSession !== deepSessionId) return;
-            currentJobId = "";
+            setDeepPhase("cancelled", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
-            deepRunning = false;
             liveHintEl.textContent = "Stopped";
             liveStatus = "cancelled";
             setRunVisual("ready", "2.8s");
@@ -3243,7 +3305,7 @@
         const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
         liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
         liveStatus = "error";
-        deepRunning = false;
+        setDeepPhase("error", { runId, errorMsg: String(data.error || "unknown"), jobId: "", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
         outEl.textContent = `Live error\n\n${short}`;
         setRunVisual("error", "2.8s");
@@ -3269,6 +3331,7 @@
       liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
       liveHintEl.textContent = lint.ok ? "Live ready" : "Live ready (format mismatch)";
       liveStatus = "ready";
+      setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
       isRunning = false;
       lastStableResult = liveData;
       liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
@@ -3278,9 +3341,10 @@
       updateCtrlPanel();
     } catch (e) {
       if (isDeep && myDeepSession !== deepSessionId) return;
-      currentJobId = "";
-      updateStopButton();
-      deepRunning = false;
+      if (isDeep) {
+        setDeepPhase("error", { runId, jobId: "", errorMsg: String(e || "deep_error"), tries: Number(slotState.deep.tries || 0) });
+        updateStopButton();
+      }
       if (isDeep) dgDebug("deep_exception", { err: String(e) });
       const errText = String(e || "");
       const apiDown = /Failed to fetch|NetworkError|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|Couldn'?t connect/i.test(errText);
@@ -3307,8 +3371,6 @@
     } finally {
       if (!isDeep) {
         if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
-      } else {
-        if (slotState.exec.deepNonce === lockNonce) slotState.exec.deepLock = false;
       }
       renderMode();
     }
@@ -3414,13 +3476,22 @@
     renderMode();
   };
   stopLiveEl.onclick = async () => {
-    if (!currentJobId) return;
+    const deepJobId = (slotState.deep && slotState.deep.jobId) ? String(slotState.deep.jobId) : "";
+    if (!deepJobId && !deepIsBusy()) return;
     stopRequested = true;
+    setDeepPhase("cancelled", {
+      runId: (slotState.deep && slotState.deep.runId) || "",
+      jobId: "",
+      errorMsg: "",
+      tries: Number((slotState.deep && slotState.deep.tries) || 0),
+      lastPollAt: Date.now(),
+    });
     const apiBase = getApiBase();
     try {
-      await fetch(`${apiBase}/api/cancel/${encodeURIComponent(currentJobId)}`, { method: "POST" });
+      if (deepJobId) {
+        await fetch(`${apiBase}/api/cancel/${encodeURIComponent(deepJobId)}`, { method: "POST" });
+      }
     } catch (e) {}
-    currentJobId = "";
     updateStopButton();
     liveHintEl.textContent = "Stopped";
     liveStatus = "cancelled";
@@ -3452,7 +3523,6 @@
       await runLive("core");
     });
     isRunning = false;
-    deepRunning = false;
   };
   document.getElementById("reload").onclick = loadActive;
   try { slotDebugEnabled = localStorage.getItem(DEBUG_UI_STORAGE_KEY) === "1"; } catch (_) { slotDebugEnabled = false; }
