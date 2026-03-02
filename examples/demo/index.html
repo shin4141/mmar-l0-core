@@ -285,6 +285,7 @@
   let deepAutoRetryToken = "";
   let lastStableResult = null;
   let coreCompareV1FallbackActive = false;
+  let deepOverlayNotice = "";
   let analysisStatus = "idle";
   let analysisError = null;
   let slotDebugEnabled = false;
@@ -483,6 +484,8 @@
   const KNOWN_SLOT_KEYS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
   const AUTO_FILL_UNKNOWN_REQUIRED = true;
   const AUTO_FILL_VALUE = "tmp";
+  const DEEP_TIMEOUT_MS = 12000;
+  const DEEP_MAX_POLLS = 24;
   const SLOT_SPEC = [
     { key: "horizon", label: "Horizon", values: ["短期", "長期"] },
     { key: "goal", label: "Goal", values: ["増やす", "守る", "現金優先"] },
@@ -1593,6 +1596,23 @@
     return text;
   }
 
+  function startDeepOverlay(submittedInput){
+    if (mode !== "live") return;
+    if (!compareIsConfigured()) return;
+    if (liveCoreOnly) return;
+    if (deepIsBusy()) return;
+    const deepInput = buildDeepPrompt(submittedInput || lastSubmittedInput || qEl.value || "");
+    deepOverlayNotice = "";
+    setTimeout(() => {
+      onClickRunSafe({
+        mode: "deep",
+        inputOverride: deepInput,
+        allowDuplicate: true,
+        reason: "auto_deep_overlay",
+      });
+    }, 0);
+  }
+
   function renderSlotPanel(){
     if (!slotPanelEl) return;
     if (!slotState.showPanel) {
@@ -2573,6 +2593,9 @@
     const fallbackBadge = (mode === "live" && coreCompareV1FallbackActive)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep unavailable → Core Compare-v1 fallback</span>`
       : "";
+    const deepOverlayBadge = (mode === "live" && deepOverlayNotice)
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">${escapeHtml(deepOverlayNotice)}</span>`
+      : "";
     const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
@@ -2654,7 +2677,7 @@
         ${mismatchBanner}
         ${detailsBlock("Before (Single)", before, PREVIEW_LINES_MAIN, "beforeBox")}
         ${winnerBlock}
-        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${fallbackBadge}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
+        ${detailsBlock("After (MMAR)", afterWithSource, PREVIEW_LINES_MAIN, "afterBox", "Recommended", `${viewToggle}${deepAction}${sourceBadge}${protocolBadge}${qualityBadge}${slotEffectBadge}${runKeyBadge}${deepKeyBadge}${cachedBadge}${shaWarnBadge}${statusBadges}${fallbackBadge}${deepOverlayBadge}${formatBadge}${slotBadge}${deepLockBadge}${conditionalBadge}${holdDomainBadge}`, true)}
         ${appliedSlotsBlock}
         ${deepLockNote}
         ${rerunHint}
@@ -2879,6 +2902,10 @@
       slotState.exec.currentRunKey = runKey;
       slotState.exec.lastRunKey = runKey;
       slotState.exec.lastRunAt = nowMs;
+      deepOverlayNotice = "";
+      if (compareIsConfigured()) {
+        applyCoreCompareV1Fallback("core_instant", runId);
+      }
     } else if (!slotState.abMode) {
       decideABMode(lastSubmittedInput || submittedInput, "deep");
     }
@@ -3026,6 +3053,7 @@
       await renderAll();
       updateCtrlPanel();
       renderMode();
+      if (!isDeep) startDeepOverlay(submittedInput);
       releaseEarlyLock();
       return;
     }
@@ -3039,6 +3067,9 @@
     outEl.textContent = "Running...";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
+    if (!isDeep && coreCompareV1FallbackActive) {
+      await renderAll();
+    }
     try {
       if (isDeep) {
         // Final guard: never call deep API while effective required still has missing fields.
@@ -3198,6 +3229,7 @@
         setRunVisual("ready", "2.8s");
         renderMode();
         updateCtrlPanel();
+        startDeepOverlay(submittedInput);
         return;
       }
 
@@ -3205,7 +3237,7 @@
       liveStatus = "running";
       updateCtrlPanel();
 
-      const w = withTimeout(30000);
+      const w = withTimeout(DEEP_TIMEOUT_MS);
       const deepPayload = buildDeepPayload(submittedInput, runId);
       console.debug("[DG] ab_mode_applied", {
         mode: slotState.abMode || "B",
@@ -3236,11 +3268,11 @@
         refreshDeepReadiness();
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-        applyCoreCompareV1Fallback("insufficient_context", runId);
+        deepOverlayNotice = "Deep unavailable: keeping Core";
         setDeepPhase("done", { runId, errorMsg: "", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
         liveStatus = "ready";
-        liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
+        liveHintEl.textContent = "Deep unavailable: keeping Core result";
         slotState.run.phase = "done";
         slotState.run.errorMsg = "";
         slotState.run.appliedRunId = runId;
@@ -3290,11 +3322,12 @@
             return;
           }
           const triesNow = Number(slotState.deep.tries || 0);
-          if (triesNow >= 30) {
+          if (triesNow >= DEEP_MAX_POLLS) {
             setDeepPhase("error", { runId, errorMsg: "timeout waiting deep output", tries: triesNow, jobId: "" });
-            liveHintEl.textContent = "Deep timeout waiting output";
-            liveStatus = "error";
-            setRunVisual("error", "2.8s");
+            deepOverlayNotice = "Deep unavailable (timeout): keeping Core";
+            liveHintEl.textContent = "Deep timeout: keeping Core result";
+            liveStatus = "ready";
+            setRunVisual("ready", "2.8s");
             updateCtrlPanel();
             isRunning = false;
             return;
@@ -3371,12 +3404,10 @@
             if (myDeepSession !== deepSessionId) return;
             setDeepPhase("error", { runId, jobId: "", errorMsg: String(j.error || "job_error"), tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
-            const detail = JSON.stringify(j);
-            const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
-            liveHintEl.textContent = `Live error: ${j.error || "job_error"}`;
-            liveStatus = "error";
-            outEl.textContent = `Live error\n\n${short}`;
-            setRunVisual("error", "2.8s");
+            deepOverlayNotice = "Deep unavailable: keeping Core";
+            liveHintEl.textContent = `Deep unavailable: ${j.error || "job_error"}`;
+            liveStatus = "ready";
+            setRunVisual("ready", "2.8s");
             updateCtrlPanel();
             isRunning = false;
             return;
@@ -3420,6 +3451,7 @@
             if (deepStatus === "ok" || deepStatus === "partial") {
               setLastBlockReason("");
               coreCompareV1FallbackActive = false;
+              deepOverlayNotice = "";
               liveDataView = "deep";
               liveData = liveDataDeep;
               lastStableResult = liveDataDeep;
@@ -3438,8 +3470,8 @@
                 promoteServerMissing(missingRaw, j.next_question);
                 refreshDeepReadiness();
                 setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-                applyCoreCompareV1Fallback("insufficient_context", runId);
-                liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
+                deepOverlayNotice = "Deep unavailable: keeping Core";
+                liveHintEl.textContent = "Deep unavailable: keeping Core result";
               }
               dgDebug("deep_failed", {
                 code: deepStatus,
@@ -3470,14 +3502,12 @@
       }
       if (data && data.ok === false) {
         if (myDeepSession !== deepSessionId) return;
-        const detail = JSON.stringify(data);
-        const short = detail.length > 300 ? (detail.slice(0, 300) + "...") : detail;
-        liveHintEl.textContent = `Live error: ${data.error || "unknown"}`;
-        liveStatus = "error";
+        deepOverlayNotice = "Deep unavailable: keeping Core";
+        liveHintEl.textContent = `Deep unavailable: ${data.error || "unknown"}`;
+        liveStatus = "ready";
         setDeepPhase("error", { runId, errorMsg: String(data.error || "unknown"), jobId: "", tries: Number(slotState.deep.tries || 0) });
         isRunning = false;
-        outEl.textContent = `Live error\n\n${short}`;
-        setRunVisual("error", "2.8s");
+        setRunVisual("ready", "2.8s");
         updateCtrlPanel();
         return;
       }
@@ -3502,10 +3532,13 @@
         ? liveDataDeep.fallback_reason_primary
         : ((typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "");
       if (finalDeepStatus === "insufficient" || finalFallback === "insufficient_context") {
-        applyCoreCompareV1Fallback("insufficient_context", runId);
-        liveHintEl.textContent = "Deep unavailable -> Core Compare-v1 fallback";
+        deepOverlayNotice = "Deep unavailable: keeping Core";
+        liveHintEl.textContent = "Deep unavailable: keeping Core result";
+        liveDataView = "core";
+        liveData = liveDataCore || liveData;
       } else {
         coreCompareV1FallbackActive = false;
+        deepOverlayNotice = "";
         liveDataView = "deep";
         liveData = liveDataDeep;
         liveHintEl.textContent = lint.ok ? "Live ready" : "Live ready (format mismatch)";
@@ -3538,19 +3571,27 @@
         slotState.run.phase = "error";
         slotState.run.errorMsg = String(e || "core_error");
       }
-      if (apiDown) {
-        liveHintEl.textContent = "API unreachable: restart dev_api";
-        setLastBlockReason("api_unreachable");
+      if (isDeep) {
+        deepOverlayNotice = apiDown ? "Deep unavailable (API): keeping Core" : "Deep unavailable: keeping Core";
+        liveHintEl.textContent = apiDown ? "Deep unavailable: API unreachable (keeping Core)" : `Deep unavailable: ${e}`;
+        setLastBlockReason("deep_exception");
+        liveStatus = "ready";
+        isRunning = false;
+        setRunVisual("ready", "2.8s");
       } else {
-        liveHintEl.textContent = isDeep ? `Live error: ${e}` : "RUN: core error";
-        if (isDeep) setLastBlockReason("deep_exception");
+        if (apiDown) {
+          liveHintEl.textContent = "API unreachable: restart dev_api";
+          setLastBlockReason("api_unreachable");
+        } else {
+          liveHintEl.textContent = "RUN: core error";
+        }
+        liveStatus = "error";
+        isRunning = false;
+        outEl.textContent = apiDown
+          ? "Live run failed\n\nAPI unreachable.\nRun: bash tools/restart_dev_api.sh"
+          : `Live run failed\n\n${e}`;
+        setRunVisual("error", "2.8s");
       }
-      liveStatus = "error";
-      isRunning = false;
-      outEl.textContent = apiDown
-        ? "Live run failed\n\nAPI unreachable.\nRun: bash tools/restart_dev_api.sh"
-        : `Live run failed\n\n${e}`;
-      setRunVisual("error", "2.8s");
       updateCtrlPanel();
       await renderAll();
     } finally {
