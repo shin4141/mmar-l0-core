@@ -14,7 +14,16 @@
     *{ box-sizing:border-box; }
     body{ margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
           color:var(--text); background:var(--bg); }
-    .wrap{ display:grid; grid-template-columns: 1fr 2fr; gap:16px; padding:16px; min-height:100vh; height:auto; }
+    .wrap{
+      display:grid;
+      grid-template-columns:minmax(320px, 0.9fr) minmax(0, 2.1fr);
+      gap:16px;
+      padding:16px;
+      min-height:100vh;
+      height:auto;
+    }
+    .wrap > .card:first-child{ min-width:320px; }
+    .wrap > .card:last-child{ min-width:0; }
     .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r);
            padding:14px; display:flex; flex-direction:column; min-height:0; box-shadow:var(--shadow); overflow:visible; }
     .muted{ color:var(--muted); font-size:12px; }
@@ -122,6 +131,10 @@
     @keyframes runRainbow{
       0%{ background-position:0% 50%; }
       100%{ background-position:200% 50%; }
+    }
+    @media (max-width: 1100px){
+      .wrap{ grid-template-columns:1fr; }
+      .wrap > .card:first-child{ min-width:0; }
     }
   </style>
 </head>
@@ -1000,6 +1013,35 @@
     return `Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}, GoalMetric=${goalMetric}, PriorityAxis=${priorityAxis}`;
   }
 
+  function expectedWeightsFromSlots(selected){
+    const s = selected || {};
+    const harmMap = { "低": 1, "中": 2, "高": 3 };
+    const stabilityMap = { "短期": 1, "長期": 3 };
+    const reversibilityMap = { "小": 1, "中": 2, "大": 3 };
+    return {
+      legitimacy: 1,
+      harm: harmMap[s.risk] || 2,
+      stability: stabilityMap[s.horizon] || 2,
+      reversibility: reversibilityMap[s.amount] || 2,
+    };
+  }
+
+  function resolveCompareAB(baseQuestion){
+    const sources = [
+      liveDataCore && liveDataCore.compare,
+      liveDataCore && liveDataCore.expand,
+      liveData && liveData.compare,
+      liveData && liveData.expand,
+    ].filter((x) => typeof x === "string" && x.trim());
+    for (const src of sources) {
+      const opts = pickSectionLines(src, "OPTIONS");
+      if (opts.length >= 2) return { a: opts[0], b: opts[1] };
+    }
+    const q = String(baseQuestion || "").trim();
+    if (/A国/.test(q) && /B国/.test(q)) return { a: "A国側の主張", b: "B国側の主張" };
+    return { a: "Option A", b: "Option B" };
+  }
+
   function appliedSlotsLineFromSlots(selected, extra){
     return `APPLIED_SLOTS: ${assumptionsLineFromSlots(selected, extra)}`;
   }
@@ -1036,19 +1078,44 @@
     const amount = s.amount || "未入力";
     const goal = s.goal || "未入力";
     const constraint = s.constraint || "未入力";
+    const cmp = resolveCompareAB(lastSubmittedInput || slotState.text || qEl.value || "");
+    const w = expectedWeightsFromSlots(s);
+    const legA = (/攻撃|先制/.test(cmp.a) ? 2 : 3);
+    const legB = (/攻撃|先制/.test(cmp.b) ? 2 : 3);
+    const harmA = Math.max(0, Math.min(5, 2 + (risk === "高" ? 1 : (risk === "低" ? -1 : 0))));
+    const harmB = Math.max(0, Math.min(5, 4 - (risk === "高" ? 1 : 0)));
+    const stA = Math.max(0, Math.min(5, 2 + (horizon === "長期" ? 1 : 0)));
+    const stB = Math.max(0, Math.min(5, 3 + (horizon === "短期" ? 1 : 0)));
+    const rvA = Math.max(0, Math.min(5, 3 + (amount === "大" ? -1 : (amount === "小" ? 1 : 0))));
+    const rvB = Math.max(0, Math.min(5, 3 + (amount === "大" ? 1 : 0)));
+    const totalA = (legA * w.legitimacy) + (harmA * w.harm) + (stA * w.stability) + (rvA * w.reversibility);
+    const totalB = (legB * w.legitimacy) + (harmB * w.harm) + (stB * w.stability) + (rvB * w.reversibility);
     const guardByRisk = risk === "高"
       ? ["損失上限を先に固定（例: 最大損失%）", "中止条件を明示（閾値到達で停止）", "実行前チェックリストを必須化"]
       : ["損失条件を1つ決める", "見直しタイミングを固定", "記録を残して再評価"];
     const optionShort = horizon === "短期" ? "即時検証を先に回す" : "段階プランで検証を積む";
     const amountHint = amount === "大" ? "可逆・分割・保守で進める" : "小さく試行して学習を優先";
     return (
-      `OPTIONS:\n`
+      `COMPARE_A: ${cmp.a}\n`
+      + `COMPARE_B: ${cmp.b}\n`
+      + `WEIGHTS: legitimacy=${w.legitimacy} harm=${w.harm} stability=${w.stability} reversibility=${w.reversibility}\n`
+      + `SCORE_TABLE:\n`
+      + `- LEGITIMACY: A=${legA}, B=${legB}, note=正当性の主張を比較\n`
+      + `- HARM_RISK: A=${harmA}, B=${harmB}, note=被害拡大リスクを比較\n`
+      + `- STABILITY: A=${stA}, B=${stB}, note=長期安定への寄与を比較\n`
+      + `- REVERSIBILITY: A=${rvA}, B=${rvB}, note=引き返し可能性を比較\n`
+      + `TOTAL: A=${totalA} B=${totalB}\n`
+      + `OPTIONS:\n`
       + `- If Goal=${goal} then ${optionShort}（Risk=${risk}）\n`
       + `- If Constraint=${constraint} then 制約を満たす手順を先行（Amount=${amount}）\n`
       + `GUARDRAILS:\n`
       + `- ${guardByRisk[0]}\n`
       + `- ${guardByRisk[1]}\n`
       + `- ${guardByRisk[2]}\n`
+      + `DECISION:\n`
+      + `- If Risk=高: 被害拡大リスクが低い側を採用（HARM_RISK優先）\n`
+      + `- If Horizon=長期: 長期安定の点が高い側を採用（STABILITY優先）\n`
+      + `- Otherwise: TOTALが高い側を採用\n`
       + `NEXT_STEP:\n`
       + `- まず1つの実行条件を定義し、24h以内に再評価する（${amountHint}）\n`
     );
@@ -1105,7 +1172,7 @@
   function lintDeepOutputByMode(text, mode){
     const src = String(text || "");
     const needA = ["APPLIED_SLOTS:", "Hypotheses:", "Branches:", "Experiments:", "Open questions:"];
-    const needB = ["APPLIED_SLOTS:", "Assumptions:", "Options:", "Guardrails:", "Next step:"];
+    const needB = ["APPLIED_SLOTS:", "COMPARE_A:", "COMPARE_B:", "WEIGHTS:", "SCORE_TABLE:", "TOTAL:", "DECISION:", "Assumptions:", "Options:", "Guardrails:", "Next step:"];
     const required = (mode === "A") ? needA : needB;
     const missing = required.filter((k) => !new RegExp(`(^|\\n)\\s*${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i").test(src));
     return { ok: missing.length === 0, missing, mode };
@@ -1124,6 +1191,21 @@
       const got = (line.match(new RegExp(`${k}[^,]+`)) || [])[0] || "";
       if (expected && got && expected !== got) mismatched.push(`${k.replace("=", "")}:${got}->${expected}`);
     }
+    const wm = src.match(/^\s*WEIGHTS:\s*([^\n]+)$/im);
+    if (wm) {
+      const wtxt = String(wm[1] || "");
+      const exp = expectedWeightsFromSlots(selected || {});
+      const readNum = (name) => {
+        const m = wtxt.match(new RegExp(`${name}\\s*=\\s*([0-9]+)`, "i"));
+        return m ? Number(m[1]) : null;
+      };
+      const gotHarm = readNum("harm");
+      const gotStability = readNum("stability");
+      const gotRev = readNum("reversibility");
+      if (gotHarm != null && gotHarm !== exp.harm) mismatched.push(`WEIGHTS:harm=${gotHarm}->${exp.harm}`);
+      if (gotStability != null && gotStability !== exp.stability) mismatched.push(`WEIGHTS:stability=${gotStability}->${exp.stability}`);
+      if (gotRev != null && gotRev !== exp.reversibility) mismatched.push(`WEIGHTS:reversibility=${gotRev}->${exp.reversibility}`);
+    }
     return { ok: mismatched.length === 0, reason: mismatched.length ? "slot_mismatch" : "ok", mismatched };
   }
 
@@ -1140,6 +1222,8 @@
     const modeHeader = modeNow === "A" ? "MODE=A (EXPLORE)" : "MODE=B (BUILD)";
     const assumptionsExact = `Assumptions: ${assumptionsLine}`;
     const appliedExact = `APPLIED_SLOTS: ${assumptionsLine}`;
+    const cmp = resolveCompareAB(q);
+    const w = expectedWeightsFromSlots(slotState.selected || {});
     const taskLinesCommon = [
       `- Output MUST include this line exactly once: "${appliedExact}"`,
       `- Output MUST include this line exactly once: "${assumptionsExact}"`,
@@ -1163,8 +1247,20 @@
     const taskLinesB = [
       "- MODE=B (BUILD). Focus on concrete decision and implementation.",
       ...taskLinesCommon,
+      `- Output MUST include: "COMPARE_A: ${cmp.a}"`,
+      `- Output MUST include: "COMPARE_B: ${cmp.b}"`,
+      `- Output MUST include: "WEIGHTS: legitimacy=1 harm=${w.harm} stability=${w.stability} reversibility=${w.reversibility}"`,
+      "- Output MUST include SCORE_TABLE with exactly 4 rows (LEGITIMACY/HARM_RISK/STABILITY/REVERSIBILITY) in format: Axis: A=x, B=y, note=...",
+      "- Output MUST include TOTAL line: TOTAL: A=<num> B=<num>",
+      "- Output MUST include DECISION with 3 lines: If Risk=高, If Horizon=長期, Otherwise",
       "- Required headings (exact):",
       "  Assumptions:",
+      "  COMPARE_A:",
+      "  COMPARE_B:",
+      "  WEIGHTS:",
+      "  SCORE_TABLE:",
+      "  TOTAL:",
+      "  DECISION:",
       "  Options:",
       "  Guardrails:",
       "  Next step:",
