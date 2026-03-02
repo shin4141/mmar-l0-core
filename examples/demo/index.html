@@ -506,6 +506,10 @@
     return "Compare SSOT: not locked";
   }
 
+  function compareNotSetMessage(){
+    return "COMPARE_NOT_SET:\n- A/Bを確定してLock CompareをONにしてください。\n- 左パネルで Compare A / Compare B を入力後、Lock Compare をONにします。";
+  }
+
   function setDebugUiMode(on){
     const enabled = !!on;
     slotDebugEnabled = enabled;
@@ -798,7 +802,7 @@
     const requiredOk = req.every((f) => hasFieldValue(f));
     const riskOk = hasFieldValue("risk");
     const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
-    const compareOk = compareHasPair();
+    const compareOk = compareIsConfigured();
     return requiredOk && riskOk && conflictOk && compareOk;
   }
 
@@ -820,7 +824,7 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
-    if (!compareHasPair()) blockers.push("compare_not_set");
+    if (!compareIsConfigured()) blockers.push("compare_not_set");
     const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
@@ -2333,8 +2337,8 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const compareConfigured = compareHasPair();
-    const compareNotSetText = "COMPARE_NOT_SET:\n- Compare A / Compare B を入力すると比較を開始します。\n- Lock Compare は任意（固定したい時のみON）。";
+    const compareConfigured = compareIsConfigured();
+    const compareNotSetText = compareNotSetMessage();
     const afterNormalized = compareConfigured
       ? sanitizeOptionDisplay(after, before || qEl.value || "")
       : compareNotSetText;
@@ -2587,9 +2591,9 @@
             progNow = computeRequiredProgress(reqNow);
           }
           snapshot("before_deep_click_effective");
-          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareHasPair();
+          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareIsConfigured();
           if (!deepNowEnabled) {
-            if (!compareHasPair()) {
+            if (!compareIsConfigured()) {
               liveHintEl.textContent = "Deep locked: compare_not_set";
               setLastBlockReason("compare_not_set");
               refreshDeepReadiness(false);
@@ -2736,6 +2740,36 @@
       });
       console.debug("[DG] run_start", { runId, runKey: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "" });
       renderSlotPanel();
+      if (!compareIsConfigured()) {
+        const cmpTxt = compareNotSetMessage();
+        const coreData = {
+          ok: true,
+          run_id: runId,
+          compare: cmpTxt,
+          expand: cmpTxt,
+          diff: "",
+          merge: cmpTxt,
+        };
+        applyCoreResult(coreData, submittedInput);
+        await loadActive();
+        analysisStatus = "ok";
+        analysisError = null;
+        slotState.run.phase = "done";
+        slotState.run.errorMsg = "";
+        slotState.run.lastMs = Math.max(0, Date.now() - (slotState.run.startedAt || Date.now()));
+        slotState.run.appliedRunId = runId;
+        markRunProgress();
+        console.debug("[DG] run_done", { runId, ms: slotState.run.lastMs, compareNotSet: true });
+        liveHintEl.textContent = "COMPARE_NOT_SET: lock Compare A/B first";
+        liveStatus = "ready";
+        liveResultBadgeEl.textContent = "Core";
+        liveResultBadgeEl.style.display = "inline-block";
+        liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
+        setRunVisual("ready", "2.8s");
+        renderMode();
+        updateCtrlPanel();
+        return;
+      }
     }
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
@@ -2743,7 +2777,7 @@
       releaseEarlyLock();
       return;
     }
-    if (isDeep && !compareHasPair()) {
+    if (isDeep && !compareIsConfigured()) {
       liveHintEl.textContent = "Deep locked: compare_not_set";
       setLastBlockReason("compare_not_set");
       refreshDeepReadiness(false);
