@@ -441,6 +441,12 @@
     },
     showPanel: false,
     showExtra: false,
+    compare: {
+      a: "",
+      b: "",
+      locked: false,
+      source: "empty",
+    },
   };
   const KNOWN_SLOT_KEYS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
   const AUTO_FILL_UNKNOWN_REQUIRED = true;
@@ -452,6 +458,15 @@
     { key: "constraint", label: "Constraint", values: ["なし", "流動性必要"] },
     { key: "amount", label: "Amount", values: ["小", "中", "大"] },
   ];
+
+  function normalizeCompareText(v){
+    return String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+  }
+
+  function compareIsConfigured(){
+    const c = slotState.compare || {};
+    return !!(c.locked && normalizeCompareText(c.a) && normalizeCompareText(c.b));
+  }
 
   function loadABModeOverride(){
     try {
@@ -730,7 +745,8 @@
     const requiredOk = req.every((f) => hasFieldValue(f));
     const riskOk = hasFieldValue("risk");
     const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
-    return requiredOk && riskOk && conflictOk;
+    const compareOk = compareIsConfigured();
+    return requiredOk && riskOk && conflictOk && compareOk;
   }
 
   function computeRequiredProgress(requiredOverride){
@@ -751,6 +767,7 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
+    if (!compareIsConfigured()) blockers.push("compare_not_set");
     const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
@@ -919,6 +936,11 @@
       slots,
       normalized_slots: normalizedSlots,
       extra: { ...(slotState.extra || {}) },
+      compare: {
+        a: normalizeCompareText(slotState.compare && slotState.compare.a),
+        b: normalizeCompareText(slotState.compare && slotState.compare.b),
+        locked: !!(slotState.compare && slotState.compare.locked),
+      },
       confidence: Number(slotState.confidence == null ? 0 : slotState.confidence),
       domain_hint: inferDomainHintFromInput(lastSubmittedInput || submittedInput || ""),
     };
@@ -931,6 +953,11 @@
       run_key: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "",
       ab_mode: slotState.abMode || "B",
       ab_mode_source: slotState.abModeSource || "auto",
+      compare: {
+        a: normalizeCompareText(slotState.compare && slotState.compare.a),
+        b: normalizeCompareText(slotState.compare && slotState.compare.b),
+        locked: !!(slotState.compare && slotState.compare.locked),
+      },
     };
   }
 
@@ -1036,6 +1063,10 @@
   }
 
   function resolveCompareAB(baseQuestion){
+    const c = slotState.compare || {};
+    const ca = normalizeCompareText(c.a);
+    const cb = normalizeCompareText(c.b);
+    if (ca && cb) return { a: ca, b: cb };
     const sources = [
       liveDataCore && liveDataCore.compare,
       liveDataCore && liveDataCore.expand,
@@ -1049,6 +1080,22 @@
     const q = String(baseQuestion || "").trim();
     if (/A国/.test(q) && /B国/.test(q)) return { a: "A国側の主張", b: "B国側の主張" };
     return { a: "Option A", b: "Option B" };
+  }
+
+  function top2OptionDraft(){
+    const sources = [
+      liveDataCore && liveDataCore.compare,
+      liveDataCore && liveDataCore.expand,
+      liveDataDeep && liveDataDeep.compare,
+      liveDataDeep && liveDataDeep.expand,
+      liveData && liveData.compare,
+      liveData && liveData.expand,
+    ].filter((x) => typeof x === "string" && x.trim());
+    for (const src of sources) {
+      const opts = pickSectionLines(src, "OPTIONS");
+      if (opts.length >= 2) return { a: normalizeCompareText(opts[0]), b: normalizeCompareText(opts[1]) };
+    }
+    return { a: "", b: "" };
   }
 
   function appliedSlotsLineFromSlots(selected, extra){
@@ -1251,7 +1298,9 @@
     const modeHeader = modeNow === "A" ? "MODE=A (EXPLORE)" : "MODE=B (BUILD)";
     const assumptionsExact = `Assumptions: ${assumptionsLine}`;
     const appliedExact = `APPLIED_SLOTS: ${assumptionsLine}`;
-    const cmp = resolveCompareAB(q);
+    const compareA = normalizeCompareText(slotState.compare && slotState.compare.a);
+    const compareB = normalizeCompareText(slotState.compare && slotState.compare.b);
+    const cmp = (compareA && compareB) ? { a: compareA, b: compareB } : resolveCompareAB(q);
     const w = expectedWeightsFromSlots(slotState.selected || {});
     const taskLinesCommon = [
       `- Output MUST include this line exactly once: "${appliedExact}"`,
@@ -1331,6 +1380,7 @@
     }
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
+    const compareReady = compareIsConfigured();
     const req = getEffectiveRequiredFields();
     const prog = computeRequiredProgress(req);
     const requiredTotal = prog.total;
@@ -1342,6 +1392,9 @@
     const status = enabled
       ? `Deep ready: required ${requiredFilled}/${requiredTotal}`
       : `あと${requiredRemaining}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${firstMissing ? ` / next: ${firstMissing}` : ""}${(!firstMissing && firstExternalMissing) ? ` / need: ${firstExternalMissing}` : ""}`;
+    const compareStatus = compareReady
+      ? `Compare SSOT: locked (${escapeHtml(displaySanitize(normalizeCompareText(slotState.compare.a)))} vs ${escapeHtml(displaySanitize(normalizeCompareText(slotState.compare.b)))})`
+      : "Compare SSOT: not locked";
     const debugStatus = `Deep status: enabled=${enabled ? "true" : "false"} / required=${requiredFilled}/${requiredTotal} / missing=${requiredRemaining}${slotState.lastBlockReason ? ` / reason=${slotState.lastBlockReason}` : ""}`;
     const runKeyShort = (slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8);
     const deepKeyShort = (slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8);
@@ -1386,14 +1439,31 @@
         }).join("")}
       </div>`
       : "";
+    const cmp = slotState.compare || { a: "", b: "", locked: false };
+    const compareBlock = `
+      <div class="slotRow" style="margin-top:6px; align-items:flex-start; flex-direction:column;">
+        <span class="slotLabel">Compare SSOT</span>
+        <textarea id="compare-a" placeholder="Compare A" style="min-height:54px;">${escapeHtml(cmp.a || "")}</textarea>
+        <textarea id="compare-b" placeholder="Compare B" style="min-height:54px;">${escapeHtml(cmp.b || "")}</textarea>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button id="compare-use-top2" type="button" class="slotChip">Use TOP2 as draft</button>
+          <label class="muted" style="display:flex;align-items:center;gap:6px;">
+            <input id="compare-lock" type="checkbox" ${cmp.locked ? "checked" : ""} />
+            Lock Compare
+          </label>
+        </div>
+      </div>
+    `;
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
+      <div class="muted" style="margin-top:2px;">${compareStatus}</div>
       <div class="muted" style="margin-top:2px;">${escapeHtml(debugStatus)}</div>
       <div class="muted" style="margin-top:2px;">${escapeHtml(keyStatus)}</div>
       <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
       ${externalMissingText}
       ${modeControls}
+      ${compareBlock}
       ${rowsHtml}
       ${unknownInputsHtml}
       <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
@@ -1445,6 +1515,52 @@
           source: slotState.abModeSource,
           hits: slotState.abModeHits || [],
         });
+        refreshDeepReadiness();
+      };
+    }
+    const compareAEl = document.getElementById("compare-a");
+    if (compareAEl) {
+      compareAEl.oninput = () => {
+        slotState.compare.a = String(compareAEl.value || "");
+        slotState.compare.source = slotState.compare.source === "empty" ? "manual" : slotState.compare.source;
+        refreshDeepReadiness(false);
+      };
+    }
+    const compareBEl = document.getElementById("compare-b");
+    if (compareBEl) {
+      compareBEl.oninput = () => {
+        slotState.compare.b = String(compareBEl.value || "");
+        slotState.compare.source = slotState.compare.source === "empty" ? "manual" : slotState.compare.source;
+        refreshDeepReadiness(false);
+      };
+    }
+    const compareUseTop2Btn = document.getElementById("compare-use-top2");
+    if (compareUseTop2Btn) {
+      compareUseTop2Btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const d = top2OptionDraft();
+        if (!d.a || !d.b) {
+          liveHintEl.textContent = "TOP2 draft unavailable";
+          return;
+        }
+        slotState.compare.a = d.a;
+        slotState.compare.b = d.b;
+        slotState.compare.source = "draft";
+        refreshDeepReadiness();
+      };
+    }
+    const compareLockEl = document.getElementById("compare-lock");
+    if (compareLockEl) {
+      compareLockEl.onchange = () => {
+        slotState.compare.locked = !!compareLockEl.checked;
+        if (slotState.compare.locked) {
+          slotState.compare.a = normalizeCompareText(slotState.compare.a);
+          slotState.compare.b = normalizeCompareText(slotState.compare.b);
+          if (slotState.compare.a && slotState.compare.b) {
+            slotState.compare.source = slotState.compare.source === "empty" ? "manual" : slotState.compare.source;
+          }
+        }
         refreshDeepReadiness();
       };
     }
@@ -2145,7 +2261,11 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const afterNormalized = sanitizeOptionDisplay(after, before || qEl.value || "");
+    const compareConfigured = compareIsConfigured();
+    const compareNotSetText = "COMPARE_NOT_SET:\n- A/Bを確定してLock CompareをONにすると比較を開始します。\n- 左パネルで Compare A / Compare B を入力してください。";
+    const afterNormalized = compareConfigured
+      ? sanitizeOptionDisplay(after, before || qEl.value || "")
+      : compareNotSetText;
     const afterWithSource = staleDeep ? freezeAfterForMismatch(afterNormalized) : afterNormalized;
     const slotEffectFromData = (viewDataForBadges && viewDataForBadges.slot_effect && typeof viewDataForBadges.slot_effect === "object")
       ? viewDataForBadges.slot_effect
@@ -2162,7 +2282,7 @@
       : "";
     const slotProgress = computeRequiredProgress(getEffectiveRequiredFields());
     const slotReadyNow = slotState.showPanel && deepEnabled(getEffectiveRequiredFields(), slotState.selected, slotState.conflict);
-    const deepGateOpen = slotReadyNow;
+    const deepGateOpen = slotReadyNow && compareConfigured;
     const deepAction = deepReady
       ? `<button id="after-deep-btn" type="button" ${(deepRunning || liveCoreOnly || !deepGateOpen) ? "disabled" : ""} title="${liveCoreOnly ? "CORE ONLY mode is enabled on server" : (!deepGateOpen ? `あと${slotProgress.missing.length}個選ぶとDeep` : "")}" style="padding:2px 8px; margin-right:6px; ${deepGateOpen ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && deepGateOpen) ? "構造を分解する" : (deepDone ? "Re-run" : "Deep ▸")}</button>`
       : "";
@@ -2183,7 +2303,7 @@
     const deepLockRemain = slotProgress.missing.length;
     const deepLockNext = deepLockRemain > 0 ? String(slotProgress.missing[0]) : "";
     const deepLockNote = (!deepGateOpen && slotState.showPanel)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${deepLockNext ? ` / next: ${escapeHtml(deepLockNext)}` : ""}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: ${compareConfigured ? `あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${deepLockNext ? ` / next: ${escapeHtml(deepLockNext)}` : ""}` : "A/Bを確定してLock CompareをONにしてください"}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && (deepMetaStatus !== "ok" || analysisStatus === "error"))
@@ -2202,7 +2322,7 @@
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Slot mismatch</span>`
       : "";
     const deepLockBadge = (!deepGateOpen && slotState.showPanel)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: ${escapeHtml(deepLockNext || "fill required fields")}</span>`
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep locked: ${escapeHtml(compareConfigured ? (deepLockNext || "fill required fields") : "compare_not_set")}</span>`
       : "";
     const conditionalBadge = isConditionalMode ? `<span class="pillBadge">条件付き</span>` : "";
     const holdDomainBadge = isHoldMode ? `<span class="pillBadge">目的未確定</span>` : "";
@@ -2393,8 +2513,16 @@
             progNow = computeRequiredProgress(reqNow);
           }
           snapshot("before_deep_click_effective");
-          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict();
+          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareIsConfigured();
           if (!deepNowEnabled) {
+            if (!compareIsConfigured()) {
+              liveHintEl.textContent = "Deep locked: compare_not_set";
+              setLastBlockReason("compare_not_set");
+              refreshDeepReadiness(false);
+              const panel = document.getElementById("slot-panel");
+              if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest" });
+              return;
+            }
             snapshot("blocked_no_call_effective", { blockers: ["required_missing"], required: reqNow, missing: progNow.missing });
             liveHintEl.textContent = `Deep locked: ${progNow.missing[0] || "required_missing"}`;
             setLastBlockReason(progNow.missing[0] || "required_missing");
@@ -2538,6 +2666,13 @@
     lastApiMode = apiMode;
     if (isDeep && apiMode !== "deep" && !canThink()) {
       liveHintEl.textContent = "Fill template to unlock Think";
+      releaseEarlyLock();
+      return;
+    }
+    if (isDeep && !compareIsConfigured()) {
+      liveHintEl.textContent = "Deep locked: compare_not_set";
+      setLastBlockReason("compare_not_set");
+      refreshDeepReadiness(false);
       releaseEarlyLock();
       return;
     }
