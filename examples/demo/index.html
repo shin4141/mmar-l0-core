@@ -2520,11 +2520,12 @@
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
     const viewToggle = "";
     const slotProgress = computeRequiredProgress(getEffectiveRequiredFields());
+    const comparePairReady = compareHasPair();
     const canCompare = compareIsConfigured();
     const deepGateOpen = canCompare;
     const deepDisabledReasons = [];
     if (deepIsBusy()) deepDisabledReasons.push(slotState.deep.phase === "polling" ? "Polling..." : "Deep running...");
-    if (!canCompare) deepDisabledReasons.push("Lock Compare to enable Deep");
+    if (!comparePairReady) deepDisabledReasons.push("Lock Compare to enable Deep");
     const deepDisabledReason = deepDisabledReasons[0] || "";
     const deepDisabled = !!deepDisabledReason;
     const deepAction = (mode === "live")
@@ -2755,6 +2756,15 @@
             setLastBlockReason("no_submitted_input");
             refreshDeepReadiness(false);
             return;
+          }
+          if (!compareIsConfigured() && compareHasPair()) {
+            slotState.compare.locked = true;
+            slotState.compare.a = normalizeCompareText(slotState.compare.a);
+            slotState.compare.b = normalizeCompareText(slotState.compare.b);
+            dgDebug("compare_auto_locked_for_deep", {
+              a: slotState.compare.a,
+              b: slotState.compare.b,
+            });
           }
           if (!compareIsConfigured()) {
             liveHintEl.textContent = "Deep locked: Lock Compare to enable Deep";
