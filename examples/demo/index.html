@@ -26,6 +26,9 @@
     .wrap > .card:last-child{ min-width:0; }
     .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r);
            padding:14px; display:flex; flex-direction:column; min-height:0; box-shadow:var(--shadow); overflow:visible; }
+    .wrap{ align-items:start; }
+    .wrap > .card:first-child{ max-height:90vh; overflow:auto; }
+    .wrap > .card:last-child{ max-height:90vh; overflow:auto; }
     .muted{ color:var(--muted); font-size:12px; }
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .pill{ border:1px solid var(--line); border-radius:999px; padding:4px 10px; font-size:12px; background:#fff; }
@@ -107,6 +110,8 @@
       min-height:72px;
       box-sizing:border-box;
     }
+    body.debug-off #cmpA, body.debug-off #cmpB{ min-height:56px; }
+    .afterBox .preview{ max-height:55vh; overflow:auto; }
     @keyframes afterHero{
       0%{ transform:translateY(3px); box-shadow:0 6px 14px rgba(56,189,248,.10); }
       100%{ transform:translateY(0); box-shadow:0 12px 28px rgba(56,189,248,.18); }
@@ -193,7 +198,7 @@
         <div id="quick-gate-hint"></div>
         <label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:4px;">
           <input id="slot-debug-toggle" type="checkbox" />
-          Slot debug
+          Debug Mode
         </label>
         <button id="slot-sensitivity-test" title="Slot A/B sensitivity test" style="padding:2px 8px; margin-top:4px; display:none;">Slot A/B test</button>
         <button id="quick-skip" title="Skip (soon)" disabled style="padding:2px 8px;">Skip</button>
@@ -278,6 +283,7 @@
   let analysisStatus = "idle";
   let analysisError = null;
   let slotDebugEnabled = false;
+  const DEBUG_UI_STORAGE_KEY = "DG_DEBUG_UI";
   window.DG_PANIC = window.DG_PANIC || {
     disableDeep: false,
     swallowAllSubmit: true,
@@ -318,7 +324,10 @@
         pre.textContent = ring.slice(-40).join("\n");
         pre.style.pointerEvents = "none";
         let visible = false;
-        try { visible = localStorage.getItem(HUD_VISIBLE_KEY) === "1"; } catch (_) {}
+        try {
+          if (localStorage.getItem("DG_DEBUG_UI") != null) visible = localStorage.getItem("DG_DEBUG_UI") === "1";
+          else visible = localStorage.getItem(HUD_VISIBLE_KEY) === "1";
+        } catch (_) {}
         pre.style.display = visible ? "block" : "none";
         document.body.appendChild(pre);
         window.__dgHud = pre;
@@ -456,6 +465,7 @@
       b: "",
       locked: false,
       source: "empty",
+      collapsed: false,
     },
   };
   const KNOWN_SLOT_KEYS = new Set(["amount", "horizon", "goal", "risk", "constraint"]);
@@ -473,18 +483,37 @@
     return String(v == null ? "" : v).replace(/\s+/g, " ").trim();
   }
 
+  function compareHasPair(){
+    const c = slotState.compare || {};
+    return !!(normalizeCompareText(c.a) && normalizeCompareText(c.b));
+  }
+
   function compareIsConfigured(){
     const c = slotState.compare || {};
-    return !!(c.locked && normalizeCompareText(c.a) && normalizeCompareText(c.b));
+    return !!(c.locked && compareHasPair());
   }
 
   function compareStatusText(){
     const c = slotState.compare || {};
+    const pair = compareHasPair();
     const ready = compareIsConfigured();
     if (ready) {
       return `Compare SSOT: locked (${normalizeCompareText(c.a)} vs ${normalizeCompareText(c.b)})`;
     }
+    if (pair) {
+      return `Compare SSOT: draft (${normalizeCompareText(c.a)} vs ${normalizeCompareText(c.b)})`;
+    }
     return "Compare SSOT: not locked";
+  }
+
+  function setDebugUiMode(on){
+    const enabled = !!on;
+    slotDebugEnabled = enabled;
+    try { localStorage.setItem(DEBUG_UI_STORAGE_KEY, enabled ? "1" : "0"); } catch (_) {}
+    document.body.classList.toggle("debug-off", !enabled);
+    if (window.DG_HUD_SET_VISIBLE) window.DG_HUD_SET_VISIBLE(enabled);
+    if (window.DG_HUD_SET_INTERACTIVE) window.DG_HUD_SET_INTERACTIVE(enabled);
+    if (slotSensitivityTestEl) slotSensitivityTestEl.style.display = enabled ? "inline-block" : "none";
   }
 
   function loadABModeOverride(){
@@ -769,7 +798,7 @@
     const requiredOk = req.every((f) => hasFieldValue(f));
     const riskOk = hasFieldValue("risk");
     const conflictOk = !(Array.isArray(conflict) ? conflict.length : 0);
-    const compareOk = compareIsConfigured();
+    const compareOk = compareHasPair();
     return requiredOk && riskOk && conflictOk && compareOk;
   }
 
@@ -791,7 +820,7 @@
     if (analysisStatus === "running") blockers.push("analysis_running");
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
-    if (!compareIsConfigured()) blockers.push("compare_not_set");
+    if (!compareHasPair()) blockers.push("compare_not_set");
     const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
@@ -1462,17 +1491,23 @@
       </div>`
       : "";
     const cmp = slotState.compare || { a: "", b: "", locked: false };
+    const compareCollapsed = !!cmp.collapsed;
     const compareBlock = `
       <div class="slotRow" style="margin-top:6px; align-items:flex-start; flex-direction:column;">
-        <span class="slotLabel">Compare SSOT</span>
+        <div style="display:flex; gap:6px; align-items:center; width:100%;">
+          <span class="slotLabel" style="min-width:auto;">Compare SSOT</span>
+          <button id="compare-collapse-toggle" type="button" class="slotChip">${compareCollapsed ? "▶" : "▼"}</button>
+        </div>
+        <div id="compare-body" style="display:${compareCollapsed ? "none" : "block"}; width:100%;">
         <textarea id="cmpA" placeholder="Compare A">${escapeHtml(cmp.a || "")}</textarea>
         <textarea id="cmpB" placeholder="Compare B">${escapeHtml(cmp.b || "")}</textarea>
-        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
           <button id="compare-use-top2" type="button" class="slotChip">Use TOP2 as draft</button>
           <label class="muted" style="display:flex;align-items:center;gap:6px;">
             <input id="compare-lock" type="checkbox" ${cmp.locked ? "checked" : ""} />
             Lock Compare
           </label>
+        </div>
         </div>
       </div>
     `;
@@ -1586,6 +1621,15 @@
           }
         }
         refreshDeepReadiness();
+      };
+    }
+    const compareCollapseBtn = document.getElementById("compare-collapse-toggle");
+    if (compareCollapseBtn) {
+      compareCollapseBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        slotState.compare.collapsed = !slotState.compare.collapsed;
+        renderSlotPanel();
       };
     }
   }
@@ -1766,6 +1810,9 @@
     const t = runElapsedSec();
     const cur = runIdShort(slotState.run.currentRunId) || "-";
     const ap = runIdShort(slotState.run.appliedRunId) || "-";
+    if (!slotDebugEnabled) {
+      return isStalled ? `Stalled (t=${t}s)` : `Running (t=${t}s)`;
+    }
     if (isStalled) {
       return `Stalled (t=${t}s) runId=${cur} applied=${ap} — check poll/apply`;
     }
@@ -2236,6 +2283,7 @@
       return;
     }
 
+    const debugUiOn = !!slotDebugEnabled;
     const viewDataForBadges = (mode === "live")
       ? (((liveDataView === "deep") && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData))
       : null;
@@ -2285,8 +2333,8 @@
     const localQuality = qualityFromAfter(after || "");
     const quality = serverQuality || localQuality;
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
-    const compareConfigured = compareIsConfigured();
-    const compareNotSetText = "COMPARE_NOT_SET:\n- A/Bを確定してLock CompareをONにすると比較を開始します。\n- 左パネルで Compare A / Compare B を入力してください。";
+    const compareConfigured = compareHasPair();
+    const compareNotSetText = "COMPARE_NOT_SET:\n- Compare A / Compare B を入力すると比較を開始します。\n- Lock Compare は任意（固定したい時のみON）。";
     const afterNormalized = compareConfigured
       ? sanitizeOptionDisplay(after, before || qEl.value || "")
       : compareNotSetText;
@@ -2295,7 +2343,9 @@
       ? viewDataForBadges.slot_effect
       : null;
     const slotEffect = slotEffectFromData || scoreSlotEffect(afterWithSource);
-    const slotEffectBadge = `<span class="pillBadge" style="${slotEffect.level === "weak" ? "border-color:#d98b2b;color:#b15f00;" : (slotEffect.level === "strong" ? "border-color:#16a34a;color:#166534;" : "")}">SlotEffect: ${slotEffect.score}/100 (${slotEffect.level})</span>`;
+    const slotEffectBadge = debugUiOn
+      ? `<span class="pillBadge" style="${slotEffect.level === "weak" ? "border-color:#d98b2b;color:#b15f00;" : (slotEffect.level === "strong" ? "border-color:#16a34a;color:#166534;" : "")}">SlotEffect: ${slotEffect.score}/100 (${slotEffect.level})</span>`
+      : "";
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
     const viewToggle = (mode === "live" && !!liveDataCore)
@@ -2327,7 +2377,7 @@
     const deepLockRemain = slotProgress.missing.length;
     const deepLockNext = deepLockRemain > 0 ? String(slotProgress.missing[0]) : "";
     const deepLockNote = (!deepGateOpen && slotState.showPanel)
-      ? `<div class="muted" style="margin-top:-4px;">Deep locked: ${compareConfigured ? `あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${deepLockNext ? ` / next: ${escapeHtml(deepLockNext)}` : ""}` : "A/Bを確定してLock CompareをONにしてください"}</div>`
+      ? `<div class="muted" style="margin-top:-4px;">Deep locked: ${compareConfigured ? `あと${deepLockRemain}個選ぶとDeep (required ${requiredFilled}/${requiredTotal})${deepLockNext ? ` / next: ${escapeHtml(deepLockNext)}` : ""}` : "Compare A/B を入力してください"}</div>`
       : "";
     const debugTxt = `view_source=${viewSource}\ndeep_status=${deepMetaStatus}\ndomain=${deepMetaDomain}\ndomain_guess=${JSON.stringify(deepMetaDomainGuess || {})}\ndomain_confidence=${deepMetaDomainConf == null ? "-" : deepMetaDomainConf.toFixed(2)}\nquality=${JSON.stringify(quality || {})}\nfallback_reason_primary=${deepMetaReason}\nfallback_reason_secondary=${deepMetaSecondary}\nmissing=${deepMetaMissing}\ntimings=${deepTimings}\nserver_sha_start=${runStartSha || "-"}\nresult_sha=${runResultSha || "-"}\nask_sha=${runAskSha || "-"}\nserver_sha_end=${runEndSha || "-"}\npid_start=${runPidStart || "-"}\npid_end=${runPidEnd || "-"}\njob_id=${(liveDataDeep && liveDataDeep.job_id) || "-"}`;
     const debugDetails = (mode === "live" && (deepMetaStatus !== "ok" || analysisStatus === "error"))
@@ -2340,7 +2390,7 @@
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
     const formatBadge = (deepLint && deepLint.ok === false)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Format mismatch: re-run recommended</span>`
+      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">${debugUiOn ? "Format mismatch: re-run recommended" : "Needs re-run"}</span>`
       : "";
     const slotBadge = (slotVerify && slotVerify.ok === false)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Slot mismatch</span>`
@@ -2353,9 +2403,9 @@
     const sourceBadge = (mode === "live")
       ? `<span class="pillBadge">Source: ${viewSource === "deep" ? "Deep" : "Core"}</span>`
       : "";
-    const protocolBadge = `<span class="pillBadge">Protocol: Compare-v1</span>`;
-    const runKeyBadge = `<span class="pillBadge">runKey:${escapeHtml((slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8))}</span>`;
-    const deepKeyBadge = `<span class="pillBadge">deepKey:${escapeHtml((slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8))}</span>`;
+    const protocolBadge = debugUiOn ? `<span class="pillBadge">Protocol: Compare-v1</span>` : "";
+    const runKeyBadge = debugUiOn ? `<span class="pillBadge">runKey:${escapeHtml((slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8))}</span>` : "";
+    const deepKeyBadge = debugUiOn ? `<span class="pillBadge">deepKey:${escapeHtml((slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8))}</span>` : "";
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">sha mismatch</span>`
       : "";
@@ -2410,7 +2460,7 @@
       ? `<div class="winnerBanner"><span><span class="wKey">LEAN:</span> ${escapeHtml(displaySanitize(lean))}</span>${alt ? `<span><span class="wKey">ALT:</span> ${escapeHtml(displaySanitize(alt))}</span>` : ""}${split ? `<span><span class="wKey">SPLIT:</span> ${escapeHtml(displaySanitize(split))}</span>` : ""}${gap ? `<span><span class="wKey">GAP:</span> ${escapeHtml(displaySanitize(gap))}</span>` : ""}</div>`
       : "";
     const appliedSlotsLine = assumptionsLineFromSlots(slotState.selected || {}, slotState.extra || {});
-    const appliedSlotsBlock = `<div class="muted" style="margin-top:-4px;">Applied slots: ${escapeHtml(displaySanitize(appliedSlotsLine))}</div>`;
+    const appliedSlotsBlock = `<div class="muted" style="margin-top:-4px;">Applied slots: ${debugUiOn ? escapeHtml(displaySanitize(appliedSlotsLine)) : "set"}</div>`;
     if (leftUnlockEl) leftUnlockEl.innerHTML = leftUnlockPanel;
     outEl.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
@@ -2423,7 +2473,7 @@
         ${deepLockNote}
         ${rerunHint}
         ${diffBlock}
-        ${debugDetails}
+        ${debugUiOn ? debugDetails : ""}
       </div>
     `;
     const statusBtn = document.getElementById("deep-status-badge");
@@ -2537,9 +2587,9 @@
             progNow = computeRequiredProgress(reqNow);
           }
           snapshot("before_deep_click_effective");
-          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareIsConfigured();
+          const deepNowEnabled = (progNow.missing.length === 0) && hasFieldValue("risk") && !hasConflict() && compareHasPair();
           if (!deepNowEnabled) {
-            if (!compareIsConfigured()) {
+            if (!compareHasPair()) {
               liveHintEl.textContent = "Deep locked: compare_not_set";
               setLastBlockReason("compare_not_set");
               refreshDeepReadiness(false);
@@ -2693,7 +2743,7 @@
       releaseEarlyLock();
       return;
     }
-    if (isDeep && !compareIsConfigured()) {
+    if (isDeep && !compareHasPair()) {
       liveHintEl.textContent = "Deep locked: compare_not_set";
       setLastBlockReason("compare_not_set");
       refreshDeepReadiness(false);
@@ -3389,14 +3439,12 @@
     deepRunning = false;
   };
   document.getElementById("reload").onclick = loadActive;
+  try { slotDebugEnabled = localStorage.getItem(DEBUG_UI_STORAGE_KEY) === "1"; } catch (_) { slotDebugEnabled = false; }
+  setDebugUiMode(slotDebugEnabled);
   if (slotDebugToggleEl) {
-    try { slotDebugEnabled = localStorage.getItem("DG_HUD_VISIBLE_V1") === "1"; } catch (_) {}
     slotDebugToggleEl.checked = !!slotDebugEnabled;
     slotDebugToggleEl.onchange = () => {
-      slotDebugEnabled = !!slotDebugToggleEl.checked;
-      if (window.DG_HUD_SET_VISIBLE) window.DG_HUD_SET_VISIBLE(slotDebugEnabled);
-      if (window.DG_HUD_SET_INTERACTIVE) window.DG_HUD_SET_INTERACTIVE(slotDebugEnabled);
-      if (slotSensitivityTestEl) slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
+      setDebugUiMode(!!slotDebugToggleEl.checked);
       dgDebug("slot_debug_toggle", { enabled: slotDebugEnabled });
     };
   }
@@ -3408,7 +3456,6 @@
       await runSlotSensitivityTest();
     };
   }
-  if (window.DG_HUD_SET_INTERACTIVE) window.DG_HUD_SET_INTERACTIVE(!!slotDebugEnabled);
   slotState.abModeOverride = loadABModeOverride();
   decideABMode(qEl.value || "", "init");
   mode = "live";
