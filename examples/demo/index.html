@@ -400,11 +400,15 @@
       currentDeepKey: "",
       retryCountByDeepKey: {},
     },
-    runPhase: "idle",
-    runStartAt: 0,
-    runEndAt: 0,
-    runError: "",
-    currentRunId: "",
+    run: {
+      phase: "idle",
+      startedAt: 0,
+      lastProgressAt: 0,
+      endedAt: 0,
+      currentRunId: "",
+      appliedRunId: "",
+      errorMsg: "",
+    },
     showPanel: false,
     showExtra: false,
   };
@@ -918,6 +922,8 @@
     stopRequested = false;
     updateStopButton();
     lastSubmittedInput = submittedInput;
+    slotState.run.appliedRunId = (coreData && typeof coreData.run_id === "string") ? coreData.run_id : slotState.run.appliedRunId;
+    markRunProgress();
     setTimestamp();
   }
 
@@ -1381,6 +1387,46 @@
 
   function makeRunId(){
     return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function runElapsedSec(){
+    if (!slotState.run || !slotState.run.startedAt) return 0;
+    return Math.max(0, Math.floor((Date.now() - slotState.run.startedAt) / 1000));
+  }
+
+  function markRunProgress(){
+    if (!slotState.run) return;
+    slotState.run.lastProgressAt = Date.now();
+  }
+
+  function runStatusLine(isStalled){
+    const t = runElapsedSec();
+    const cur = (slotState.run.currentRunId || "-").slice(0, 8);
+    const ap = (slotState.run.appliedRunId || "-").slice(0, 8);
+    if (isStalled) {
+      return `Stalled (t=${t}s) runId=${cur} applied=${ap} — check poll/apply`;
+    }
+    return `Running (t=${t}s) runId=${cur} applied=${ap} — showing previous result`;
+  }
+
+  function renderTick(){
+    if (mode !== "live") return;
+    const run = slotState.run || {};
+    if (run.phase === "running" && run.lastProgressAt > 0 && (Date.now() - run.lastProgressAt > 10000)) {
+      run.phase = "stalled";
+      run.errorMsg = "No progress for 10s (likely job/poll/apply mismatch)";
+      liveStatus = "error";
+      isRunning = false;
+      liveHintEl.textContent = "Stalled: No progress for 10s";
+    }
+    const meta = document.getElementById("run-sticky-meta");
+    if (meta && (run.phase === "running" || run.phase === "stalled")) {
+      meta.textContent = runStatusLine(run.phase === "stalled");
+      if (run.phase === "stalled") {
+        meta.style.color = "#b91c1c";
+        meta.style.fontWeight = "800";
+      }
+    }
   }
 
   function hashText16(text){
@@ -2123,11 +2169,13 @@
       slotState.exec.retryCountByDeepKey = {};
       analysisStatus = "running";
       analysisError = null;
-      slotState.runPhase = "running";
-      slotState.runStartAt = Date.now();
-      slotState.runEndAt = 0;
-      slotState.runError = "";
-      slotState.currentRunId = runId;
+      slotState.run.phase = "running";
+      slotState.run.startedAt = Date.now();
+      slotState.run.lastProgressAt = slotState.run.startedAt;
+      slotState.run.endedAt = 0;
+      slotState.run.errorMsg = "";
+      slotState.run.currentRunId = runId;
+      slotState.run.appliedRunId = "";
       setLastBlockReason("");
       deepDone = false;
       slotState.showPanel = true;
@@ -2204,10 +2252,12 @@
       liveHintEl.textContent = "Cache hit: same input/sha/model_cfg";
       liveStatus = "ready";
       if (!isDeep) {
-        slotState.runPhase = "done";
-        slotState.runError = "";
-        slotState.runEndAt = Date.now();
-        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.runEndAt || Date.now()) - (slotState.runStartAt || Date.now())), cached: true });
+        slotState.run.phase = "done";
+        slotState.run.errorMsg = "";
+        slotState.run.endedAt = Date.now();
+        slotState.run.appliedRunId = runId;
+        markRunProgress();
+        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.run.endedAt || Date.now()) - (slotState.run.startedAt || Date.now())), cached: true });
       }
       setRunVisual("ready", "2.8s");
       loadActive();
@@ -2253,9 +2303,9 @@
         if (!apiBase) {
           analysisStatus = "error";
           analysisError = "api_base_empty";
-          slotState.runPhase = "error";
-          slotState.runError = "api_base_empty";
-          slotState.runEndAt = Date.now();
+          slotState.run.phase = "error";
+          slotState.run.errorMsg = "api_base_empty";
+          slotState.run.endedAt = Date.now();
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = "Live error: API base is empty";
@@ -2277,12 +2327,13 @@
           status: rCore.status,
           rawHead: String(rawCore || "").slice(0, 160),
         });
+        markRunProgress();
         if (!rCore.ok) {
           analysisStatus = "error";
           analysisError = `http_${rCore.status}`;
-          slotState.runPhase = "error";
-          slotState.runError = `http_${rCore.status}`;
-          slotState.runEndAt = Date.now();
+          slotState.run.phase = "error";
+          slotState.run.errorMsg = `http_${rCore.status}`;
+          slotState.run.endedAt = Date.now();
           const body = rawCore;
           const short = body.length > 300 ? (body.slice(0, 300) + "...") : body;
           liveHintEl.textContent = "RUN: core error";
@@ -2298,9 +2349,9 @@
         if (!coreData) {
           analysisStatus = "error";
           analysisError = "invalid_core_json";
-          slotState.runPhase = "error";
-          slotState.runError = "invalid_core_json";
-          slotState.runEndAt = Date.now();
+          slotState.run.phase = "error";
+          slotState.run.errorMsg = "invalid_core_json";
+          slotState.run.endedAt = Date.now();
           liveHintEl.textContent = "RUN: core error";
           liveStatus = "error";
           outEl.textContent = "Live error: invalid core JSON response";
@@ -2326,6 +2377,7 @@
               console.debug("[DG] run_apply", { runId, matchedRunId: false, source: "job_poll" });
               continue;
             }
+            markRunProgress();
             if (j.status === "done" && j && ["compare", "expand", "diff", "merge"].every(k => typeof j[k] === "string")) {
               coreData = j;
               done = true;
@@ -2336,9 +2388,9 @@
           if (!done) {
             analysisStatus = "error";
             analysisError = "run_job_timeout";
-            slotState.runPhase = "error";
-            slotState.runError = "run_job_timeout";
-            slotState.runEndAt = Date.now();
+            slotState.run.phase = "error";
+            slotState.run.errorMsg = "run_job_timeout";
+            slotState.run.endedAt = Date.now();
             liveHintEl.textContent = "Run failed: timeout";
             liveStatus = "error";
             outEl.textContent = "Run failed: timeout (job not completed)";
@@ -2354,9 +2406,9 @@
         const matchedRunId = !!(coreRunId && coreRunId === activeRunId);
         console.debug("[DG] run_apply", { runId, matchedRunId, source: "core_result" });
         if (!coreRunId || coreRunId !== activeRunId) {
-          slotState.runPhase = "error";
-          slotState.runError = "run_id_mismatch";
-          slotState.runEndAt = Date.now();
+          slotState.run.phase = "error";
+          slotState.run.errorMsg = "run_id_mismatch";
+          slotState.run.endedAt = Date.now();
           liveHintEl.textContent = "stale ignored (core run_id mismatch)";
           wCore.done();
           return;
@@ -2377,10 +2429,12 @@
         liveHintEl.textContent = "RUN: core ok";
         analysisStatus = "ok";
         analysisError = null;
-        slotState.runPhase = "done";
-        slotState.runError = "";
-        slotState.runEndAt = Date.now();
-        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.runEndAt || Date.now()) - (slotState.runStartAt || Date.now())) });
+        slotState.run.phase = "done";
+        slotState.run.errorMsg = "";
+        slotState.run.endedAt = Date.now();
+        slotState.run.appliedRunId = runId;
+        markRunProgress();
+        console.debug("[DG] run_done", { runId, ms: Math.max(0, (slotState.run.endedAt || Date.now()) - (slotState.run.startedAt || Date.now())) });
         liveStatus = "ready";
         liveResultBadgeEl.textContent = "Core";
         liveResultBadgeEl.style.display = "inline-block";
@@ -2682,9 +2736,9 @@
       if (!isDeep) {
         analysisStatus = "error";
         analysisError = String(e || "core_error");
-        slotState.runPhase = "error";
-        slotState.runError = String(e || "core_error");
-        slotState.runEndAt = Date.now();
+        slotState.run.phase = "error";
+        slotState.run.errorMsg = String(e || "core_error");
+        slotState.run.endedAt = Date.now();
       }
       if (apiDown) {
         liveHintEl.textContent = "API unreachable: restart dev_api";
@@ -2715,23 +2769,12 @@
     outEl.textContent = "Loading…";
     if (leftUnlockEl && active !== "compare") leftUnlockEl.innerHTML = "";
     if (mode === "live"){
-      if (slotState.runPhase === "running" && slotState.runStartAt > 0) {
-        const elapsed = Date.now() - slotState.runStartAt;
-        if (elapsed > 10000) {
-          slotState.runPhase = "error";
-          slotState.runError = "run_timeout";
-          slotState.runEndAt = Date.now();
-          isRunning = false;
-          liveStatus = "error";
-          liveHintEl.textContent = "Run failed: timeout. Re-run.";
-        }
-      }
+      renderTick();
       const viewData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData);
       if (!viewData){
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
-          const runTag = slotState.currentRunId ? slotState.currentRunId.slice(0, 8) : "-";
-          const banner = `<div class="infoBanner">Running (runId=${escapeHtml(runTag)}). Showing previous result until update.</div>`;
+          const banner = `<div class="infoBanner"><span id="run-sticky-meta">${escapeHtml(runStatusLine(slotState.run.phase === "stalled"))}</span></div>`;
           if (active === "compare") {
             renderCompare(stickyTxt, banner);
           } else {
@@ -2739,12 +2782,12 @@
           }
           return;
         }
-        if (slotState.runPhase === "error") {
-          outEl.textContent = `Run failed: ${slotState.runError || "unknown"}. Re-run.`;
+        if (slotState.run.phase === "error" || slotState.run.phase === "stalled") {
+          outEl.textContent = `Run failed: ${slotState.run.errorMsg || "unknown"}. Re-run.`;
           return;
         }
-        outEl.textContent = (liveStatus === "running" || liveStatus === "slow" || isRunning || slotState.runPhase === "running")
-          ? `Running (runId=${(slotState.currentRunId || "-").slice(0, 8)})...`
+        outEl.textContent = (liveStatus === "running" || liveStatus === "slow" || isRunning || slotState.run.phase === "running")
+          ? runStatusLine(false)
           : (liveReady ? "Live mode: press Run" : "Live not ready");
         return;
       }
@@ -2752,8 +2795,7 @@
       if (activeRunId && viewRunId !== activeRunId) {
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
-          const runTag = slotState.currentRunId ? slotState.currentRunId.slice(0, 8) : "-";
-          const banner = `<div class="infoBanner">Running (runId=${escapeHtml(runTag)}). Showing previous result until update.</div>`;
+          const banner = `<div class="infoBanner"><span id="run-sticky-meta">${escapeHtml(runStatusLine(slotState.run.phase === "stalled"))}</span></div>`;
           if (active === "compare") {
             renderCompare(stickyTxt, banner);
           } else {
@@ -2761,7 +2803,7 @@
           }
           return;
         }
-        outEl.textContent = `Running (runId=${(slotState.currentRunId || "-").slice(0, 8)})...`;
+        outEl.textContent = runStatusLine(slotState.run.phase === "stalled");
         return;
       }
       const txt = (viewData[active] && viewData[active].trim()) ? viewData[active] : (viewData.expand || "");
@@ -2859,6 +2901,7 @@
   renderTabs();
   checkLiveHealth();
   loadActive();
+  setInterval(renderTick, 1000);
 </script>
 </body>
 </html>
