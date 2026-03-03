@@ -476,10 +476,12 @@
       runId: "",
       jobId: "",
       startedAt: 0,
+      endedAt: 0,
       polls: 0,
       lastPollAt: 0,
       lastHttpHead: "",
       lastReason: "",
+      pollTimerId: 0,
     },
     showPanel: false,
     showExtra: false,
@@ -587,16 +589,49 @@
   }
 
   function resetDeepOverlay(runId = ""){
+    const prev = slotState.deepOverlay || {};
+    const prevTimer = Number(prev.pollTimerId || 0);
+    if (prevTimer) clearTimeout(prevTimer);
     slotState.deepOverlay = {
       phase: "idle",
       runId: String(runId || ""),
       jobId: "",
       startedAt: 0,
+      endedAt: 0,
       polls: 0,
       lastPollAt: 0,
       lastHttpHead: "",
       lastReason: "",
+      pollTimerId: 0,
     };
+  }
+
+  function clearDeepOverlayPollTimer(){
+    const st = slotState.deepOverlay || {};
+    const timerId = Number(st.pollTimerId || 0);
+    if (timerId) clearTimeout(timerId);
+    setDeepOverlay({ pollTimerId: 0 });
+  }
+
+  function markDeepOverlayTerminal(phase, reason = ""){
+    const st = slotState.deepOverlay || {};
+    clearDeepOverlayPollTimer();
+    setDeepOverlay({
+      phase,
+      endedAt: st.endedAt || Date.now(),
+      lastReason: reason || st.lastReason || "",
+    });
+  }
+
+  function waitDeepOverlayPoll(ms){
+    return new Promise((resolve) => {
+      const id = setTimeout(() => {
+        const cur = slotState.deepOverlay || {};
+        if (Number(cur.pollTimerId || 0) === id) setDeepOverlay({ pollTimerId: 0 });
+        resolve();
+      }, ms);
+      setDeepOverlay({ pollTimerId: id });
+    });
   }
 
   function setDebugUiMode(on){
@@ -1680,12 +1715,8 @@
     lastStableResult = liveDataDeep;
     coreCompareV1FallbackActive = false;
     deepOverlayNotice = "";
-    setDeepOverlay({
-      phase: "applied",
-      runId: rid,
-      jobId: "",
-      lastReason: `applied:${source}`,
-    });
+    setDeepOverlay({ runId: rid, jobId: "", lastReason: `applied:${source}` });
+    markDeepOverlayTerminal("applied", `applied:${source}`);
     liveHintEl.textContent = "Deep applied";
     liveStatus = "ready";
     await renderAll();
@@ -1696,7 +1727,11 @@
     const rid = String(runId || activeRunId || "");
     const runPoll = async (intervalMs, limit, slowPhase) => {
       for (let i = 0; i < limit; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        const cur = slotState.deepOverlay || {};
+        if (["applied", "failed", "cancelled"].includes(String(cur.phase || ""))) return false;
+        await waitDeepOverlayPoll(intervalMs);
+        const curAfterWait = slotState.deepOverlay || {};
+        if (["applied", "failed", "cancelled"].includes(String(curAfterWait.phase || ""))) return false;
         const polls = Number((slotState.deepOverlay && slotState.deepOverlay.polls) || 0) + 1;
         setDeepOverlay({
           phase: slowPhase ? "slow" : "polling",
@@ -1729,7 +1764,8 @@
           return true;
         }
         if (j.status === "error" || j.status === "cancelled") {
-          setDeepOverlay({ phase: "failed", lastReason: `job_${j.status}:${String(j.error || "")}` });
+          if (j.status === "cancelled") markDeepOverlayTerminal("cancelled", "job_cancelled");
+          else markDeepOverlayTerminal("failed", `job_${j.status}:${String(j.error || "")}`);
           deepOverlayNotice = "Deep attempt: failed";
           return false;
         }
@@ -1749,7 +1785,7 @@
     }
     const slow = await runPoll(2000, 30, true);
     if (slow != null) return slow;
-    setDeepOverlay({ phase: "failed", lastReason: "timeout" });
+    markDeepOverlayTerminal("failed", "timeout");
     deepOverlayNotice = `Deep attempt: timeout (jobId=${jobId})`;
     return false;
   }
@@ -1767,6 +1803,7 @@
     if (!apiBase) return;
     const prevJobId = String((slotState.deepOverlay && slotState.deepOverlay.jobId) || (slotState.deep && slotState.deep.jobId) || "");
     if (force && prevJobId) {
+      markDeepOverlayTerminal("cancelled", "manual_cancel_for_retry");
       try {
         await fetch(`${apiBase}/api/cancel/${encodeURIComponent(prevJobId)}`, { method: "POST" });
       } catch (_) {}
@@ -1776,10 +1813,12 @@
       phase: "starting",
       runId,
       startedAt: Date.now(),
+      endedAt: 0,
       lastReason: reason,
       polls: 0,
       jobId: "",
       lastHttpHead: "",
+      pollTimerId: 0,
     });
     deepOverlayNotice = "Deep: starting";
     await renderAll();
@@ -1793,7 +1832,7 @@
       raw = String((out && out.raw) || "");
       setDeepOverlay({ lastHttpHead: raw.slice(0, 120) });
     } catch (e) {
-      setDeepOverlay({ phase: "failed", lastReason: `start_exception:${String(e || "unknown")}` });
+      markDeepOverlayTerminal("failed", `start_exception:${String(e || "unknown")}`);
       deepOverlayNotice = "Deep attempt: start failed";
       await renderAll();
       return;
@@ -1802,7 +1841,7 @@
     }
     const j = (parsedData && typeof parsedData === "object") ? parsedData : null;
     if (!j) {
-      setDeepOverlay({ phase: "failed", lastReason: "non_json_start_response" });
+      markDeepOverlayTerminal("failed", "non_json_start_response");
       deepOverlayNotice = "Deep attempt: invalid response";
       await renderAll();
       return;
@@ -1829,7 +1868,7 @@
       await applyDeepOverlayResult(j, runId, "start_response");
       return;
     }
-    setDeepOverlay({ phase: "failed", lastReason: "start_without_job_or_payload" });
+    markDeepOverlayTerminal("failed", "start_without_job_or_payload");
     deepOverlayNotice = "Deep attempt: no job_id";
     await renderAll();
   }
@@ -2233,7 +2272,8 @@
   function deepOverlayElapsedSec(){
     const st = slotState.deepOverlay || {};
     if (!st.startedAt) return 0;
-    return Math.max(0, Math.floor((Date.now() - Number(st.startedAt || 0)) / 1000));
+    const end = Number(st.endedAt || 0) || Date.now();
+    return Math.max(0, Math.floor((end - Number(st.startedAt || 0)) / 1000));
   }
 
   function deepOverlayStatusText(){
@@ -3918,6 +3958,7 @@
     const deepJobId = (slotState.deep && slotState.deep.jobId) ? String(slotState.deep.jobId) : "";
     if (!deepJobId && !deepIsBusy()) return;
     stopRequested = true;
+    markDeepOverlayTerminal("cancelled", "manual_stop");
     setDeepPhase("cancelled", {
       runId: (slotState.deep && slotState.deep.runId) || "",
       jobId: "",
