@@ -2873,6 +2873,21 @@
     }
   }
 
+  function renderCompareSafe(txt){
+    try {
+      renderCompare(txt);
+      const html = String(outEl.innerHTML || "").trim();
+      const text = String(outEl.textContent || "").trim();
+      if (!html && !text) {
+        outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
+      }
+    } catch (e) {
+      const msg = (e && e.stack) ? e.stack : String(e || "");
+      console.error("[DG][RENDER_CRASH] renderCompareSafe", msg);
+      outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
+    }
+  }
+
   async function onClickRunSafe(opts = {}){
     const force = !!(opts && opts.force);
     const reason = (opts && typeof opts.reason === "string" && opts.reason) ? opts.reason : "run";
@@ -3266,7 +3281,7 @@
         await safeRenderAll("state_update");
         if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
           try {
-            renderCompare((coreData.compare && coreData.compare.trim()) ? coreData.compare : (coreData.expand || ""));
+            renderCompareSafe((coreData.compare && coreData.compare.trim()) ? coreData.compare : (coreData.expand || ""));
           } catch (_) {}
         }
         wCore.done();
@@ -3622,7 +3637,7 @@
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
           if (active === "compare") {
-            renderCompare(stickyTxt);
+            renderCompareSafe(stickyTxt);
           } else {
             outEl.innerHTML = `<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
           }
@@ -3647,7 +3662,7 @@
         if (isRunning && lastStableResult) {
           const stickyTxt = (lastStableResult[active] && lastStableResult[active].trim()) ? lastStableResult[active] : (lastStableResult.expand || "");
           if (active === "compare") {
-            renderCompare(stickyTxt);
+            renderCompareSafe(stickyTxt);
           } else {
             outEl.innerHTML = `<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
           }
@@ -3659,7 +3674,7 @@
       const txt = (viewData[active] && viewData[active].trim()) ? viewData[active] : (viewData.expand || "");
       try {
         if (active === "compare") {
-          renderCompare(txt);
+          renderCompareSafe(txt);
         } else {
           outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
         }
@@ -3677,7 +3692,7 @@
       setTimestamp();
 
       if (active === "compare"){
-        renderCompare(txt);
+        renderCompareSafe(txt);
       } else {
         outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
       }
