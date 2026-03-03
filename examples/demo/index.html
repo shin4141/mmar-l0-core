@@ -178,6 +178,10 @@
         <span id="core-only-badge" class="pillBadge" style="display:none; background:#fee2e2; border-color:#fca5a5; color:#991b1b;">CORE ONLY MODE</span>
         <span id="live-hint" class="muted"></span>
       </div>
+      <label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+        <input id="quickstart-toggle" type="checkbox" />
+        QuickStart (recommended)
+      </label>
       <div id="left-unlock" style="margin-top:10px;"></div>
       <div class="row" style="margin-top:10px;">
         <button id="reload" type="button">Reload files</button>
@@ -240,6 +244,7 @@
   const stopLiveEl = document.getElementById("stop-live");
   const quickQualityEl = document.getElementById("quick-quality");
   const quickGateHintEl = document.getElementById("quick-gate-hint");
+  const quickStartToggleEl = document.getElementById("quickstart-toggle");
   const runningOverlayEl = document.getElementById("running-overlay");
   const liveResultBadgeEl = document.getElementById("live-result-badge");
   const liveApiBaseEl = document.getElementById("live-api-base");
@@ -290,6 +295,8 @@
   let analysisError = null;
   let slotDebugEnabled = false;
   const DEBUG_UI_STORAGE_KEY = "DG_DEBUG_UI";
+  const QUICKSTART_STORAGE_KEY = "DG_QUICKSTART";
+  let quickStartEnabled = true;
   window.DG_PANIC = window.DG_PANIC || {
     disableDeep: false,
     swallowAllSubmit: true,
@@ -657,6 +664,22 @@
     const norm = (v === "A" || v === "B") ? v : "auto";
     slotState.abModeOverride = norm;
     try { localStorage.setItem(AB_MODE_STORAGE_KEY, norm); } catch (_) {}
+  }
+
+  function loadQuickStartEnabled(){
+    try {
+      const v = localStorage.getItem(QUICKSTART_STORAGE_KEY);
+      if (v == null) return true;
+      return v === "1";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function saveQuickStartEnabled(on){
+    quickStartEnabled = !!on;
+    try { localStorage.setItem(QUICKSTART_STORAGE_KEY, quickStartEnabled ? "1" : "0"); } catch (_) {}
+    if (quickStartToggleEl) quickStartToggleEl.checked = quickStartEnabled;
   }
 
   function inferABMode(questionText, uiContext){
@@ -1305,6 +1328,61 @@
     return { a: "", b: "" };
   }
 
+  function inferQuickStartGoalFromText(text){
+    const t = String(text || "");
+    if (/(増やす|攻め|リターン|成長|収益|利益)/.test(t)) return "増やす";
+    if (/(現金|流動性|キャッシュ|手元)/.test(t)) return "現金優先";
+    return "守る";
+  }
+
+  function applyQuickStartSlots(inputText){
+    if (!quickStartEnabled) return;
+    if (!slotState.selected.risk) slotState.selected.risk = "中";
+    if (!slotState.selected.horizon) slotState.selected.horizon = "短期";
+    if (!slotState.selected.amount) slotState.selected.amount = "中";
+    if (!slotState.selected.goal) slotState.selected.goal = inferQuickStartGoalFromText(inputText);
+    for (const key of ["risk", "horizon", "amount", "goal"]) {
+      if (slotState.selected[key] && !slotState.selectedSource[key]) slotState.selectedSource[key] = "quickstart";
+    }
+  }
+
+  function deriveCompareFromQuestion(inputText){
+    const q = normalizeCompareText(inputText);
+    if (!q) return { a: "", b: "" };
+    let m = q.match(/(.+?)\s*(?:と|vs|VS|か)\s*(.+?)\s*(?:どっち|どちら|どれ|どの|比較|?|？|$)/);
+    if (!m) m = q.match(/(.+?)\s*(?:か|or|OR)\s*(.+)/);
+    if (!m) return { a: "", b: "" };
+    const a = normalizeCompareText(m[1] || "").replace(/^(?:私は|僕は|俺は)\s*/, "");
+    const b = normalizeCompareText(m[2] || "").replace(/(?:どっち.*|どちら.*|比較.*)$/,"");
+    return { a, b };
+  }
+
+  function applyQuickStartCompare(inputText, sourceText = ""){
+    if (!quickStartEnabled) return false;
+    const fromOpts = top2OptionDraft();
+    let a = fromOpts.a;
+    let b = fromOpts.b;
+    if (!a || !b) {
+      const fromSource = sourceText ? (() => {
+        const opts = pickSectionLines(sourceText, "OPTIONS");
+        return (opts.length >= 2) ? { a: normalizeCompareText(opts[0]), b: normalizeCompareText(opts[1]) } : { a: "", b: "" };
+      })() : { a: "", b: "" };
+      a = a || fromSource.a;
+      b = b || fromSource.b;
+    }
+    if (!a || !b) {
+      const fromQ = deriveCompareFromQuestion(inputText);
+      a = a || fromQ.a;
+      b = b || fromQ.b;
+    }
+    if (!a || !b) return false;
+    slotState.compare.a = normalizeCompareText(a);
+    slotState.compare.b = normalizeCompareText(b);
+    slotState.compare.locked = true;
+    if (slotState.compare.source === "empty") slotState.compare.source = "quickstart";
+    return true;
+  }
+
   function appliedSlotsLineFromSlots(selected, extra){
     return `APPLIED_SLOTS: ${assumptionsLineFromSlots(selected, extra)}`;
   }
@@ -1901,6 +1979,7 @@
     const abOverride = slotState.abModeOverride || "auto";
     const abMode = slotState.abMode || "B";
     const abModeLabel = abOverride === "auto" ? `Auto(${abMode})` : abOverride;
+    const showAdvanced = !quickStartEnabled || slotState.showExtra;
     const modeControls = `
       <div class="slotRow" style="margin-top:2px;">
         <span class="slotLabel">Mode</span>
@@ -1911,9 +1990,9 @@
       </div>
     `;
     const constraintMissing = prog.missing.includes("constraint");
-    const rows = slotState.showExtra
+    const rows = showAdvanced
       ? SLOT_SPEC
-      : req.map((k) => SLOT_SPEC.find((g) => g.key === k)).filter(Boolean);
+      : [];
     const unknownRequired = req.filter((k) => !KNOWN_SLOT_KEYS.has(k));
     const rowsHtml = rows.length
       ? rows.map((g) => `
@@ -1922,7 +2001,7 @@
           ${g.values.map((v) => `<button class="slotChip ${slotState.selected[g.key] === v ? "active" : ""}" data-slot="${escapeHtml(g.key)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}
         </div>
       `).join("")
-      : `<div class="muted">required fields はありません。追加指定したい場合は下のリンクを開いてください。</div>`;
+      : (showAdvanced ? `<div class="muted">required fields はありません。追加指定したい場合は下のリンクを開いてください。</div>` : "");
     const conflictText = slotState.conflict.length
       ? `<div class="muted" style="margin-top:4px;">Conflict: ${escapeHtml(slotState.conflict.map((c) => `${c.field}(${c.extracted} vs ${c.selected})`).join(", "))}</div>`
       : "";
@@ -1930,6 +2009,7 @@
       ? `<div class="muted" style="margin-top:4px; color:#b45309;">Deep missing (server): ${escapeHtml(externalMissing.join(", "))}${slotState.externalNextQuestion ? ` / next: ${escapeHtml(slotState.externalNextQuestion)}` : ""}</div>`
       : "";
     const unknownInputsHtml = unknownRequired.length
+      && showAdvanced
       ? `<div class="slotRow" style="margin-top:6px;"><span class="slotLabel">Extra</span>
         ${unknownRequired.map((k) => {
           const rawVal = String((slotState.extra && slotState.extra[k]) || "");
@@ -1951,7 +2031,7 @@
         <textarea id="cmpB" placeholder="Compare B">${escapeHtml(cmp.b || "")}</textarea>
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
           <button id="compare-use-top2" type="button" class="slotChip">Use TOP2 as draft</button>
-          <label class="muted" style="display:flex;align-items:center;gap:6px;">
+          <label class="muted" style="display:${quickStartEnabled ? "none" : "flex"};align-items:center;gap:6px;">
             <input id="compare-lock" type="checkbox" ${cmp.locked ? "checked" : ""} />
             Lock Compare
           </label>
@@ -1964,10 +2044,10 @@
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
       <div id="cmp-status-line" class="muted" style="margin-top:2px;">${escapeHtml(displaySanitize(compareStatus))}</div>
       <div class="muted" style="margin-top:2px;">${escapeHtml(debugStatus)}</div>
-      <div class="muted" style="margin-top:2px;">${escapeHtml(keyStatus)}</div>
-      <div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>
+      ${slotDebugEnabled ? `<div class="muted" style="margin-top:2px;">${escapeHtml(keyStatus)}</div>` : ""}
+      ${slotDebugEnabled ? `<div class="muted">required_fields: ${escapeHtml((req || []).join(", ") || "(none)")} (${escapeHtml(slotState.requiredFrom || "none")})</div>` : ""}
       ${externalMissingText}
-      ${modeControls}
+      ${quickStartEnabled ? "" : modeControls}
       ${compareBlock}
       ${rowsHtml}
       ${unknownInputsHtml}
@@ -3117,6 +3197,10 @@
       dgDebug("run_force_reset", { reason, mode: apiMode });
     }
     if (!isDeep) {
+      if (quickStartEnabled) {
+        applyQuickStartSlots(submittedInput);
+        applyQuickStartCompare(submittedInput);
+      }
       const decided = decideABMode(submittedInput, "run");
       console.debug("[DG] ab_mode_decided", {
         abMode: decided,
@@ -3298,6 +3382,8 @@
         startDeepOverlay({
           submittedInput,
           runId,
+          force: !!quickStartEnabled,
+          reason: quickStartEnabled ? "quickstart_auto" : "auto_overlay",
           compareSSOT: { ...(slotState.compare || {}) },
           slots: { ...(slotState.selected || {}), ...(slotState.extra || {}) },
         });
@@ -3453,6 +3539,9 @@
           wCore.done();
           throw new Error("invalid core response shape");
         }
+        if (quickStartEnabled) {
+          applyQuickStartCompare(submittedInput, String(coreData.compare || coreData.expand || ""));
+        }
         applyCoreResult(coreData, submittedInput);
         await renderAll();
         if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
@@ -3480,6 +3569,8 @@
         startDeepOverlay({
           submittedInput,
           runId,
+          force: !!quickStartEnabled,
+          reason: quickStartEnabled ? "quickstart_auto" : "auto_overlay",
           compareSSOT: { ...(slotState.compare || {}) },
           slots: { ...(slotState.selected || {}), ...(slotState.extra || {}) },
         });
@@ -4006,6 +4097,15 @@
   };
   document.getElementById("reload").onclick = loadActive;
   try { slotDebugEnabled = localStorage.getItem(DEBUG_UI_STORAGE_KEY) === "1"; } catch (_) { slotDebugEnabled = false; }
+  quickStartEnabled = loadQuickStartEnabled();
+  if (quickStartToggleEl) {
+    quickStartToggleEl.checked = !!quickStartEnabled;
+    quickStartToggleEl.onchange = () => {
+      saveQuickStartEnabled(!!quickStartToggleEl.checked);
+      renderSlotPanel();
+      renderAll();
+    };
+  }
   setDebugUiMode(slotDebugEnabled);
   if (slotDebugToggleEl) {
     slotDebugToggleEl.checked = !!slotDebugEnabled;
