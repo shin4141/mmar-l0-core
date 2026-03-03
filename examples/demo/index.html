@@ -999,6 +999,42 @@
     return { res, raw, data };
   }
 
+  async function reloadFilesForDeepPoll(){
+    const entries = await Promise.all(TAB_SPEC.map(async (t) => {
+      try {
+        const txt = await fetchText(t.file);
+        return [t.key, String(txt || "")];
+      } catch (_) {
+        return [t.key, ""];
+      }
+    }));
+    const out = {};
+    for (const [k, v] of entries) out[k] = v;
+    return out;
+  }
+
+  function findDeepResultForRunId(files, runId){
+    const rid = String(runId || "").trim();
+    if (!rid) return null;
+    const compare = String((files && files.compare) || "");
+    const expand = String((files && files.expand) || "");
+    const diff = String((files && files.diff) || "");
+    const merge = String((files && files.merge) || "");
+    const joined = `${compare}\n${expand}\n${diff}\n${merge}`;
+    const matched = joined.includes(rid)
+      || new RegExp(`run[_-]?id\\s*[:=]\\s*${rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(joined);
+    if (!matched) return null;
+    return {
+      run_id: rid,
+      compare,
+      expand,
+      diff,
+      merge,
+      deep_status: "ok",
+      source: "files",
+    };
+  }
+
   function recomputeSlotRequirements(text){
     slotState.text = String(text || "");
     if (!slotState.abMode) decideABMode(slotState.text, "recompute");
@@ -2928,6 +2964,7 @@
       slotState.exec.currentDeepKey = deepKey;
       slotState.exec.lastDeepKey = deepKey;
       slotState.exec.lastDeepAt = nowMs;
+      console.debug("[DG] deep_click_start", { runId, deepKey });
     }
     const deepKeyForRun = isDeep ? (slotState.exec.currentDeepKey || buildDeepKey(submittedInput)) : "";
     const releaseEarlyLock = () => {
@@ -3064,9 +3101,9 @@
     liveHintEl.textContent = isDeep ? "Thinking..." : "Running...";
     if (isDeep) liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(0)}`;
     liveStatus = isDeep ? "running" : "ready";
-    outEl.textContent = "Running...";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
+    await renderAll();
     if (!isDeep && coreCompareV1FallbackActive) {
       await renderAll();
     }
@@ -3252,9 +3289,13 @@
       dgDebug("calling_deep_api", { payload: deepPayload });
       setLastBlockReason("");
       refreshDeepReadiness(false);
-      const { data: parsedData, raw } = await safeFetchDeep(`${apiBase}/api/triad?mode=deep`, deepPayload, w.signal);
+      const { res: rDeep, raw, data: parsedData } = await safeFetchTextJson(
+        `${apiBase}/api/triad?mode=deep`,
+        deepPayload,
+        w.signal
+      );
       const rawText = String(raw || "");
-      dgDebug("deep_response_received", { httpOk: true, rawHead: rawText.slice(0, 160) });
+      console.debug("[DG] deep_http", { ok: rDeep.ok, status: rDeep.status, rawHead: rawText.slice(0, 160) });
       const parsed = (parsedData && typeof parsedData === "object") ? parsedData : {};
       const fallbackStart = (typeof parsed.fallback_reason_primary === "string" && parsed.fallback_reason_primary)
         ? parsed.fallback_reason_primary
@@ -3282,6 +3323,10 @@
         updateCtrlPanel();
         return;
       }
+      if (!rDeep.ok) {
+        const msg = (parsed && (parsed.error || parsed.message)) ? String(parsed.error || parsed.message) : `HTTP ${rDeep.status}`;
+        throw new Error(`deep_http_${rDeep.status}: ${msg}`);
+      }
       const dataObj = (parsedData && typeof parsedData === "object") ? parsedData : null;
       if (!dataObj) {
         setDeepPhase("error", { runId, errorMsg: "non_json_response", tries: Number(slotState.deep.tries || 0) });
@@ -3293,16 +3338,97 @@
         updateCtrlPanel();
         return;
       }
+      const applyDeepResult = async (deepData, sourceTag) => {
+        const deepRunId = (deepData && typeof deepData.run_id === "string") ? deepData.run_id : "";
+        const matchedRunId = !!(deepRunId && deepRunId === activeRunId);
+        console.debug("[DG] deep_apply", { matchedRunId });
+        if (deepRunId && !matchedRunId) {
+          liveHintEl.textContent = "stale ignored (deep run_id mismatch)";
+          return false;
+        }
+        if (myDeepSession !== deepSessionId) return false;
+        liveDataDeep = enforceDeepAssumptionsInData(deepData);
+        const lintText = String(liveDataDeep.compare || liveDataDeep.expand || liveDataDeep.merge || "");
+        const lint = lintDeepOutputByMode(lintText, slotState.abMode || "B");
+        const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
+        liveDataDeep.deep_lint = lint;
+        liveDataDeep.slot_verify = slotCheck;
+        const retryCount = (slotState.exec.retryCountByDeepKey[deepKeyForRun] || 0);
+        if (!lint.ok && retryCount < 1) {
+          slotState.exec.retryCountByDeepKey[deepKeyForRun] = retryCount + 1;
+          dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
+          await runLive("deep", submittedInput, { allowDuplicate: true });
+          return true;
+        }
+        if (deepData && deepData.health_sha && deepData.model_cfg_hash && deepData.input_hash) {
+          const key = makeCacheKey("deep", deepData.input_hash, deepData.health_sha, deepData.model_cfg_hash);
+          liveCache.set(key, { ...liveDataDeep, __cached: false });
+        }
+        const finalDeepStatus = (typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "ok";
+        const finalFallback = (typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
+          ? liveDataDeep.fallback_reason_primary
+          : ((typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "");
+        if (finalDeepStatus === "ok" || finalDeepStatus === "partial") {
+          setLastBlockReason("");
+          coreCompareV1FallbackActive = false;
+          deepOverlayNotice = "";
+          liveDataView = "deep";
+          liveData = liveDataDeep;
+          lastStableResult = liveDataDeep;
+          liveHintEl.textContent = !lint.ok
+            ? `Live ready (view=deep; status=${finalDeepStatus}; format mismatch)`
+            : `Live ready (view=deep; status=${finalDeepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
+        } else {
+          liveDataView = "core";
+          liveData = liveDataCore || liveDataDeep;
+          if (liveData) lastStableResult = liveData;
+          liveHintEl.textContent = `Deep failed (${finalDeepStatus}; fallback=${finalFallback})`;
+          if (finalFallback === "insufficient_context") {
+            const missingRaw = (Array.isArray(liveDataDeep.missing_fields) && liveDataDeep.missing_fields.length)
+              ? liveDataDeep.missing_fields.map((x) => String(x))
+              : [];
+            promoteServerMissing(missingRaw, liveDataDeep.next_question);
+            refreshDeepReadiness();
+            setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
+            deepOverlayNotice = "Deep unavailable: keeping Core";
+            liveHintEl.textContent = "Deep unavailable: keeping Core result";
+          }
+          dgDebug("deep_failed", {
+            code: finalDeepStatus,
+            fallback: finalFallback,
+            source: sourceTag,
+          });
+        }
+        const deepKind = (deepData.llm_mode === "full" || deepData.llm_mode === "lite") ? deepData.llm_mode : "lite";
+        const elapsedMark = (typeof deepData.elapsed_sec === "number") ? `${Math.floor(deepData.elapsed_sec)}s` : "-";
+        const missing = (Array.isArray(deepData.missing_stages) && deepData.missing_stages.length) ? ` missing=${deepData.missing_stages.join(",")}` : "";
+        liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark} [${finalDeepStatus}]${missing}`;
+        liveResultBadgeEl.style.display = "inline-block";
+        setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
+        updateStopButton();
+        liveStatus = "ready";
+        isRunning = false;
+        slotState.run.phase = "done";
+        slotState.run.errorMsg = "";
+        slotState.run.appliedRunId = runId;
+        markRunProgress();
+        liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
+        setRunVisual("ready", "2.8s");
+        runBarEl.style.width = "100%";
+        setTimestamp();
+        await renderAll();
+        updateCtrlPanel();
+        return true;
+      };
+
       const data = dataObj;
-      const startRunId = (data && typeof data.run_id === "string") ? data.run_id : "";
-      if (!startRunId || startRunId !== activeRunId) {
-        liveHintEl.textContent = "stale ignored (deep-start run_id mismatch)";
-        return;
-      }
-      if (data && typeof data.job_id === "string") {
+      const hasJobId = !!(data && typeof data.job_id === "string" && data.job_id);
+      if (hasJobId) {
+        const jobId = String(data.job_id);
+        console.debug("[DG] deep_job", { jobId });
         setDeepPhase("polling", {
           runId,
-          jobId: data.job_id,
+          jobId,
           tries: 0,
           lastPollAt: Date.now(),
           errorMsg: "",
@@ -3341,67 +3467,45 @@
             updateCtrlPanel();
             return;
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(data.job_id)}`);
-          if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
-          const j = await jr.json();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          const nextPolls = triesNow + 1;
           setDeepPhase("polling", {
             runId,
-            jobId: data.job_id,
-            tries: triesNow + 1,
+            jobId,
+            tries: nextPolls,
             lastPollAt: Date.now(),
             errorMsg: "",
           });
+          const files = await reloadFilesForDeepPoll();
+          const fileDeep = findDeepResultForRunId(files, activeRunId);
+          if (fileDeep) {
+            console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched: true });
+            await applyDeepResult(fileDeep, "reload_files");
+            return;
+          }
+          const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
+          if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
+          const j = await jr.json();
           const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
-          if (!pollRunId || pollRunId !== activeRunId) {
-            liveHintEl.textContent = "stale ignored (deep-poll run_id mismatch)";
-            return;
-          }
-          if (myDeepSession !== deepSessionId) {
-            return;
-          }
-          if (j.status === "running") {
-            if (j.stage === "draft" && j.expand && j.expand.trim()) {
-              liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
-              liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
-              liveResultBadgeEl.textContent = "Draft";
-              liveResultBadgeEl.style.display = "inline-block";
-              loadActive();
-            }
+          const matched = !!(pollRunId && pollRunId === activeRunId);
+          console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched });
+          if (!matched) continue;
+          if (myDeepSession !== deepSessionId) return;
+          if (j.status === "running" || j.status === "slow") {
             const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
             const elapsedInt = Math.max(0, Math.floor(elapsed));
-            const lap = 1 + Math.floor(elapsed / 120);
-            const lapPct = ((elapsed % 120) / 120) * 100;
-            liveHintEl.textContent = `Thinking… ${elapsedInt}s · Lap ${lap}`;
+            liveHintEl.textContent = `Thinking… ${elapsedInt}s`;
             liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(elapsed)}`;
-            liveStatus = "running";
+            liveStatus = (j.status === "slow") ? "slow" : "running";
             setRunVisual("running", runSpeed);
-            runBarEl.style.width = `${Math.max(0, Math.min(100, Math.round(lapPct)))}%`;
             updateCtrlPanel();
             continue;
           }
-          if (j.status === "slow") {
-            if (j.stage === "draft" && j.expand && j.expand.trim()) {
-              liveDataDeep = { ...(liveDataDeep || {}), expand: j.expand };
-              liveData = (liveDataView === "deep" && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep);
-              liveResultBadgeEl.textContent = "Draft";
-              liveResultBadgeEl.style.display = "inline-block";
-              loadActive();
-            }
-            const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
-            const elapsedInt = Math.max(0, Math.floor(elapsed));
-            const lap = 1 + Math.floor(elapsed / 120);
-            const lapPct = ((elapsed % 120) / 120) * 100;
-            liveHintEl.textContent = `Thinking… ${elapsedInt}s · Lap ${lap}`;
-            liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(elapsed)}`;
-            liveStatus = "slow";
-            setRunVisual("running", runSpeed);
-            runBarEl.style.width = `${Math.max(0, Math.min(100, Math.round(lapPct)))}%`;
-            updateCtrlPanel();
-            continue;
+          if (j.status === "done") {
+            await applyDeepResult(j, "job_poll");
+            return;
           }
           if (j.status === "error") {
-            if (myDeepSession !== deepSessionId) return;
             setDeepPhase("error", { runId, jobId: "", errorMsg: String(j.error || "job_error"), tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
             deepOverlayNotice = "Deep unavailable: keeping Core";
@@ -3412,82 +3516,7 @@
             isRunning = false;
             return;
           }
-          if (j.status === "done") {
-            if (myDeepSession !== deepSessionId) return;
-            liveDataDeep = enforceDeepAssumptionsInData(j);
-            const lintText = String(liveDataDeep.compare || liveDataDeep.expand || liveDataDeep.merge || "");
-            const lint = lintDeepOutputByMode(lintText, slotState.abMode || "B");
-            const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
-            liveDataDeep.deep_lint = lint;
-            liveDataDeep.slot_verify = slotCheck;
-            const retryCount = (slotState.exec.retryCountByDeepKey[deepKeyForRun] || 0);
-            if (!lint.ok && retryCount < 1) {
-              slotState.exec.retryCountByDeepKey[deepKeyForRun] = retryCount + 1;
-              dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
-              await runLive("deep", submittedInput, { allowDuplicate: true });
-              return;
-            }
-            if (j && j.health_sha && j.model_cfg_hash && j.input_hash) {
-              const key = makeCacheKey("deep", j.input_hash, j.health_sha, j.model_cfg_hash);
-              liveCache.set(key, { ...liveDataDeep, __cached: false });
-            }
-            setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
-            updateStopButton();
-            liveStatus = "ready";
-            isRunning = false;
-            const deepKind = (j.llm_mode === "full" || j.llm_mode === "lite") ? j.llm_mode : "lite";
-            const elapsedMark = (typeof j.elapsed_sec === "number") ? `${Math.floor(j.elapsed_sec)}s` : "-";
-            const noGain = ((typeof j.deep_status === "string" ? j.deep_status : "") === "timeout");
-            const deepStatus = (typeof j.deep_status === "string" && j.deep_status) ? j.deep_status : "ok";
-            const fallbackReason = (typeof j.fallback_reason_primary === "string" && j.fallback_reason_primary)
-              ? j.fallback_reason_primary
-              : ((typeof j.fallback_reason === "string" && j.fallback_reason) ? j.fallback_reason : "-");
-            const missing = (Array.isArray(j.missing_stages) && j.missing_stages.length) ? ` missing=${j.missing_stages.join(",")}` : "";
-            liveResultBadgeEl.textContent = `DEEP ✅ (${deepKind}) ${elapsedMark}${noGain ? " NO_GAIN" : ""} [${deepStatus}]${missing}`;
-            liveResultBadgeEl.style.display = "inline-block";
-            if (j.timings && typeof j.timings === "object") {
-              liveHintEl.textContent = `Live ready (${deepStatus}; fallback=${fallbackReason}; timings=${JSON.stringify(j.timings)})`;
-            }
-            if (deepStatus === "ok" || deepStatus === "partial") {
-              setLastBlockReason("");
-              coreCompareV1FallbackActive = false;
-              deepOverlayNotice = "";
-              liveDataView = "deep";
-              liveData = liveDataDeep;
-              lastStableResult = liveDataDeep;
-              liveHintEl.textContent = !lint.ok
-                ? `Live ready (view=deep; status=${deepStatus}; format mismatch)`
-                : `Live ready (view=deep; status=${deepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
-            } else {
-              liveDataView = "core";
-              liveData = liveDataCore || liveDataDeep;
-              if (liveData) lastStableResult = liveData;
-              liveHintEl.textContent = `Deep failed (${deepStatus}; fallback=${fallbackReason})`;
-              if (fallbackReason === "insufficient_context") {
-                const missingRaw = (Array.isArray(j.missing_fields) && j.missing_fields.length)
-                  ? j.missing_fields.map((x) => String(x))
-                  : [];
-                promoteServerMissing(missingRaw, j.next_question);
-                refreshDeepReadiness();
-                setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
-                deepOverlayNotice = "Deep unavailable: keeping Core";
-                liveHintEl.textContent = "Deep unavailable: keeping Core result";
-              }
-              dgDebug("deep_failed", {
-                code: deepStatus,
-                fallback: fallbackReason,
-              });
-            }
-            liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
-            setRunVisual("ready", "2.8s");
-            runBarEl.style.width = "100%";
-            setTimestamp();
-            await renderAll();
-            updateCtrlPanel();
-            return;
-          }
           if (j.status === "cancelled") {
-            if (myDeepSession !== deepSessionId) return;
             setDeepPhase("cancelled", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
             liveHintEl.textContent = "Stopped";
@@ -3497,65 +3526,16 @@
             isRunning = false;
             return;
           }
-          throw new Error("invalid job status");
         }
       }
-      if (data && data.ok === false) {
-        if (myDeepSession !== deepSessionId) return;
-        deepOverlayNotice = "Deep unavailable: keeping Core";
-        liveHintEl.textContent = `Deep unavailable: ${data.error || "unknown"}`;
-        liveStatus = "ready";
-        setDeepPhase("error", { runId, errorMsg: String(data.error || "unknown"), jobId: "", tries: Number(slotState.deep.tries || 0) });
-        isRunning = false;
-        setRunVisual("ready", "2.8s");
-        updateCtrlPanel();
+      const startRunId = (data && typeof data.run_id === "string") ? data.run_id : "";
+      const matchedStart = !!(startRunId && startRunId === activeRunId);
+      if (!matchedStart) {
+        console.debug("[DG] deep_apply", { matchedRunId: false });
+        liveHintEl.textContent = "stale ignored (deep-start run_id mismatch)";
         return;
       }
-      const ok = data && ["compare", "expand", "diff", "merge"].every(k => typeof data[k] === "string");
-      if (!ok) throw new Error("invalid response shape");
-      if (myDeepSession !== deepSessionId) return;
-      liveDataDeep = enforceDeepAssumptionsInData(data);
-      const lintText = String(liveDataDeep.compare || liveDataDeep.expand || liveDataDeep.merge || "");
-      const lint = lintDeepOutputByMode(lintText, slotState.abMode || "B");
-      const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
-      liveDataDeep.deep_lint = lint;
-      liveDataDeep.slot_verify = slotCheck;
-      const retryCount = (slotState.exec.retryCountByDeepKey[deepKeyForRun] || 0);
-      if (!lint.ok && retryCount < 1) {
-        slotState.exec.retryCountByDeepKey[deepKeyForRun] = retryCount + 1;
-        dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
-        await runLive("deep", submittedInput, { allowDuplicate: true });
-        return;
-      }
-      const finalDeepStatus = (typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "ok";
-      const finalFallback = (typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
-        ? liveDataDeep.fallback_reason_primary
-        : ((typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "");
-      if (finalDeepStatus === "insufficient" || finalFallback === "insufficient_context") {
-        deepOverlayNotice = "Deep unavailable: keeping Core";
-        liveHintEl.textContent = "Deep unavailable: keeping Core result";
-        liveDataView = "core";
-        liveData = liveDataCore || liveData;
-      } else {
-        coreCompareV1FallbackActive = false;
-        deepOverlayNotice = "";
-        liveDataView = "deep";
-        liveData = liveDataDeep;
-        liveHintEl.textContent = lint.ok ? "Live ready" : "Live ready (format mismatch)";
-      }
-      liveStatus = "ready";
-      setDeepPhase("done", { runId, jobId: "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
-      isRunning = false;
-      slotState.run.phase = "done";
-      slotState.run.errorMsg = "";
-      slotState.run.appliedRunId = runId;
-      markRunProgress();
-      lastStableResult = liveData;
-      liveLastRunEl.textContent = `Last run: ${new Date().toISOString()}`;
-      setRunVisual("ready", "2.8s");
-      setTimestamp();
-      await renderAll();
-      updateCtrlPanel();
+      await applyDeepResult(data, "deep_http_sync");
     } catch (e) {
       if (isDeep && myDeepSession !== deepSessionId) return;
       if (isDeep) {
