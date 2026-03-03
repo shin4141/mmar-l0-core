@@ -3128,6 +3128,12 @@
         let progNow = computeRequiredProgress(reqNow);
         if (progNow.missing.length > 0) {
           autoFillMissing(progNow.missing);
+          // Fast-path fallback: never block deep only because goal is unset.
+          if (progNow.missing.includes("goal") && !slotState.selected.goal) {
+            slotState.selected.goal = "守る";
+            slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
+            dgDebug("autofill_goal_for_deep", { goal: slotState.selected.goal });
+          }
           syncRequiredFields();
           progNow = computeRequiredProgress(reqNow);
         }
