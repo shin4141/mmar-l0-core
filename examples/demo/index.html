@@ -1034,10 +1034,14 @@
   async function reloadFilesForDeepPoll(){
     const entries = await Promise.all(TAB_SPEC.map(async (t) => {
       try {
-        const txt = await fetchText(t.file);
-        return [t.key, String(txt || "")];
+        const url = `${t.file}?_=${Date.now()}`;
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const txt = await r.text();
+        const lm = Date.parse(String(r.headers.get("last-modified") || ""));
+        return [t.key, { text: String(txt || ""), path: t.file, mtimeMs: Number.isFinite(lm) ? lm : Date.now() }];
       } catch (_) {
-        return [t.key, ""];
+        return [t.key, { text: "", path: t.file, mtimeMs: 0 }];
       }
     }));
     const out = {};
@@ -1048,29 +1052,26 @@
   function findDeepResultForRunId(files, runId){
     const rid = String(runId || "").trim();
     if (!rid) return null;
-    const compare = String((files && files.compare) || "");
-    const expand = String((files && files.expand) || "");
-    const diff = String((files && files.diff) || "");
-    const merge = String((files && files.merge) || "");
+    const compare = String((files && files.compare && files.compare.text) || "");
+    const expand = String((files && files.expand && files.expand.text) || "");
+    const diff = String((files && files.diff && files.diff.text) || "");
+    const merge = String((files && files.merge && files.merge.text) || "");
     const joined = `${compare}\n${expand}\n${diff}\n${merge}`;
     const matched = joined.includes(rid)
       || new RegExp(`run[_-]?id\\s*[:=]\\s*${rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(joined);
     if (!matched) return null;
-    const candidate = `${compare}\n${expand}\n${merge}`;
-    const looksCompleteDeep =
-      /SCORE_TABLE:/i.test(candidate)
-      && /DECISION:/i.test(candidate)
-      && /Next step:/i.test(candidate)
-      && !/MODE:\s*COMPARE_V1_FALLBACK/i.test(candidate);
-    if (!looksCompleteDeep) return null;
+    const text = [compare, expand, merge, diff].find((x) => String(x || "").trim()) || "";
+    const isFinal = /DECISION:|SCORE_TABLE:|RESOLUTION:/i.test(text);
+    const hash = `${text.length}:${text.slice(0, 24)}:${text.slice(-24)}`;
+    const path = (files && files.compare && files.compare.path) || "out_compare.txt";
+    const mtimeMs = Number((files && files.compare && files.compare.mtimeMs) || Date.now());
     return {
-      run_id: rid,
-      compare,
-      expand,
-      diff,
-      merge,
-      deep_status: "ok",
-      source: "files",
+      text,
+      path,
+      mtimeMs,
+      hash,
+      isFinal,
+      runId: rid,
     };
   }
 
@@ -3498,7 +3499,11 @@
         updateCtrlPanel();
         return;
       }
-      const applyDeepResult = async (deepData, sourceTag) => {
+      const applyDeepResult = async (deepData, sourceTag, opts = {}) => {
+        const stageHint = (opts && opts.stageHint) ? String(opts.stageHint) : "final";
+        const skipRetry = !!(opts && opts.skipRetry);
+        const forceStatus = (opts && opts.forceStatus) ? String(opts.forceStatus) : "";
+        const polls = Number((opts && opts.polls) || 0);
         const deepRunId = (deepData && typeof deepData.run_id === "string") ? deepData.run_id : "";
         const matchedRunId = !!(deepRunId && deepRunId === activeRunId);
         console.debug("[DG] deep_apply", { matchedRunId });
@@ -3514,7 +3519,7 @@
         liveDataDeep.deep_lint = lint;
         liveDataDeep.slot_verify = slotCheck;
         const retryCount = (slotState.exec.retryCountByDeepKey[deepKeyForRun] || 0);
-        if (!lint.ok && retryCount < 1) {
+        if (!skipRetry && !lint.ok && retryCount < 1) {
           slotState.exec.retryCountByDeepKey[deepKeyForRun] = retryCount + 1;
           dgDebug("deep_format_retry_once", { mode: slotState.abMode || "B", missing: lint.missing || [] });
           await runLive("deep", submittedInput, { allowDuplicate: true });
@@ -3524,10 +3529,26 @@
           const key = makeCacheKey("deep", deepData.input_hash, deepData.health_sha, deepData.model_cfg_hash);
           liveCache.set(key, { ...liveDataDeep, __cached: false });
         }
-        const finalDeepStatus = (typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "ok";
+        const finalDeepStatus = forceStatus || ((typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "ok");
         const finalFallback = (typeof liveDataDeep.fallback_reason_primary === "string" && liveDataDeep.fallback_reason_primary)
           ? liveDataDeep.fallback_reason_primary
           : ((typeof liveDataDeep.fallback_reason === "string" && liveDataDeep.fallback_reason) ? liveDataDeep.fallback_reason : "");
+        if (stageHint === "partial") {
+          coreCompareV1FallbackActive = false;
+          deepOverlayNotice = "Deep partial";
+          liveDataDeep.deep_status = "partial";
+          liveDataView = "deep";
+          liveData = liveDataDeep;
+          lastStableResult = liveDataDeep;
+          setDeepPhase("partial", { runId, jobId: (slotState.deep && slotState.deep.jobId) || "", errorMsg: "", tries: Number(slotState.deep.tries || 0) });
+          liveStatus = "running";
+          isRunning = true;
+          setRunVisual("running", runSpeed);
+          console.debug("[DG] deep_applied_stage", { stage: "partial", polls });
+          await safeRenderAll("state_update");
+          updateCtrlPanel();
+          return true;
+        }
         if (finalDeepStatus === "ok" || finalDeepStatus === "partial") {
           setLastBlockReason("");
           coreCompareV1FallbackActive = false;
@@ -3576,6 +3597,7 @@
         setRunVisual("ready", "2.8s");
         runBarEl.style.width = "100%";
         setTimestamp();
+        console.debug("[DG] deep_applied_stage", { stage: "final", polls });
         await safeRenderAll("state_update");
         updateCtrlPanel();
         return true;
@@ -3597,6 +3619,10 @@
         liveHintEl.textContent = "Deep job queued";
         liveStatus = "running";
         updateCtrlPanel();
+        let lastSeen = null;
+        let lastSeenHash = "";
+        let slowMode = false;
+        let slowPolls = 0;
         while (true) {
           const curPhase = (slotState.deep && slotState.deep.phase) || "idle";
           if (curPhase === "cancelled") {
@@ -3608,7 +3634,27 @@
             return;
           }
           const triesNow = Number(slotState.deep.tries || 0);
-          if (triesNow >= DEEP_MAX_POLLS) {
+          const reachedFastTimeout = (!slowMode && triesNow >= DEEP_MAX_POLLS);
+          const reachedSlowTimeout = (slowMode && slowPolls >= 30);
+          if (reachedFastTimeout || reachedSlowTimeout) {
+            if (lastSeen && lastSeen.text) {
+              await applyDeepResult({
+                run_id: activeRunId,
+                compare: lastSeen.text,
+                expand: lastSeen.text,
+                merge: lastSeen.text,
+                diff: "",
+                deep_status: "partial",
+              }, "timeout_last_seen", { skipRetry: true, stageHint: "final", forceStatus: "partial", polls: triesNow });
+              deepOverlayNotice = "Deep partial (timeout)";
+              setDeepPhase("error", { runId, errorMsg: "failed(timeout)", tries: triesNow, jobId: "" });
+              liveHintEl.textContent = "Deep partial (timeout)";
+              liveStatus = "ready";
+              isRunning = false;
+              setRunVisual("ready", "2.8s");
+              updateCtrlPanel();
+              return;
+            }
             setDeepPhase("error", { runId, errorMsg: "timeout waiting deep output", tries: triesNow, jobId: "" });
             deepOverlayNotice = "Deep unavailable (timeout): keeping Core";
             liveHintEl.textContent = "Deep timeout: keeping Core result";
@@ -3627,8 +3673,9 @@
             updateCtrlPanel();
             return;
           }
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, slowMode ? 2000 : 500));
           const nextPolls = triesNow + 1;
+          if (slowMode) slowPolls += 1;
           setDeepPhase("polling", {
             runId,
             jobId,
@@ -3639,9 +3686,29 @@
           const files = await reloadFilesForDeepPoll();
           const fileDeep = findDeepResultForRunId(files, activeRunId);
           if (fileDeep) {
+            if (fileDeep.hash !== lastSeenHash) {
+              lastSeenHash = fileDeep.hash;
+              lastSeen = fileDeep;
+              dgDebug("deep_seen_update", {
+                polls: nextPolls,
+                hash: fileDeep.hash,
+                mtimeMs: fileDeep.mtimeMs,
+                isFinal: !!fileDeep.isFinal,
+                path: fileDeep.path,
+              });
+            }
             console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched: true });
-            await applyDeepResult(fileDeep, "reload_files");
-            return;
+            await applyDeepResult({
+              run_id: activeRunId,
+              compare: fileDeep.text,
+              expand: fileDeep.text,
+              merge: fileDeep.text,
+              diff: "",
+              deep_status: fileDeep.isFinal ? "ok" : "partial",
+            }, "reload_files", { skipRetry: true, stageHint: fileDeep.isFinal ? "final" : "partial", polls: nextPolls });
+            if (fileDeep.isFinal) return;
+            slowMode = true;
+            continue;
           }
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
@@ -3662,10 +3729,13 @@
             continue;
           }
           if (j.status === "done") {
-            await applyDeepResult(j, "job_poll");
+            await applyDeepResult(j, "job_poll", { stageHint: "final", polls: nextPolls });
             return;
           }
           if (j.status === "error") {
+            if (lastSeen && lastSeen.text) {
+              continue;
+            }
             setDeepPhase("error", { runId, jobId: "", errorMsg: String(j.error || "job_error"), tries: Number(slotState.deep.tries || 0) });
             updateStopButton();
             deepOverlayNotice = "Deep unavailable: keeping Core";
