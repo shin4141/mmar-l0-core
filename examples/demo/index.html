@@ -3110,6 +3110,22 @@
       releaseEarlyLock();
       return;
     }
+    if (isDeep) {
+      // Keep execution-state aligned with visible UI state right before deep guards.
+      if (!slotState.selected.goal) {
+        slotState.selected.goal = "守る";
+        slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
+        dgDebug("deep_preflight_sync_goal", { goal: slotState.selected.goal });
+      }
+      if (!compareIsConfigured() && compareHasPair()) {
+        slotState.compare.locked = true;
+        slotState.compare.a = normalizeCompareText(slotState.compare.a);
+        slotState.compare.b = normalizeCompareText(slotState.compare.b);
+        dgDebug("deep_preflight_sync_compare_lock", { a: slotState.compare.a, b: slotState.compare.b });
+      }
+      syncRequiredFields();
+      refreshDeepReadiness(false);
+    }
     if (isDeep && !compareIsConfigured()) {
       liveHintEl.textContent = "Deep locked: Lock Compare to enable Deep";
       setDeepPhase("idle", { runId: "", jobId: "", errorMsg: "", tries: 0 });
