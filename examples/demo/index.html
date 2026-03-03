@@ -3950,9 +3950,8 @@
   async function loadActive(){
     const spec = TAB_SPEC.find(x => x.key === active);
     outEl.textContent = "Loading…";
-    try {
-      if (leftUnlockEl && active !== "compare") leftUnlockEl.innerHTML = "";
-      if (mode === "live"){
+    if (leftUnlockEl && active !== "compare") leftUnlockEl.innerHTML = "";
+    if (mode === "live"){
       const run = slotState.run || {};
       if (run.phase === "running" && run.lastProgressAt > 0 && (Date.now() - run.lastProgressAt > 10000)) {
         run.phase = "stalled";
@@ -4017,6 +4016,7 @@
       }
       return;
     }
+    try{
       const txt = await fetchText(spec.file);
       setTimestamp();
 
@@ -4026,10 +4026,7 @@
         outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
       }
     } catch(e){
-      const msg = (e && e.stack) ? e.stack : String(e);
-      outEl.textContent = `Failed to render ${spec ? spec.file : active}\n\n${msg}`;
-      liveHintEl.textContent = "Render failure";
-      console.error("[DG] loadActive_failed", e);
+      outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
     }
   }
 
@@ -4098,61 +4095,41 @@
     });
     isRunning = false;
   };
-  function safeBootStep(name, fn){
-    try {
-      return fn();
-    } catch (e) {
-      console.error(`[DG] boot_step_failed:${name}`, e);
-      liveHintEl.textContent = `Boot warning: ${name}`;
-      return null;
-    }
-  }
-
   document.getElementById("reload").onclick = loadActive;
+  try { slotDebugEnabled = localStorage.getItem(DEBUG_UI_STORAGE_KEY) === "1"; } catch (_) { slotDebugEnabled = false; }
+  quickStartEnabled = loadQuickStartEnabled();
+  if (quickStartToggleEl) {
+    quickStartToggleEl.checked = !!quickStartEnabled;
+    quickStartToggleEl.onchange = () => {
+      saveQuickStartEnabled(!!quickStartToggleEl.checked);
+      renderSlotPanel();
+      renderAll();
+    };
+  }
+  setDebugUiMode(slotDebugEnabled);
+  if (slotDebugToggleEl) {
+    slotDebugToggleEl.checked = !!slotDebugEnabled;
+    slotDebugToggleEl.onchange = () => {
+      setDebugUiMode(!!slotDebugToggleEl.checked);
+      dgDebug("slot_debug_toggle", { enabled: slotDebugEnabled });
+    };
+  }
+  if (slotSensitivityTestEl) {
+    slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
+    slotSensitivityTestEl.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await runSlotSensitivityTest();
+    };
+  }
+  slotState.abModeOverride = loadABModeOverride();
+  decideABMode(qEl.value || "", "init");
   mode = "live";
-  safeBootStep("read_debug_mode", () => {
-    try { slotDebugEnabled = localStorage.getItem(DEBUG_UI_STORAGE_KEY) === "1"; } catch (_) { slotDebugEnabled = false; }
-  });
-  safeBootStep("quickstart_init", () => {
-    quickStartEnabled = loadQuickStartEnabled();
-    if (quickStartToggleEl) {
-      quickStartToggleEl.checked = !!quickStartEnabled;
-      quickStartToggleEl.onchange = () => {
-        saveQuickStartEnabled(!!quickStartToggleEl.checked);
-        renderSlotPanel();
-        renderAll();
-      };
-    }
-  });
-  safeBootStep("debug_ui_init", () => {
-    setDebugUiMode(slotDebugEnabled);
-    if (slotDebugToggleEl) {
-      slotDebugToggleEl.checked = !!slotDebugEnabled;
-      slotDebugToggleEl.onchange = () => {
-        setDebugUiMode(!!slotDebugToggleEl.checked);
-        dgDebug("slot_debug_toggle", { enabled: slotDebugEnabled });
-      };
-    }
-  });
-  safeBootStep("slot_test_init", () => {
-    if (slotSensitivityTestEl) {
-      slotSensitivityTestEl.style.display = slotDebugEnabled ? "inline-block" : "none";
-      slotSensitivityTestEl.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        await runSlotSensitivityTest();
-      };
-    }
-  });
-  safeBootStep("ab_mode_init", () => {
-    slotState.abModeOverride = loadABModeOverride();
-    decideABMode(qEl.value || "", "init");
-  });
-  safeBootStep("render_mode", () => renderMode());
-  safeBootStep("render_slot_panel", () => renderSlotPanel());
-  safeBootStep("render_tabs", () => renderTabs());
-  safeBootStep("health_check", () => checkLiveHealth());
-  safeBootStep("initial_load", () => loadActive());
+  renderMode();
+  renderSlotPanel();
+  renderTabs();
+  checkLiveHealth();
+  loadActive();
   setInterval(() => {
     updateRunningBannerOnly();
     updateDeepStatusLineOnly();
