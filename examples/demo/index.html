@@ -3719,6 +3719,11 @@
           }
           return;
         }
+        if (isRunning) {
+          outEl.innerHTML = `<pre class="subpre">Running...\n\nWaiting for latest result.\nPrevious result will appear here when available.</pre>`;
+          if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
+          return;
+        }
         if (slotState.run.phase === "error" || slotState.run.phase === "stalled") {
           outEl.textContent = `Run failed: ${slotState.run.errorMsg || "unknown"}. Re-run.`;
           return;
