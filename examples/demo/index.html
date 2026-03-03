@@ -453,6 +453,7 @@
       currentRunKey: "",
       currentDeepKey: "",
       retryCountByDeepKey: {},
+      retryMissingByDeepKey: {},
     },
     run: {
       phase: "idle",
@@ -834,6 +835,14 @@
     }
   }
 
+  function serverAutoFillValue(key){
+    const k = String(key || "").trim();
+    if (!k) return AUTO_FILL_VALUE;
+    if (k === "priority_axis") return "stability";
+    if (k === "goal_metric") return "regret_min";
+    return AUTO_FILL_VALUE;
+  }
+
   function normalizeExtraForRequired(requiredKeys){
     slotState.extra = slotState.extra || {};
     for (const k of (requiredKeys || [])) {
@@ -909,7 +918,7 @@
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
     if (!compareIsConfigured()) blockers.push("compare_not_locked");
-    const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => k !== "priority_axis" && !hasFieldValue(k));
+    const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
     if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
@@ -1179,27 +1188,37 @@
 
   function promoteServerMissing(keys, nextQuestion){
     const k = Array.isArray(keys) ? keys.map((x) => String(x)).filter(Boolean) : [];
-    const filtered = k.filter((x) => x !== "priority_axis");
-    slotState.requiredServer = (slotState.requiredServer || []).filter((x) => x !== "priority_axis");
-    slotState.requiredFields = (slotState.requiredFields || []).filter((x) => x !== "priority_axis");
-    slotState.externalMissingFields = (slotState.externalMissingFields || []).filter((x) => x !== "priority_axis");
-    if (!filtered.length) {
-      slotState.externalNextQuestion = (typeof nextQuestion === "string" && nextQuestion) ? nextQuestion : slotState.externalNextQuestion;
-      snapshot("server_missing_ignored", { ignored: ["priority_axis"] });
-      return;
+    if (!k.length) return { missingKeys: [], autoFilledKeys: [] };
+    slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...k]);
+    slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...k]);
+    const autoFilledKeys = [];
+    for (const key of k) {
+      if (KNOWN_SLOT_KEYS.has(key)) {
+        if (key === "goal" && !slotState.selected.goal) {
+          slotState.selected.goal = "守る";
+          slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
+          autoFilledKeys.push("goal");
+        }
+        continue;
+      }
+      const cur = String(((slotState.extra || {})[key] || "")).trim();
+      if (!cur) {
+        slotState.extra = slotState.extra || {};
+        slotState.extra[key] = serverAutoFillValue(key);
+        autoFilledKeys.push(key);
+      }
     }
-    slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...filtered]);
-    slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...filtered]);
     normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
-    // Escape hatch: immediately fill unknown required keys so deep can proceed.
-    autoFillMissing(filtered);
+    autoFillMissing(k.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
     syncRequiredFields();
     slotState.requiredFrom = "deep_fallback";
     slotState.requiredInputHash = hashText16(String(lastSubmittedInput || slotState.text || ""));
     slotState.externalMissingFields = slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x));
     slotState.externalNextQuestion = (typeof nextQuestion === "string" && nextQuestion) ? nextQuestion : slotState.externalNextQuestion;
     slotState.showPanel = true;
-    snapshot("server_missing_promoted");
+    dgDebug("server_missing_adopted", { missingKeys: k, autoFilledKeys });
+    snapshot("server_missing_promoted", { missingKeys: k, autoFilledKeys });
+    return { missingKeys: k, autoFilledKeys };
   }
 
   function slotFilledCount(){
@@ -3004,6 +3023,8 @@
       slotState.exec.lastDeepKey = "";
       slotState.exec.lastDeepAt = 0;
       slotState.exec.currentDeepKey = "";
+      slotState.exec.retryCountByDeepKey = {};
+      slotState.exec.retryMissingByDeepKey = {};
       if (slotState.deep) {
         slotState.deep.phase = "idle";
         slotState.deep.jobId = "";
@@ -3078,6 +3099,7 @@
     if (!isDeep) {
       deepAutoRetryToken = "";
       slotState.exec.retryCountByDeepKey = {};
+      slotState.exec.retryMissingByDeepKey = {};
       analysisStatus = "running";
       analysisError = null;
       slotState.run.phase = "running";
@@ -3410,6 +3432,23 @@
       dgDebug("calling_deep_api", { payload: deepPayload });
       setLastBlockReason("");
       refreshDeepReadiness(false);
+      const retryDeepDueToMissingOnce = async (missingKeys, nextQuestion, source) => {
+        const adopted = promoteServerMissing(missingKeys, nextQuestion) || { missingKeys: [], autoFilledKeys: [] };
+        refreshDeepReadiness(false);
+        const key = deepKeyForRun || buildDeepKey(submittedInput);
+        slotState.exec.retryMissingByDeepKey = slotState.exec.retryMissingByDeepKey || {};
+        const tries = Number(slotState.exec.retryMissingByDeepKey[key] || 0);
+        if (tries >= 1) return false;
+        slotState.exec.retryMissingByDeepKey[key] = tries + 1;
+        dgDebug("deep_retry_due_to_missing", {
+          runId,
+          source: source || "insufficient_context",
+          missingKeys: adopted.missingKeys || [],
+          autoFilledKeys: adopted.autoFilledKeys || [],
+        });
+        await runLive("deep", submittedInput, { allowDuplicate: true, force: true, reason: "missing_retry" });
+        return true;
+      };
       const { res: rDeep, raw, data: parsedData } = await safeFetchTextJson(
         `${apiBase}/api/triad?mode=deep`,
         deepPayload,
@@ -3426,8 +3465,8 @@
         const missingRaw = (Array.isArray(parsed.missing_fields) && parsed.missing_fields.length)
           ? parsed.missing_fields.map((x) => String(x))
           : [];
-        promoteServerMissing(missingRaw, parsed.next_question);
-        refreshDeepReadiness();
+        const retried = await retryDeepDueToMissingOnce(missingRaw, parsed.next_question, "deep_http");
+        if (retried) return;
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
         setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
         deepOverlayNotice = "Deep unavailable: keeping Core";
@@ -3508,8 +3547,8 @@
             const missingRaw = (Array.isArray(liveDataDeep.missing_fields) && liveDataDeep.missing_fields.length)
               ? liveDataDeep.missing_fields.map((x) => String(x))
               : [];
-            promoteServerMissing(missingRaw, liveDataDeep.next_question);
-            refreshDeepReadiness();
+            const retried = await retryDeepDueToMissingOnce(missingRaw, liveDataDeep.next_question, sourceTag || "job_poll");
+            if (retried) return true;
             setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
             deepOverlayNotice = "Deep unavailable: keeping Core";
             liveHintEl.textContent = "Deep unavailable: keeping Core result";
