@@ -762,7 +762,7 @@
   function setExtraField(key, value){
     if (!key) return;
     slotState.extra = slotState.extra || {};
-    slotState.extra[key] = String(value == null ? "" : value);
+    slotState.extra[key] = sanitizeExtraValue(key, value);
     dgDebug("extra_change", { key, value: slotState.extra[key] });
   }
 
@@ -770,11 +770,32 @@
     slotState.extra = slotState.extra || {};
     for (const k of Object.keys(slotState.extra)) {
       const raw = slotState.extra[k];
-      const s = raw == null ? "" : String(raw).trim();
+      const s = sanitizeExtraValue(k, raw);
       if (!s || s === String(k) || s === "未指定" || s === "未入力" || s === "unknown") {
         slotState.extra[k] = "";
+      } else {
+        slotState.extra[k] = s;
       }
     }
+  }
+
+  function sanitizePriorityAxisValue(v){
+    const src = String(v == null ? "" : v).trim();
+    if (!src) return "";
+    const cut = src
+      .split(/\bNormalized slots\b/i)[0]
+      .split(/\bTask:\b/i)[0]
+      .split(/\bContext slots\b/i)[0]
+      .trim();
+    const oneLine = cut.split("\n")[0].trim();
+    if (!oneLine || oneLine === "未指定" || oneLine === "未入力" || oneLine === "unknown") return "";
+    return oneLine.slice(0, 48);
+  }
+
+  function sanitizeExtraValue(key, raw){
+    const k = String(key || "").trim();
+    if (k === "priority_axis") return sanitizePriorityAxisValue(raw);
+    return String(raw == null ? "" : raw).trim();
   }
 
   function extractPriorityAxisFromText(text){
@@ -787,9 +808,9 @@
 
   function resolvePriorityAxis(inputText){
     sanitizeExtraState();
-    const fromExtra = String((slotState.extra && slotState.extra.priority_axis) || "").trim();
+    const fromExtra = sanitizePriorityAxisValue((slotState.extra && slotState.extra.priority_axis) || "");
     if (fromExtra) return { value: fromExtra, source: "extra" };
-    const fromInput = extractPriorityAxisFromText(inputText || lastSubmittedInput || qEl.value || "");
+    const fromInput = sanitizePriorityAxisValue(extractPriorityAxisFromText(inputText || lastSubmittedInput || qEl.value || ""));
     if (fromInput) {
       slotState.extra = slotState.extra || {};
       slotState.extra.priority_axis = fromInput;
@@ -1026,6 +1047,13 @@
     const matched = joined.includes(rid)
       || new RegExp(`run[_-]?id\\s*[:=]\\s*${rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(joined);
     if (!matched) return null;
+    const candidate = `${compare}\n${expand}\n${merge}`;
+    const looksCompleteDeep =
+      /SCORE_TABLE:/i.test(candidate)
+      && /DECISION:/i.test(candidate)
+      && /Next step:/i.test(candidate)
+      && !/MODE:\s*COMPARE_V1_FALLBACK/i.test(candidate);
+    if (!looksCompleteDeep) return null;
     return {
       run_id: rid,
       compare,
@@ -1082,16 +1110,18 @@
 
   function buildDeepPayload(submittedInput, runId){
     sanitizeExtraState();
-    const priority = resolvePriorityAxis(submittedInput);
+    const questionBase = String(lastSubmittedInput || qEl.value || submittedInput || "").trim();
+    const priority = resolvePriorityAxis(questionBase);
     const req = getDeepRequiredSnapshot();
     const slots = { ...(slotState.selected || {}), ...(slotState.extra || {}) };
     const normalizedSlots = normalizeSlots(slotState.selected || {}, slotState.extra || {});
+    const inputForDeep = buildDeepPrompt(questionBase || submittedInput || "");
     return {
-      input: submittedInput,
+      input: inputForDeep,
       run_id: runId,
       run_key: slotState.exec.currentRunKey || slotState.exec.lastRunKey || "",
       deep_key: slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "",
-      question: String(lastSubmittedInput || submittedInput || ""),
+      question: questionBase,
       ab_mode: slotState.abMode || "B",
       ab_mode_source: slotState.abModeSource || "auto",
       required_fields: req,
