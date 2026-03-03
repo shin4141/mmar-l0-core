@@ -909,7 +909,7 @@
     if (analysisStatus === "error") blockers.push("analysis_error");
     if (prog.missing.length > 0) blockers.push("required_missing");
     if (!compareIsConfigured()) blockers.push("compare_not_locked");
-    const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => !hasFieldValue(k));
+    const serverMissingUnfilled = (slotState.externalMissingFields || []).filter((k) => k !== "priority_axis" && !hasFieldValue(k));
     if (serverMissingUnfilled.length > 0 && !blockers.includes("required_missing")) blockers.push("required_missing");
     const riskValue = slotState.selected.risk ?? slotState.extracted.risk;
     if (riskValue == null || String(riskValue) === "") blockers.push("risk_missing");
@@ -1179,12 +1179,20 @@
 
   function promoteServerMissing(keys, nextQuestion){
     const k = Array.isArray(keys) ? keys.map((x) => String(x)).filter(Boolean) : [];
-    if (!k.length) return;
-    slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...k]);
-    slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...k]);
+    const filtered = k.filter((x) => x !== "priority_axis");
+    slotState.requiredServer = (slotState.requiredServer || []).filter((x) => x !== "priority_axis");
+    slotState.requiredFields = (slotState.requiredFields || []).filter((x) => x !== "priority_axis");
+    slotState.externalMissingFields = (slotState.externalMissingFields || []).filter((x) => x !== "priority_axis");
+    if (!filtered.length) {
+      slotState.externalNextQuestion = (typeof nextQuestion === "string" && nextQuestion) ? nextQuestion : slotState.externalNextQuestion;
+      snapshot("server_missing_ignored", { ignored: ["priority_axis"] });
+      return;
+    }
+    slotState.requiredServer = uniqKeys([...(slotState.requiredServer || []), ...filtered]);
+    slotState.requiredFields = uniqKeys([...(slotState.requiredFields || []), ...filtered]);
     normalizeExtraForRequired(slotState.requiredServer.filter((x) => !KNOWN_SLOT_KEYS.has(x)));
     // Escape hatch: immediately fill unknown required keys so deep can proceed.
-    autoFillMissing(k);
+    autoFillMissing(filtered);
     syncRequiredFields();
     slotState.requiredFrom = "deep_fallback";
     slotState.requiredInputHash = hashText16(String(lastSubmittedInput || slotState.text || ""));
