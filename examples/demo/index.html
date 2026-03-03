@@ -914,11 +914,12 @@
   }
 
   window.addEventListener("error", (e) => {
-    console.error("[DG] window.error", e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack ? e.error.stack : e.error);
+    const stack = e && e.error && e.error.stack ? e.error.stack : "";
+    console.error("[DG][FATAL] window.error", e && e.message, e && e.filename, e && e.lineno, e && e.colno, stack || (e && e.error) || "");
   });
   window.addEventListener("unhandledrejection", (e) => {
     const reason = e && e.reason ? e.reason : e;
-    console.error("[DG] unhandledrejection", reason && reason.stack ? reason.stack : reason);
+    console.error("[DG][FATAL] unhandledrejection", reason && reason.stack ? reason.stack : reason);
   });
 
   function dgDebug(tag, extra = {}){
@@ -2063,6 +2064,19 @@
     updateRunningBannerOnly();
   }
 
+  async function safeRenderAll(reason){
+    try {
+      await renderAll();
+    } catch (e) {
+      const stack = (e && e.stack) ? e.stack : String(e || "");
+      console.error("[DG][RENDER_CRASH]", reason || "unknown", stack);
+      if (outEl && /^\s*Loading/.test(String(outEl.textContent || ""))) {
+        outEl.textContent = `Render crashed\n\n${stack}`;
+      }
+      updateRunningBannerOnly();
+    }
+  }
+
   function hashText16(text){
     const s = String(text || "");
     let h = 2166136261;
@@ -2877,7 +2891,7 @@
     } catch (e) {
       dgDebug("run_exception", { err: String(e), stack: e && e.stack ? e.stack : "" });
     } finally {
-      await renderAll();
+      await safeRenderAll("state_update");
     }
   }
 
@@ -3087,7 +3101,7 @@
         console.debug("[DG] run_done", { runId, ms: slotState.run.lastMs, cached: true });
       }
       setRunVisual("ready", "2.8s");
-      await renderAll();
+      await safeRenderAll("state_update");
       updateCtrlPanel();
       renderMode();
       if (!isDeep) startDeepOverlay(submittedInput);
@@ -3103,9 +3117,9 @@
     liveStatus = isDeep ? "running" : "ready";
     updateCtrlPanel();
     setRunVisual("running", runSpeed);
-    await renderAll();
+    await safeRenderAll("state_update");
     if (!isDeep && coreCompareV1FallbackActive) {
-      await renderAll();
+      await safeRenderAll("state_update");
     }
     try {
       if (isDeep) {
@@ -3222,7 +3236,7 @@
             setRunVisual("error", "2.8s");
             wCore.done();
             isRunning = false;
-            await renderAll();
+            await safeRenderAll("state_update");
             return;
           }
         }
@@ -3234,7 +3248,7 @@
           slotState.run.errorMsg = "run_id_mismatch";
           liveHintEl.textContent = "stale ignored (core run_id mismatch)";
           wCore.done();
-          await renderAll();
+          await safeRenderAll("state_update");
           return;
         }
         const okCore = coreData && ["compare", "expand", "diff", "merge"].every(k => typeof coreData[k] === "string");
@@ -3243,7 +3257,7 @@
           throw new Error("invalid core response shape");
         }
         applyCoreResult(coreData, submittedInput);
-        await renderAll();
+        await safeRenderAll("state_update");
         if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
           try {
             renderCompare((coreData.compare && coreData.compare.trim()) ? coreData.compare : (coreData.expand || ""));
@@ -3319,7 +3333,7 @@
         slotState.run.appliedRunId = runId;
         markRunProgress();
         setRunVisual("ready", "2.8s");
-        await renderAll();
+        await safeRenderAll("state_update");
         updateCtrlPanel();
         return;
       }
@@ -3416,7 +3430,7 @@
         setRunVisual("ready", "2.8s");
         runBarEl.style.width = "100%";
         setTimestamp();
-        await renderAll();
+        await safeRenderAll("state_update");
         updateCtrlPanel();
         return true;
       };
@@ -3573,7 +3587,7 @@
         setRunVisual("error", "2.8s");
       }
       updateCtrlPanel();
-      await renderAll();
+      await safeRenderAll("state_update");
     } finally {
       if (!isDeep) {
         if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
