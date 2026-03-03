@@ -1692,6 +1692,17 @@
 
   function startDeepOverlay(submittedInput){
     if (mode !== "live") return;
+    if (!slotState.selected.goal) {
+      slotState.selected.goal = "守る";
+      slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
+    }
+    if (!compareIsConfigured() && compareHasPair()) {
+      slotState.compare.locked = true;
+      slotState.compare.a = normalizeCompareText(slotState.compare.a);
+      slotState.compare.b = normalizeCompareText(slotState.compare.b);
+    }
+    syncRequiredFields();
+    refreshDeepReadiness(false);
     if (!compareIsConfigured()) return;
     if (liveCoreOnly) return;
     if (deepIsBusy()) return;
