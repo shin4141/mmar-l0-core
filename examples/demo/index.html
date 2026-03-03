@@ -286,6 +286,7 @@
   let lastStableResult = null;
   let coreCompareV1FallbackActive = false;
   let deepOverlayNotice = "";
+  let lastNonEmptyOutHtml = "";
   let analysisStatus = "idle";
   let analysisError = null;
   let slotDebugEnabled = false;
@@ -2881,10 +2882,12 @@
       if (!html && !text) {
         outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
       }
+      if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
     } catch (e) {
       const msg = (e && e.stack) ? e.stack : String(e || "");
       console.error("[DG][RENDER_CRASH] renderCompareSafe", msg);
       outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
+      if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
     }
   }
 
@@ -3620,7 +3623,7 @@
 
   async function loadActive(){
     const spec = TAB_SPEC.find(x => x.key === active);
-    outEl.textContent = "Loading…";
+    if (mode !== "live") outEl.textContent = "Loading…";
     if (leftUnlockEl && active !== "compare") leftUnlockEl.innerHTML = "";
     if (mode === "live"){
       const run = slotState.run || {};
@@ -3640,6 +3643,7 @@
             renderCompareSafe(stickyTxt);
           } else {
             outEl.innerHTML = `<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
+            if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
           }
           return;
         }
@@ -3665,6 +3669,7 @@
             renderCompareSafe(stickyTxt);
           } else {
             outEl.innerHTML = `<pre class="subpre" style="margin-top:8px;">${escapeHtml(stickyTxt.trim() ? stickyTxt : "(empty)")}</pre>`;
+            if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
           }
           return;
         }
@@ -3677,6 +3682,7 @@
           renderCompareSafe(txt);
         } else {
           outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+          if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
         }
       } catch (e) {
         const msg = (e && e.stack) ? e.stack : String(e);
@@ -3684,6 +3690,13 @@
         liveHintEl.textContent = "Render error";
         liveStatus = "error";
         updateCtrlPanel();
+      }
+      if (!String(outEl.innerHTML || "").trim() && !String(outEl.textContent || "").trim()) {
+        if (lastNonEmptyOutHtml) {
+          outEl.innerHTML = lastNonEmptyOutHtml;
+        } else {
+          outEl.innerHTML = `<pre class="subpre">(empty)</pre>`;
+        }
       }
       return;
     }
@@ -3695,6 +3708,7 @@
         renderCompareSafe(txt);
       } else {
         outEl.innerHTML = `<pre class="subpre">${escapeHtml(txt.trim() ? txt : "(empty)")}</pre>`;
+        if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
       }
     } catch(e){
       outEl.textContent = `Failed to load ${spec.file}\n\n${e}`;
