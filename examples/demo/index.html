@@ -4134,6 +4134,26 @@
     updateRunningBannerOnly();
     updateDeepStatusLineOnly();
   }, 1000);
+
+  // Keep UI diagnosable even when console is unavailable.
+  window.addEventListener("error", (ev) => {
+    try {
+      const msg = `${ev.message || "runtime_error"} @ ${ev.filename || "-"}:${ev.lineno || 0}`;
+      if (liveHintEl) liveHintEl.textContent = `JS error: ${msg}`;
+      if (outEl && /^\s*Loading/.test(String(outEl.textContent || ""))) {
+        outEl.textContent = `UI runtime error\n\n${msg}`;
+      }
+    } catch (_) {}
+  });
+  window.addEventListener("unhandledrejection", (ev) => {
+    try {
+      const reason = ev && ev.reason ? String(ev.reason) : "unhandled_rejection";
+      if (liveHintEl) liveHintEl.textContent = `JS reject: ${reason}`;
+      if (outEl && /^\s*Loading/.test(String(outEl.textContent || ""))) {
+        outEl.textContent = `UI promise error\n\n${reason}`;
+      }
+    } catch (_) {}
+  });
 </script>
 </body>
 </html>
