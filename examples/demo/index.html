@@ -1386,10 +1386,28 @@
       if (!/(^|\n)\s*OPTIONS:\s*/i.test(out) || !/(^|\n)\s*GUARDRAILS:\s*/i.test(out) || !/(^|\n)\s*NEXT_STEP:\s*/i.test(out)) {
         out = `${out}\n\n${makeModeBSectionsFromSlots()}`.trim();
       }
+      out = ensureScoreTableRationaleRefs(out);
     }
     const effect = scoreSlotEffect(out);
     out = upsertTopLine(out, "SLOT_EFFECT", `${effect.score}`);
     return out;
+  }
+
+  function ensureScoreTableRationaleRefs(text){
+    const src = String(text || "");
+    const m = src.match(/(^|\n)\s*SCORE_TABLE:\s*\n([\s\S]*?)(?=\n\s*[A-Z][A-Za-z_ ]*:\s*|\s*$)/i);
+    if (!m) return src;
+    const whole = m[0];
+    const body = m[2] || "";
+    const hit = (body.match(/\b(Risk|Horizon|Amount)\b/g) || []).length;
+    if (hit >= 2) return src;
+    const s = slotState.selected || {};
+    const extra = [
+      `- rationale: Risk=${s.risk || "未入力"} を反映`,
+      `- rationale: Horizon=${s.horizon || "未入力"} / Amount=${s.amount || "未入力"} を反映`,
+    ].join("\n");
+    const patched = `${whole.trimEnd()}\n${extra}\n`;
+    return src.replace(whole, patched);
   }
 
   function scoreSlotEffect(text){
