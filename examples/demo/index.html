@@ -1554,6 +1554,17 @@
     return { ok: missing.length === 0, missing: uniqKeys(missing), mode };
   }
 
+  function classifyFormatStage(text){
+    const src = String(text || "");
+    const hasCompare = /(?:^|\n)\s*COMPARE:\s*/i.test(src) || (/(?:^|\n)\s*-\s*A:\s*/i.test(src) && /(?:^|\n)\s*-\s*B:\s*/i.test(src));
+    const hasApplied = /(?:^|\n)\s*APPLIED_SLOTS:\s*/i.test(src);
+    const hasScoreTable = /(?:^|\n)\s*SCORE_TABLE:\s*/i.test(src);
+    const hasDecision = /(?:^|\n)\s*DECISION:\s*/i.test(src);
+    if (!hasCompare) return "broken";
+    if (hasApplied && hasScoreTable && hasDecision) return "final_ok";
+    return "partial_ok";
+  }
+
   function verifyAppliedSlots(text, selected, extra){
     const src = String(text || "");
     const m = src.match(/^\s*(?:Applied slots|APPLIED_SLOTS):\s*(.+)$/im);
@@ -2839,9 +2850,14 @@
     const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
-    const formatBadge = (hasDisplayText && deepLint && deepLint.ok === false)
-      ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">${debugUiOn ? "Format mismatch: re-run recommended" : "Needs re-run"}</span>`
-      : "";
+    const formatStage = hasDisplayText ? classifyFormatStage(activeViewText || afterWithSource) : "";
+    const formatBadge = !formatStage ? "" : (
+      formatStage === "final_ok"
+        ? `<span class="pillBadge" style="border-color:#16a34a;color:#166534;">Format: final_ok</span>`
+        : (formatStage === "partial_ok"
+          ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Format: partial_ok</span>`
+          : `<span class="pillBadge" style="border-color:#dc2626;color:#b91c1c;">Format: broken</span>`)
+    );
     const slotBadge = (hasDisplayText && slotVerify && slotVerify.ok === false)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Slot mismatch</span>`
       : "";
@@ -3864,27 +3880,21 @@
           slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
           slotState.deepOverlay.lastAppliedHash = String(slotState.deepOverlay.lastAppliedHash || "");
           if (hasResultText && endpointHash !== slotState.deepOverlay.lastAppliedHash) {
-            const isFinalStage = status === "done" || status === "succeeded";
             await applyDeepResult({
               run_id: activeRunId,
               compare: endpointText,
               expand: endpointText,
               merge: endpointText,
               diff: "",
-              deep_status: isFinalStage ? "ok" : "partial",
-            }, "job_endpoint", { skipRetry: true, stageHint: isFinalStage ? "final" : "partial", polls: nextPolls });
+              deep_status: "ok",
+            }, "job_endpoint", { skipRetry: true, stageHint: "final", polls: nextPolls });
             slotState.deepOverlay.lastAppliedHash = endpointHash;
-            if (isFinalStage) {
-              slotState.deepOverlay.phase = "applied";
-              slotState.deepOverlay.endedAt = slotState.deepOverlay.endedAt || Date.now();
-              dgDebug("deep_applied_stage", { stage: "applied", source: "job_endpoint", polls: nextPolls, textLen: endpointText.length });
-              clearPollTimer();
-              return;
-            }
-            slotState.deepOverlay.phase = "partial";
-            pollDelayMs = 2000;
-            dgDebug("deep_applied_stage", { stage: "partial", source: "job_endpoint", polls: nextPolls, textLen: endpointText.length });
-            continue;
+            slotState.deepOverlay.phase = "applied";
+            slotState.deepOverlay.endedAt = Date.now();
+            dgDebug("deep_applied_stage", { stage: "applied", source: "job_endpoint", polls: nextPolls, textLen: endpointText.length });
+            if (slotState.deepOverlay.pollTimerId) clearTimeout(slotState.deepOverlay.pollTimerId);
+            slotState.deepOverlay.pollTimerId = null;
+            return;
           }
           if (status === "running" || status === "slow") {
             const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
