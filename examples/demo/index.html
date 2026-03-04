@@ -832,6 +832,17 @@
     return { value: "", source: "none" };
   }
 
+  function ensurePriorityAxisForLockedCompare(){
+    const locked = !!(slotState.compare && slotState.compare.locked);
+    if (!locked) return false;
+    slotState.extra = slotState.extra || {};
+    const cur = sanitizePriorityAxisValue(slotState.extra.priority_axis || "");
+    if (cur) return false;
+    slotState.extra.priority_axis = "stability";
+    dgDebug("priority_axis_auto_injected", { reason: "compare_locked", value: "stability" });
+    return true;
+  }
+
   function autoFillMissing(missingKeys){
     if (!AUTO_FILL_UNKNOWN_REQUIRED) return;
     slotState.extra = slotState.extra || {};
@@ -1064,19 +1075,34 @@
   function findDeepResultForRunId(files, runId){
     const rid = String(runId || "").trim();
     if (!rid) return null;
-    const compare = String((files && files.compare && files.compare.text) || "");
-    const expand = String((files && files.expand && files.expand.text) || "");
-    const diff = String((files && files.diff && files.diff.text) || "");
-    const merge = String((files && files.merge && files.merge.text) || "");
-    const joined = `${compare}\n${expand}\n${diff}\n${merge}`;
-    const matched = joined.includes(rid)
-      || new RegExp(`run[_-]?id\\s*[:=]\\s*${rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(joined);
-    if (!matched) return null;
-    const text = [compare, expand, merge, diff].find((x) => String(x || "").trim()) || "";
-    const isFinal = /DECISION:|SCORE_TABLE:|RESOLUTION:/i.test(text);
+    const ridEsc = rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const ridRe = new RegExp(`run[_-]?id\\s*[:=]\\s*${ridEsc}`, "i");
+    const sourceList = ["compare", "expand", "merge", "diff"].map((key) => {
+      const entry = (files && files[key]) || {};
+      const text = String(entry.text || "");
+      const path = String(entry.path || `out_${key}.txt`);
+      const mtimeMs = Number(entry.mtimeMs || 0);
+      const hasRid = text.includes(rid) || ridRe.test(text);
+      const trimmed = text.trim();
+      const isFinal = /DECISION:|SCORE_TABLE:|RESOLUTION:/i.test(text);
+      return { key, text, trimmed, path, mtimeMs, hasRid, isFinal };
+    });
+    const candidates = sourceList.filter((x) => x.hasRid);
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => {
+      const scoreA = (a.trimmed ? 100 : 0) + (a.isFinal ? 10 : 0);
+      const scoreB = (b.trimmed ? 100 : 0) + (b.isFinal ? 10 : 0);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      if (a.mtimeMs !== b.mtimeMs) return b.mtimeMs - a.mtimeMs;
+      return b.text.length - a.text.length;
+    });
+    const picked = candidates[0];
+    if (!picked || !picked.trimmed) return null;
+    const text = picked.trimmed;
+    const isFinal = !!picked.isFinal;
     const hash = `${text.length}:${text.slice(0, 24)}:${text.slice(-24)}`;
-    const path = (files && files.compare && files.compare.path) || "out_compare.txt";
-    const mtimeMs = Number((files && files.compare && files.compare.mtimeMs) || Date.now());
+    const path = picked.path;
+    const mtimeMs = Number(picked.mtimeMs || Date.now());
     return {
       text,
       path,
@@ -1131,6 +1157,7 @@
   }
 
   function buildDeepPayload(submittedInput, runId){
+    ensurePriorityAxisForLockedCompare();
     sanitizeExtraState();
     const questionBase = String(lastSubmittedInput || qEl.value || submittedInput || "").trim();
     const priority = resolvePriorityAxis(questionBase);
@@ -1735,6 +1762,7 @@
       slotState.selected.goal = "守る";
       slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
     }
+    ensurePriorityAxisForLockedCompare();
     if (!compareIsConfigured() && compareHasPair()) {
       slotState.compare.locked = true;
       slotState.compare.a = normalizeCompareText(slotState.compare.a);
@@ -3755,6 +3783,15 @@
           const textLen = text.length;
           const matchedRes = hasRes && textLen > 0;
           const st = slotState.deepOverlay || {};
+          const head = text.slice(0, 80);
+          console.log("[DG] deep_candidate_v3", {
+            hasRes,
+            textLen,
+            path: deepRes && deepRes.path ? deepRes.path : "",
+            mtimeMs: deepRes && deepRes.mtimeMs ? deepRes.mtimeMs : 0,
+            isFinal: !!(deepRes && deepRes.isFinal),
+            head,
+          });
           dgDebug("deep_candidate", {
             polls: Number(st.polls || 0),
             hasRes,
@@ -3763,6 +3800,13 @@
             mtimeMs: deepRes && deepRes.mtimeMs ? deepRes.mtimeMs : 0,
             isFinal: !!(deepRes && deepRes.isFinal),
           });
+          if (hasRes && textLen === 0) {
+            dgDebug("deep_candidate_empty_text", {
+              polls: Number(st.polls || 0),
+              pickedPath: deepRes && deepRes.path ? deepRes.path : "",
+              pickedMtimeMs: deepRes && deepRes.mtimeMs ? deepRes.mtimeMs : 0,
+            });
+          }
           dgDebug("deep_poll_tick", { polls: Number(st.polls || 0), matched: matchedRes });
           if (matchedRes) {
             console.log("[DG] MATCH_HANDLER", "MATCH_V3");
@@ -3816,25 +3860,24 @@
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
           const j = await jr.json();
-          const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
-          const matched = !!(pollRunId && pollRunId === activeRunId);
-          console.debug("[DG] deep_job_tick", { polls: nextPolls, matched });
-          if (!matched) continue;
+          const status = String((j && j.status) || "");
+          const jobDone = status === "done";
+          console.debug("[DG] deep_job_tick", { polls: nextPolls, status, jobDone });
           if (myDeepSession !== deepSessionId) {
             clearPollTimer();
             return;
           }
-          if (j.status === "running" || j.status === "slow") {
+          if (status === "running" || status === "slow") {
             const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
             const elapsedInt = Math.max(0, Math.floor(elapsed));
             liveHintEl.textContent = `Thinking… ${elapsedInt}s`;
             liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(elapsed)}`;
-            liveStatus = (j.status === "slow") ? "slow" : "running";
+            liveStatus = (status === "slow") ? "slow" : "running";
             setRunVisual("running", runSpeed);
             updateCtrlPanel();
             continue;
           }
-          if (j.status === "done") {
+          if (status === "done") {
             const doneText = String((j && (j.compare || j.expand || j.merge || j.output_text || j.text || j.raw)) || "").trim();
             if (!doneText) {
               jobDoneNoTextCount += 1;
@@ -3857,7 +3900,7 @@
             clearPollTimer();
             return;
           }
-          if (j.status === "error") {
+          if (status === "error") {
             if (lastSeen && lastSeen.text) {
               continue;
             }
