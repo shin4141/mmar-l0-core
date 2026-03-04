@@ -483,6 +483,8 @@
     },
     deepOverlay: {
       phase: "idle",
+      startedAt: 0,
+      endedAt: 0,
       pollNonce: 0,
       pollTimerId: null,
       polls: 0,
@@ -574,13 +576,21 @@
     slotState.deepOverlay = {
       ...(slotState.deepOverlay || {}),
       phase,
+      startedAt: Number((slotState.deepOverlay && slotState.deepOverlay.startedAt) || 0),
+      endedAt: Number((slotState.deepOverlay && slotState.deepOverlay.endedAt) || 0),
       polls: Number(slotState.deep && slotState.deep.tries || 0),
     };
-    if (phase === "starting" || phase === "running" || phase === "polling") {
+    if (phase === "idle") {
+      slotState.deepOverlay.startedAt = 0;
+      slotState.deepOverlay.endedAt = 0;
+      slotState.deepOverlay.polls = 0;
+    } else if (phase === "starting") {
+      slotState.deepOverlay.startedAt = Date.now();
+      slotState.deepOverlay.endedAt = 0;
+    } else if (phase === "running" || phase === "polling") {
       slotState.deepOverlay.startedAt = slotState.deepOverlay.startedAt || Date.now();
       slotState.deepOverlay.endedAt = 0;
-    }
-    if (phase === "applied" || phase === "failed" || phase === "cancelled" || phase === "error" || phase === "done") {
+    } else if (phase === "applied" || phase === "failed" || phase === "cancelled" || phase === "error" || phase === "done") {
       slotState.deepOverlay.endedAt = slotState.deepOverlay.endedAt || Date.now();
     }
   }
@@ -1853,17 +1863,21 @@
 
   function startDeepOverlay(submittedInput){
     if (mode !== "live") return;
-    slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
+    slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", startedAt: 0, endedAt: 0, pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
     slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
     slotState.deepOverlay.lastAppliedHash = "";
-    slotState.deepOverlay.startedAt = Date.now();
-    slotState.deepOverlay.endedAt = 0;
     slotState.deepOverlay.lastReason = "";
     if (slotState.deepOverlay.pollTimerId) {
       clearTimeout(slotState.deepOverlay.pollTimerId);
       slotState.deepOverlay.pollTimerId = null;
     }
     slotState.__pollOnce = null;
+    setDeepPhase("starting", {
+      runId: (slotState.deep && slotState.deep.runId) || "",
+      jobId: "",
+      tries: 0,
+      errorMsg: "",
+    });
     if (!slotState.selected.goal) {
       slotState.selected.goal = "守る";
       slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
@@ -2293,12 +2307,21 @@
   function deepStatusLineText(){
     const st = slotState.deepOverlay || {};
     const phase = String(st.phase || (slotState.deep && slotState.deep.phase) || "idle");
+    const polls = Number(st.polls || (slotState.deep && slotState.deep.tries) || 0);
+    const t = deepElapsedSec(st);
+    if (t == null) return `Deep: ${phase}`;
+    return `Deep: ${phase} (t=${t}s, polls=${polls})`;
+  }
+
+  function deepElapsedSec(st){
+    if (!st) return null;
+    const phase = String(st.phase || "idle");
+    if (phase === "idle") return null;
     const startedAt = Number(st.startedAt || (slotState.deep && slotState.deep.startedAt) || 0);
+    if (!startedAt) return null;
     const endedAt = Number(st.endedAt || 0);
     const end = endedAt || Date.now();
-    const t = startedAt > 0 ? Math.max(0, Math.floor((end - startedAt) / 1000)) : 0;
-    const polls = Number(st.polls || (slotState.deep && slotState.deep.tries) || 0);
-    return `Deep: ${phase} (t=${t}s, polls=${polls})`;
+    return Math.max(0, Math.floor((end - startedAt) / 1000));
   }
 
   function updateDeepStatusLineOnly(){
@@ -3849,7 +3872,7 @@
       if (hasJobId) {
         const jobId = String(data.job_id);
         console.debug("[DG] deep_job", { jobId });
-        slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
+        slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", startedAt: 0, endedAt: 0, pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
         slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
         slotState.deepOverlay.lastAppliedHash = "";
         const myNonce = slotState.deepOverlay.pollNonce;
@@ -3984,7 +4007,7 @@
             clearPollTimer();
             return;
           }
-          slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
+          slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", startedAt: 0, endedAt: 0, pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
           slotState.deepOverlay.lastAppliedHash = String(slotState.deepOverlay.lastAppliedHash || "");
           if (hasResultText && endpointHash !== slotState.deepOverlay.lastAppliedHash) {
             await applyDeepResult({
