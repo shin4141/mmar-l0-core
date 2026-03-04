@@ -1075,21 +1075,29 @@
   function findDeepResultForRunId(files, runId){
     const rid = String(runId || "").trim();
     if (!rid) return null;
+    const ridPrefix = String(rid.split("_")[0] || "").trim();
     const ridEsc = rid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const ridRe = new RegExp(`run[_-]?id\\s*[:=]\\s*${ridEsc}`, "i");
+    const ridPrefixEsc = ridPrefix ? ridPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "";
+    const ridPrefixRe = ridPrefixEsc ? new RegExp(`run[_-]?id\\s*[:=]\\s*${ridPrefixEsc}(?:[_-][a-z0-9]+)?`, "i") : null;
     const sourceList = ["compare", "expand", "merge", "diff"].map((key) => {
       const entry = (files && files[key]) || {};
       const text = String(entry.text || "");
       const path = String(entry.path || `out_${key}.txt`);
       const mtimeMs = Number(entry.mtimeMs || 0);
-      const hasRid = text.includes(rid) || ridRe.test(text);
+      const hasRidExact = text.includes(rid) || ridRe.test(text);
+      const hasRidPrefix = !!(ridPrefix && (text.includes(ridPrefix) || (ridPrefixRe && ridPrefixRe.test(text))));
+      const hasRid = hasRidExact || hasRidPrefix;
       const trimmed = text.trim();
       const isFinal = /DECISION:|SCORE_TABLE:|RESOLUTION:/i.test(text);
-      return { key, text, trimmed, path, mtimeMs, hasRid, isFinal };
+      return { key, text, trimmed, path, mtimeMs, hasRid, hasRidExact, hasRidPrefix, isFinal };
     });
     const candidates = sourceList.filter((x) => x.hasRid);
     if (!candidates.length) return null;
     candidates.sort((a, b) => {
+      const matchA = (a.hasRidExact ? 1000 : 0) + (a.hasRidPrefix ? 100 : 0);
+      const matchB = (b.hasRidExact ? 1000 : 0) + (b.hasRidPrefix ? 100 : 0);
+      if (matchA !== matchB) return matchB - matchA;
       const scoreA = (a.trimmed ? 100 : 0) + (a.isFinal ? 10 : 0);
       const scoreB = (b.trimmed ? 100 : 0) + (b.isFinal ? 10 : 0);
       if (scoreA !== scoreB) return scoreB - scoreA;
@@ -3775,6 +3783,16 @@
             errorMsg: "",
           });
           const files = await reloadFilesForDeepPoll();
+          try {
+            const fileEntries = Object.entries(files || {}).map(([key, v]) => ({
+              key,
+              path: String((v && v.path) || `out_${key}.txt`),
+              mtimeMs: Number((v && v.mtimeMs) || 0),
+              textLen: String((v && v.text) || "").length,
+              hasRunId: String((v && v.text) || "").includes(String(activeRunId || "")),
+            }));
+            console.log("[DG] deep_files_snapshot", fileEntries.slice(0, 10));
+          } catch (_) {}
           const deepRes = findDeepResultForRunId(files, activeRunId);
           const text = (typeof deepRes === "string"
             ? deepRes
