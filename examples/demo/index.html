@@ -481,6 +481,11 @@
       polls: 0,
       lastAppliedHash: "",
     },
+    view: {
+      coreText: "",
+      deepText: "",
+      active: "core",
+    },
     showPanel: false,
     showExtra: false,
     compare: {
@@ -1214,10 +1219,18 @@
 
   function applyCoreResult(coreData, submittedInput){
     const normalizedCore = enforceDeepAssumptionsInData(coreData);
+    const coreText = primaryAfterTextFromData(normalizedCore);
+    if (!coreText) {
+      dgDebug("core_apply_skipped_empty", {});
+      return false;
+    }
+    const view = ensureViewState();
+    view.coreText = coreText;
+    if (view.active !== "deep") view.active = "core";
     liveData = normalizedCore;
     liveDataCore = normalizedCore;
     liveDataDeep = null;
-    liveDataView = "core";
+    liveDataView = view.active;
     coreCompareV1FallbackActive = false;
     lastStableResult = normalizedCore;
     if (normalizedCore && normalizedCore.health_sha && normalizedCore.model_cfg_hash && normalizedCore.input_hash) {
@@ -1233,6 +1246,7 @@
     slotState.run.appliedRunId = (normalizedCore && typeof normalizedCore.run_id === "string") ? normalizedCore.run_id : slotState.run.appliedRunId;
     markRunProgress();
     setTimestamp();
+    return true;
   }
 
   function promoteServerMissing(keys, nextQuestion){
@@ -1729,6 +1743,10 @@
   function applyCoreCompareV1Fallback(reason = "insufficient_context", runId = ""){
     if (!compareIsConfigured()) return "";
     const text = buildCoreCompareV1Text(slotState.compare || {}, slotState.selected || {});
+    if (!text.trim()) return "";
+    const view = ensureViewState();
+    view.coreText = text;
+    if (view.active !== "deep") view.active = "core";
     const base = (liveDataCore && typeof liveDataCore === "object") ? { ...liveDataCore } : {};
     const effectiveRunId = String(runId || activeRunId || (base && base.run_id) || "");
     liveDataCore = {
@@ -2280,6 +2298,21 @@
     return "";
   }
 
+  function ensureViewState(){
+    slotState.view = slotState.view || { coreText: "", deepText: "", active: "core" };
+    slotState.view.coreText = String(slotState.view.coreText || "");
+    slotState.view.deepText = String(slotState.view.deepText || "");
+    if (slotState.view.active !== "core" && slotState.view.active !== "deep") {
+      slotState.view.active = "core";
+    }
+    return slotState.view;
+  }
+
+  function getActiveViewText(){
+    const v = ensureViewState();
+    return (v.active === "deep" ? v.deepText : v.coreText).trim();
+  }
+
   function textSimilarityJaccard(a, b){
     const ta = String(a || "");
     const tb = String(b || "");
@@ -2669,8 +2702,14 @@
     }
 
     const debugUiOn = !!slotDebugEnabled;
+    const viewState = ensureViewState();
+    if (!viewState.coreText && liveDataCore) viewState.coreText = primaryAfterTextFromData(liveDataCore);
+    if (!viewState.deepText && liveDataDeep) viewState.deepText = primaryAfterTextFromData(liveDataDeep);
+    if (viewState.active === "deep" && !viewState.deepText && viewState.coreText) viewState.active = "core";
+    const activeView = (mode === "live") ? viewState.active : "core";
+    const activeViewText = (mode === "live") ? getActiveViewText() : "";
     const viewDataForBadges = (mode === "live")
-      ? (((liveDataView === "deep") && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData))
+      ? (((activeView === "deep") && liveDataDeep) ? liveDataDeep : (liveDataCore || liveDataDeep || liveData))
       : null;
     const uiState = (viewDataForBadges && viewDataForBadges.ui_state && typeof viewDataForBadges.ui_state === "object")
       ? viewDataForBadges.ui_state
@@ -2684,7 +2723,7 @@
       : (sufficiency ? (sufficiency.sufficient !== false) : !insufficientFromAfter);
     const deepReady = (mode === "live") && !!lastSubmittedInput && !!liveDataCore;
     const deepLocked = (mode === "live") && !canThink();
-    const viewSource = (mode === "live") ? (((liveDataView === "deep") && liveDataDeep) ? "deep" : "core") : "static";
+    const viewSource = (mode === "live") ? (activeView === "deep" ? "deep" : "core") : "static";
     const deepMetaStatus = (liveDataDeep && typeof liveDataDeep.deep_status === "string" && liveDataDeep.deep_status) ? liveDataDeep.deep_status : "not_run";
     const runStartSha = (viewDataForBadges && typeof viewDataForBadges.server_sha_start === "string") ? viewDataForBadges.server_sha_start : "";
     const runResultSha = (viewDataForBadges && typeof viewDataForBadges.result_sha === "string") ? viewDataForBadges.result_sha : "";
@@ -2720,26 +2759,29 @@
     const qualityTotal = (quality && typeof quality.total === "number") ? quality.total : 0;
     const compareConfigured = compareIsConfigured();
     const compareNotSetText = compareNotSetMessage();
-    const deepSucceeded = (mode === "live" && liveDataDeep && deepMetaStatus === "ok");
+    const deepSucceeded = (mode === "live" && viewSource === "deep" && !!activeViewText);
     const deepInsufficient = (mode === "live" && (deepMetaStatus === "insufficient" || deepMetaReason === "insufficient_context"));
     let afterBase = sanitizeOptionDisplay(after, before || qEl.value || "");
     if (mode === "live" && !compareConfigured) {
       afterBase = compareNotSetText;
-    } else if (deepSucceeded) {
-      const deepAfter = primaryAfterTextFromData(liveDataDeep);
-      if (deepAfter) afterBase = sanitizeOptionDisplay(deepAfter, before || qEl.value || "");
-    } else if (compareConfigured && deepInsufficient && coreCompareV1FallbackActive && liveDataCore) {
-      const fallbackAfter = primaryAfterTextFromData(liveDataCore);
-      if (fallbackAfter) afterBase = sanitizeOptionDisplay(fallbackAfter, before || qEl.value || "");
+    } else if (mode === "live") {
+      afterBase = activeViewText
+        ? sanitizeOptionDisplay(activeViewText, before || qEl.value || "")
+        : "(no result yet)";
+      if (!activeViewText && compareConfigured && deepInsufficient && coreCompareV1FallbackActive && liveDataCore) {
+        const fallbackAfter = primaryAfterTextFromData(liveDataCore);
+        if (fallbackAfter) afterBase = sanitizeOptionDisplay(fallbackAfter, before || qEl.value || "");
+      }
     }
     const afterNormalized = afterBase;
     const afterWithSource = staleDeep ? freezeAfterForMismatch(afterNormalized) : afterNormalized;
+    const hasDisplayText = !!String(afterWithSource || "").trim() && String(afterWithSource || "").trim() !== "(empty)";
     const slotEffectFromData = (viewDataForBadges && viewDataForBadges.slot_effect && typeof viewDataForBadges.slot_effect === "object")
       ? viewDataForBadges.slot_effect
       : null;
-    const slotEffect = slotEffectFromData || scoreSlotEffect(afterWithSource);
+    const slotEffect = hasDisplayText ? (slotEffectFromData || scoreSlotEffect(afterWithSource)) : null;
     const slotEffectBadge = debugUiOn
-      ? `<span class="pillBadge" style="${slotEffect.level === "weak" ? "border-color:#d98b2b;color:#b15f00;" : (slotEffect.level === "strong" ? "border-color:#16a34a;color:#166534;" : "")}">SlotEffect: ${slotEffect.score}/100 (${slotEffect.level})</span>`
+      ? (slotEffect ? `<span class="pillBadge" style="${slotEffect.level === "weak" ? "border-color:#d98b2b;color:#b15f00;" : (slotEffect.level === "strong" ? "border-color:#16a34a;color:#166534;" : "")}">SlotEffect: ${slotEffect.score}/100 (${slotEffect.level})</span>` : "")
       : "";
     const isConditionalMode = /(?:^|\n)\s*MODE:\s*CONDITIONAL\b/i.test(String(after || ""));
     const isHoldMode = /(?:^|\n)\s*MODE:\s*HOLD\b/i.test(String(after || ""));
@@ -2783,21 +2825,24 @@
       ? `<details id="deep-debug-details"><summary>Deep Debug</summary><div class="preview"><pre class="subpre">${escapeHtml(debugTxt)}</pre></div></details>`
       : "";
     const deepStatusShowSet = new Set(["partial", "insufficient", "timeout", "llm_error", "schema_invalid", "error"]);
+    const deepPhaseNow = String(((slotState.deepOverlay && slotState.deepOverlay.phase) || (slotState.deep && slotState.deep.phase) || "idle"));
+    const deepErrNow = String((slotState.deep && slotState.deep.errorMsg) || "");
+    const deepUnavailableNow = ["failed", "timeout", "error"].includes(deepPhaseNow) || /timeout|failed/i.test(deepErrNow);
     const showDeepStatusBadge = (mode === "live" && viewSource === "deep" && deepStatusShowSet.has(deepMetaStatus));
     const showCoreErrorBadge = (mode === "live" && viewSource === "core" && analysisStatus === "error");
     const fallbackBadge = (mode === "live" && coreCompareV1FallbackActive)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Deep unavailable → Core Compare-v1 fallback</span>`
       : "";
-    const deepOverlayBadge = (mode === "live" && deepOverlayNotice)
+    const deepOverlayBadge = (mode === "live" && deepUnavailableNow && viewSource !== "deep" && deepOverlayNotice)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">${escapeHtml(deepOverlayNotice)}</span>`
       : "";
     const statusBadges = showDeepStatusBadge
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
-    const formatBadge = (deepLint && deepLint.ok === false)
+    const formatBadge = (hasDisplayText && deepLint && deepLint.ok === false)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">${debugUiOn ? "Format mismatch: re-run recommended" : "Needs re-run"}</span>`
       : "";
-    const slotBadge = (slotVerify && slotVerify.ok === false)
+    const slotBadge = (hasDisplayText && slotVerify && slotVerify.ok === false)
       ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">Slot mismatch</span>`
       : "";
     const deepLockBadge = (!deepGateOpen && slotState.showPanel)
@@ -2808,7 +2853,7 @@
     const sourceBadge = (mode === "live")
       ? `<span class="pillBadge">Source: ${viewSource === "deep" ? "Deep" : "Core"}</span>`
       : "";
-    const protocolBadge = debugUiOn ? `<span class="pillBadge">Protocol: Compare-v1</span>` : "";
+    const protocolBadge = (debugUiOn && hasDisplayText) ? `<span class="pillBadge">Protocol: Compare-v1</span>` : "";
     const runKeyBadge = debugUiOn ? `<span class="pillBadge">runKey:${escapeHtml((slotState.exec.currentRunKey || slotState.exec.lastRunKey || "-").slice(0, 8))}</span>` : "";
     const deepKeyBadge = debugUiOn ? `<span class="pillBadge">deepKey:${escapeHtml((slotState.exec.currentDeepKey || slotState.exec.lastDeepKey || "-").slice(0, 8))}</span>` : "";
     const shaWarnBadge = (mode === "live" && liveShaMismatch)
@@ -2942,6 +2987,7 @@
       coreViewBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        ensureViewState().active = "core";
         liveDataView = "core";
         await loadActive();
       };
@@ -2951,7 +2997,9 @@
       deepViewBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (!liveDataDeep) return;
+        const v = ensureViewState();
+        if (!v.deepText.trim()) return;
+        v.active = "deep";
         liveDataView = "deep";
         await loadActive();
       };
@@ -3569,8 +3617,13 @@
           return false;
         }
         if (myDeepSession !== deepSessionId) return false;
-        liveDataDeep = enforceDeepAssumptionsInData(deepData);
-        const lintText = String(liveDataDeep.compare || liveDataDeep.expand || liveDataDeep.merge || "");
+        const normalizedDeep = enforceDeepAssumptionsInData(deepData);
+        const lintText = String(normalizedDeep.compare || normalizedDeep.expand || normalizedDeep.merge || "").trim();
+        if (!lintText) {
+          dgDebug("deep_apply_skipped_empty", { source: sourceTag || "-" });
+          return false;
+        }
+        liveDataDeep = normalizedDeep;
         const lint = lintDeepOutputByMode(lintText, slotState.abMode || "B");
         const slotCheck = verifyAppliedSlots(lintText, slotState.selected || {}, slotState.extra || {});
         liveDataDeep.deep_lint = lint;
@@ -3594,6 +3647,9 @@
           coreCompareV1FallbackActive = false;
           deepOverlayNotice = "Deep partial";
           liveDataDeep.deep_status = "partial";
+          const view = ensureViewState();
+          view.deepText = lintText;
+          view.active = "deep";
           liveDataView = "deep";
           liveData = liveDataDeep;
           lastStableResult = liveDataDeep;
@@ -3610,6 +3666,9 @@
           setLastBlockReason("");
           coreCompareV1FallbackActive = false;
           deepOverlayNotice = "";
+          const view = ensureViewState();
+          view.deepText = lintText;
+          view.active = "deep";
           liveDataView = "deep";
           liveData = liveDataDeep;
           lastStableResult = liveDataDeep;
@@ -3617,7 +3676,9 @@
             ? `Live ready (view=deep; status=${finalDeepStatus}; format mismatch)`
             : `Live ready (view=deep; status=${finalDeepStatus}${liveBootSha ? `; sha=${liveBootSha}` : ""})`;
         } else {
-          liveDataView = "core";
+          const view = ensureViewState();
+          if (view.coreText) view.active = "core";
+          liveDataView = view.active;
           liveData = liveDataCore || liveDataDeep;
           if (liveData) lastStableResult = liveData;
           liveHintEl.textContent = `Deep failed (${finalDeepStatus}; fallback=${finalFallback})`;
