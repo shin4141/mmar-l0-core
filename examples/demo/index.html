@@ -414,6 +414,7 @@
     if (!b.getAttribute("type")) b.setAttribute("type", "button");
   });
   const THINK_UNLOCK_THRESHOLD = 60;
+  console.log("[DG] BUILD", "afa00f8+matched-guard");
   const AB_MODE_STORAGE_KEY = "DG_AB_MODE";
   const AB_KEYWORDS_A = [
     "アイデア", "案", "章立て", "比喩", "世界観", "たたき台", "発散", "探索", "仮説", "ブレスト",
@@ -3683,30 +3684,41 @@
           const files = await reloadFilesForDeepPoll();
           const fileDeep = findDeepResultForRunId(files, activeRunId);
           if (fileDeep) {
-            if (fileDeep.hash !== lastSeenHash) {
-              lastSeenHash = fileDeep.hash;
-              lastSeen = fileDeep;
-              dgDebug("deep_seen_update", {
-                polls: nextPolls,
-                hash: fileDeep.hash,
-                mtimeMs: fileDeep.mtimeMs,
-                isFinal: !!fileDeep.isFinal,
-                path: fileDeep.path,
-              });
-            }
-            console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched: true });
-            let stage = fileDeep.isFinal ? "applied" : "partial";
+            let stage = fileDeep && fileDeep.isFinal ? "applied" : "partial";
             try {
+              if (fileDeep.hash !== lastSeenHash) {
+                lastSeenHash = fileDeep.hash;
+                lastSeen = fileDeep;
+                dgDebug("deep_seen_update", {
+                  polls: nextPolls,
+                  hash: fileDeep.hash,
+                  mtimeMs: fileDeep.mtimeMs,
+                  isFinal: !!fileDeep.isFinal,
+                  path: fileDeep.path,
+                });
+              }
+              console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched: true });
+              const text = (typeof fileDeep === "string"
+                ? fileDeep
+                : String(fileDeep.text || fileDeep.raw || fileDeep.content || "")).trim();
+              dgDebug("deep_matched", {
+                polls: nextPolls,
+                type: typeof fileDeep,
+                textLen: text.length,
+                keys: (fileDeep && typeof fileDeep === "object") ? Object.keys(fileDeep) : null,
+              });
+              if (!text) throw new Error("deepRes has no text");
               await applyDeepResult({
                 run_id: activeRunId,
-                compare: fileDeep.text,
-                expand: fileDeep.text,
-                merge: fileDeep.text,
+                compare: text,
+                expand: text,
+                merge: text,
                 diff: "",
                 deep_status: fileDeep.isFinal ? "ok" : "partial",
               }, "reload_files", { skipRetry: true, stageHint: fileDeep.isFinal ? "final" : "partial", polls: nextPolls });
             } catch (e) {
-              console.error("[DG][FATAL] deep_apply_on_match", e && e.stack ? e.stack : String(e));
+              const err = e && e.stack ? e.stack : String(e);
+              dgDebug("deep_apply_error", { polls: nextPolls, err });
               stage = "failed";
             }
             setDeepPhase(stage, { runId, jobId: "", tries: nextPolls, errorMsg: "" });
