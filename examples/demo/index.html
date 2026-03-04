@@ -3793,13 +3793,13 @@
           const jobDone = status === "done";
           const endpointText = String((j && (j.result_text || j.result || j.output || j.output_text || j.compare || j.expand || j.merge)) || "").trim();
           const hasResultText = endpointText.length > 0;
-          dgDebug("deep_job_http", { status, hasResultText, textLen: endpointText.length });
+          const endpointHash = `${endpointText.length}:${endpointText.slice(0, 32)}:${endpointText.slice(-32)}`;
+          dgDebug("deep_job_http", { jobId, status, hasResultText, textLen: endpointText.length, hash: endpointHash });
           console.debug("[DG] deep_job_tick", { polls: nextPolls, status, jobDone });
           if (myDeepSession !== deepSessionId) {
             clearPollTimer();
             return;
           }
-          const endpointHash = `${endpointText.length}:${endpointText.slice(0, 32)}:${endpointText.slice(-32)}`;
           slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
           slotState.deepOverlay.lastAppliedHash = String(slotState.deepOverlay.lastAppliedHash || "");
           if (hasResultText && endpointHash !== slotState.deepOverlay.lastAppliedHash) {
