@@ -3621,10 +3621,10 @@
         updateCtrlPanel();
         let lastSeen = null;
         let lastSeenHash = "";
-        let slowMode = false;
-        let slowPolls = 0;
+        const terminalPhases = new Set(["applied", "partial", "failed", "cancelled", "done", "error"]);
         while (true) {
           const curPhase = (slotState.deep && slotState.deep.phase) || "idle";
+          if (terminalPhases.has(curPhase)) return;
           if (curPhase === "cancelled") {
             liveHintEl.textContent = "Stopped";
             liveStatus = "cancelled";
@@ -3634,9 +3634,7 @@
             return;
           }
           const triesNow = Number(slotState.deep.tries || 0);
-          const reachedFastTimeout = (!slowMode && triesNow >= DEEP_MAX_POLLS);
-          const reachedSlowTimeout = (slowMode && slowPolls >= 30);
-          if (reachedFastTimeout || reachedSlowTimeout) {
+          if (triesNow >= DEEP_MAX_POLLS) {
             if (lastSeen && lastSeen.text) {
               await applyDeepResult({
                 run_id: activeRunId,
@@ -3673,9 +3671,8 @@
             updateCtrlPanel();
             return;
           }
-          await new Promise((resolve) => setTimeout(resolve, slowMode ? 2000 : 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           const nextPolls = triesNow + 1;
-          if (slowMode) slowPolls += 1;
           setDeepPhase("polling", {
             runId,
             jobId,
@@ -3698,17 +3695,31 @@
               });
             }
             console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched: true });
-            await applyDeepResult({
-              run_id: activeRunId,
-              compare: fileDeep.text,
-              expand: fileDeep.text,
-              merge: fileDeep.text,
-              diff: "",
-              deep_status: fileDeep.isFinal ? "ok" : "partial",
-            }, "reload_files", { skipRetry: true, stageHint: fileDeep.isFinal ? "final" : "partial", polls: nextPolls });
-            if (fileDeep.isFinal) return;
-            slowMode = true;
-            continue;
+            let stage = fileDeep.isFinal ? "applied" : "partial";
+            try {
+              await applyDeepResult({
+                run_id: activeRunId,
+                compare: fileDeep.text,
+                expand: fileDeep.text,
+                merge: fileDeep.text,
+                diff: "",
+                deep_status: fileDeep.isFinal ? "ok" : "partial",
+              }, "reload_files", { skipRetry: true, stageHint: fileDeep.isFinal ? "final" : "partial", polls: nextPolls });
+            } catch (e) {
+              console.error("[DG][FATAL] deep_apply_on_match", e && e.stack ? e.stack : String(e));
+              stage = "failed";
+            }
+            setDeepPhase(stage, { runId, jobId: "", tries: nextPolls, errorMsg: "" });
+            if (!slotState.deep.endedAt) slotState.deep.endedAt = Date.now();
+            dgDebug("deep_applied_stage", { stage, polls: nextPolls });
+            if (stage !== "failed") {
+              liveStatus = "ready";
+              isRunning = false;
+              setRunVisual("ready", "2.8s");
+            }
+            await safeRenderAll("state_update");
+            updateCtrlPanel();
+            return;
           }
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
