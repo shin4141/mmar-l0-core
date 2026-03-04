@@ -3657,6 +3657,7 @@
         updateCtrlPanel();
         let lastSeen = null;
         let lastSeenHash = "";
+        let jobDoneNoTextCount = 0;
         const terminalPhases = new Set(["applied", "partial", "failed", "cancelled", "done", "error"]);
         while (true) {
           if (myNonce !== Number((slotState.deepOverlay && slotState.deepOverlay.pollNonce) || 0)) return;
@@ -3746,58 +3747,71 @@
             errorMsg: "",
           });
           const files = await reloadFilesForDeepPoll();
-          const fileDeep = findDeepResultForRunId(files, activeRunId);
-          if (fileDeep) {
+          const deepRes = findDeepResultForRunId(files, activeRunId);
+          const text = (typeof deepRes === "string"
+            ? deepRes
+            : String((deepRes && (deepRes.text || deepRes.raw || deepRes.content)) || "")).trim();
+          const hasRes = !!deepRes;
+          const textLen = text.length;
+          const matchedRes = hasRes && textLen > 0;
+          const st = slotState.deepOverlay || {};
+          dgDebug("deep_candidate", {
+            polls: Number(st.polls || 0),
+            hasRes,
+            textLen,
+            path: deepRes && deepRes.path ? deepRes.path : "",
+            mtimeMs: deepRes && deepRes.mtimeMs ? deepRes.mtimeMs : 0,
+            isFinal: !!(deepRes && deepRes.isFinal),
+          });
+          dgDebug("deep_poll_tick", { polls: Number(st.polls || 0), matched: matchedRes });
+          if (matchedRes) {
             console.log("[DG] MATCH_HANDLER", "MATCH_V3");
-            let stage = fileDeep && fileDeep.isFinal ? "applied" : "partial";
+            let stage = (deepRes && deepRes.isFinal) ? "applied" : "partial";
             try {
-              if (fileDeep.hash !== lastSeenHash) {
-                lastSeenHash = fileDeep.hash;
-                lastSeen = fileDeep;
+              if (deepRes && typeof deepRes === "object" && deepRes.hash !== lastSeenHash) {
+                lastSeenHash = deepRes.hash;
+                lastSeen = deepRes;
                 dgDebug("deep_seen_update", {
                   polls: nextPolls,
-                  hash: fileDeep.hash,
-                  mtimeMs: fileDeep.mtimeMs,
-                  isFinal: !!fileDeep.isFinal,
-                  path: fileDeep.path,
+                  hash: deepRes.hash,
+                  mtimeMs: deepRes.mtimeMs,
+                  isFinal: !!deepRes.isFinal,
+                  path: deepRes.path,
                 });
               }
-              console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched: true });
-              const text = (typeof fileDeep === "string"
-                ? fileDeep
-                : String(fileDeep.text || fileDeep.raw || fileDeep.content || "")).trim();
               dgDebug("deep_matched", {
                 polls: nextPolls,
-                type: typeof fileDeep,
-                textLen: text.length,
-                keys: (fileDeep && typeof fileDeep === "object") ? Object.keys(fileDeep) : null,
+                type: typeof deepRes,
+                textLen,
+                keys: (deepRes && typeof deepRes === "object") ? Object.keys(deepRes) : null,
               });
-              if (!text) throw new Error("deepRes has no text");
               await applyDeepResult({
                 run_id: activeRunId,
                 compare: text,
                 expand: text,
                 merge: text,
                 diff: "",
-                deep_status: fileDeep.isFinal ? "ok" : "partial",
-              }, "reload_files", { skipRetry: true, stageHint: fileDeep.isFinal ? "final" : "partial", polls: nextPolls });
+                deep_status: (deepRes && deepRes.isFinal) ? "ok" : "partial",
+              }, "reload_files", { skipRetry: true, stageHint: (deepRes && deepRes.isFinal) ? "final" : "partial", polls: nextPolls });
             } catch (e) {
               const err = e && e.stack ? e.stack : String(e);
-              dgDebug("deep_apply_error", { polls: nextPolls, err });
               stage = "failed";
+              st.errorMsg = err;
+              dgDebug("deep_apply_error", { err });
+            } finally {
+              setDeepPhase(stage, { runId, jobId: "", tries: nextPolls, errorMsg: stage === "failed" ? (st.errorMsg || "") : "" });
+              if (!slotState.deep.endedAt) slotState.deep.endedAt = Date.now();
+              dgDebug("deep_applied_stage", { stage, polls: nextPolls, textLen });
+              if (stage !== "failed") {
+                liveStatus = "ready";
+                isRunning = false;
+                setRunVisual("ready", "2.8s");
+              }
+              await safeRenderAll("state_update");
+              updateCtrlPanel();
+              clearPollTimer();
+              return;
             }
-            setDeepPhase(stage, { runId, jobId: "", tries: nextPolls, errorMsg: "" });
-            if (!slotState.deep.endedAt) slotState.deep.endedAt = Date.now();
-            dgDebug("deep_applied_stage", { stage, polls: nextPolls });
-            if (stage !== "failed") {
-              liveStatus = "ready";
-              isRunning = false;
-              setRunVisual("ready", "2.8s");
-            }
-            await safeRenderAll("state_update");
-            updateCtrlPanel();
-            clearPollTimer();
-            return;
           }
           const jr = await fetch(`${apiBase}/api/job/${encodeURIComponent(jobId)}`);
           if (!jr.ok) throw new Error(`job poll HTTP ${jr.status}`);
@@ -3821,6 +3835,24 @@
             continue;
           }
           if (j.status === "done") {
+            const doneText = String((j && (j.compare || j.expand || j.merge || j.output_text || j.text || j.raw)) || "").trim();
+            if (!doneText) {
+              jobDoneNoTextCount += 1;
+              if (jobDoneNoTextCount >= 4) {
+                setDeepPhase("error", { runId, jobId: "", errorMsg: "job_done_but_empty_output", tries: Number(slotState.deep.tries || 0) });
+                updateStopButton();
+                deepOverlayNotice = "Deep unavailable: empty output";
+                liveHintEl.textContent = "Deep done but no output";
+                liveStatus = "ready";
+                isRunning = false;
+                setRunVisual("ready", "2.8s");
+                await safeRenderAll("state_update");
+                updateCtrlPanel();
+                clearPollTimer();
+                return;
+              }
+              continue;
+            }
             await applyDeepResult(j, "job_poll", { stageHint: "final", polls: nextPolls });
             clearPollTimer();
             return;
