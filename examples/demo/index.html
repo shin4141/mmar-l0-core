@@ -2928,7 +2928,7 @@
       ? `<span style="display:flex; flex-direction:column; gap:4px; margin-right:6px;">
           <span style="display:inline-flex; align-items:center; gap:6px;">
             <span id="deep-status-line" class="pillBadge">${escapeHtml(deepStatusLineText())}</span>
-            <button id="after-deep-btn" type="button" title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px;">Retry</button>
+            <button id="after-deep-btn" type="button" title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px;">Try Deep</button>
           </span>
           <span id="deep-status-debug" class="muted" style="display:${debugUiOn ? "block" : "none"};"></span>
         </span>`
@@ -3475,7 +3475,7 @@
       await safeRenderAll("state_update");
       updateCtrlPanel();
       renderMode();
-      if (!isDeep) startDeepOverlay(submittedInput);
+      // MVP freeze: Deep is optional/manual only.
       releaseEarlyLock();
       return;
     }
@@ -3657,7 +3657,7 @@
         setRunVisual("ready", "2.8s");
         renderMode();
         updateCtrlPanel();
-        startDeepOverlay(submittedInput);
+        // MVP freeze: Deep is optional/manual only.
         return;
       }
 
