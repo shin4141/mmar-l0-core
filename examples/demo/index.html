@@ -1892,7 +1892,13 @@
     return text;
   }
 
-  function startDeepOverlay(submittedInput){
+  function startDeepOverlay(arg){
+    const opts = (arg && typeof arg === "object" && !Array.isArray(arg))
+      ? arg
+      : { submittedInput: arg };
+    const submittedInput = String(opts.submittedInput || lastSubmittedInput || qEl.value || "");
+    const force = !!opts.force;
+    const reason = String(opts.reason || "deep_overlay");
     if (mode !== "live") return;
     slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", startedAt: 0, endedAt: 0, pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
     slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
@@ -1909,6 +1915,7 @@
       tries: 0,
       errorMsg: "",
     });
+    dgDebug("deep_click_start", { reason, force });
     if (!slotState.selected.goal) {
       slotState.selected.goal = "守る";
       slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
@@ -1921,9 +1928,18 @@
     }
     syncRequiredFields();
     refreshDeepReadiness(false);
-    if (!compareIsConfigured()) return;
-    if (liveCoreOnly) return;
-    if (deepIsBusy()) return;
+    if (!compareIsConfigured()) {
+      dgDebug("try_deep_blocked", { reason: "compare_not_locked" });
+      return;
+    }
+    if (liveCoreOnly) {
+      dgDebug("try_deep_blocked", { reason: "core_only_mode" });
+      return;
+    }
+    if (!force && deepIsBusy()) {
+      dgDebug("try_deep_blocked", { reason: "deep_busy" });
+      return;
+    }
     const deepInput = buildDeepPrompt(submittedInput || lastSubmittedInput || qEl.value || "");
     deepOverlayNotice = "";
     setTimeout(() => {
@@ -1931,7 +1947,8 @@
         mode: "deep",
         inputOverride: deepInput,
         allowDuplicate: true,
-        reason: "auto_deep_overlay",
+        force,
+        reason,
       });
     }, 0);
   }
@@ -2959,7 +2976,7 @@
       ? `<span style="display:flex; flex-direction:column; gap:4px; margin-right:6px;">
           <span style="display:inline-flex; align-items:center; gap:6px;">
             <span id="deep-status-line" class="pillBadge">${escapeHtml(deepStatusLineText())}</span>
-            <button id="after-deep-btn" type="button" title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px;">Try Deep</button>
+            <button id="try-deep-btn" type="button" title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px;">Try Deep</button>
           </span>
           <span id="deep-status-debug" class="muted" style="display:${debugUiOn ? "block" : "none"};"></span>
         </span>`
@@ -3174,14 +3191,12 @@
         await loadActive();
       };
     }
-    const deepBtn = document.getElementById("after-deep-btn");
+    const deepBtn = document.getElementById("try-deep-btn");
     if (deepBtn) {
       const cleanBtn = deepBtn.cloneNode(true);
       deepBtn.parentNode.replaceChild(cleanBtn, deepBtn);
       cleanBtn.type = "button";
       cleanBtn.addEventListener("click", async (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        if (e && e.stopPropagation) e.stopPropagation();
         await dgShield("deep_click", async () => {
           console.debug("[DG] click_target", {
             id: e && e.target ? e.target.id : "",
@@ -3195,43 +3210,8 @@
             refreshDeepReadiness(false);
             return;
           }
-          if (mode !== "live") return;
-          if (!lastSubmittedInput) {
-            liveHintEl.textContent = "No submitted input";
-            setLastBlockReason("no_submitted_input");
-            refreshDeepReadiness(false);
-            return;
-          }
-          if (!compareIsConfigured() && compareHasPair()) {
-            slotState.compare.locked = true;
-            slotState.compare.a = normalizeCompareText(slotState.compare.a);
-            slotState.compare.b = normalizeCompareText(slotState.compare.b);
-            dgDebug("compare_auto_locked_for_deep", {
-              a: slotState.compare.a,
-              b: slotState.compare.b,
-            });
-          }
-          if (!compareIsConfigured()) {
-            liveHintEl.textContent = "Deep locked: Lock Compare to enable Deep";
-            setLastBlockReason("compare_not_locked");
-            refreshDeepReadiness(false);
-            return;
-          }
-          autofillMissingForTryDeep();
-          setLastBlockReason("");
-          refreshDeepReadiness(false);
-          snapshot("before_deep_click_effective", { compareLocked: true });
-          const deepInput = buildDeepPrompt(lastSubmittedInput || qEl.value || "");
-          await onClickRunSafe({
-            mode: "deep",
-            inputOverride: deepInput,
-            force: true,
-            reason: "try_deep",
-          });
+          onClickTryDeep(e);
         });
-        if (liveStatus !== "running" && slotState.deep.phase === "running") {
-          setDeepPhase("idle", { runId: "", tries: 0, errorMsg: "" });
-        }
       });
     }
     updateDeepStatusLineOnly();
@@ -3252,6 +3232,35 @@
       outEl.innerHTML = `<pre class="subpre">${escapeHtml((txt || "").trim() || "(empty)")}</pre>`;
       if (String(outEl.innerHTML || "").trim()) lastNonEmptyOutHtml = outEl.innerHTML;
     }
+  }
+
+  function onClickTryDeep(e){
+    e && e.preventDefault && e.preventDefault();
+    e && e.stopPropagation && e.stopPropagation();
+    const prog = computeRequiredProgress(getEffectiveRequiredFields());
+    dgDebug("try_deep_click", {
+      deepEnabled: slotDeepEnabled(),
+      required: getEffectiveRequiredFields(),
+      missing: prog.missing,
+      compareLocked: !!(slotState.compare && slotState.compare.locked),
+      aLen: String((slotState.compare && slotState.compare.a) || "").length,
+      bLen: String((slotState.compare && slotState.compare.b) || "").length,
+    });
+    if (mode !== "live") {
+      dgDebug("try_deep_blocked", { reason: "not_live_mode" });
+      return;
+    }
+    if (!String(lastSubmittedInput || qEl.value || "").trim()) {
+      dgDebug("try_deep_blocked", { reason: "no_submitted_input" });
+      return;
+    }
+    if (!(slotState.compare && slotState.compare.locked)) {
+      dgDebug("try_deep_blocked", { reason: "compare_not_locked" });
+      return;
+    }
+    autofillMissingForTryDeep();
+    dgDebug("try_deep_autofill_done", { selected: { ...(slotState.selected || {}) } });
+    startDeepOverlay({ force: true, reason: "try_deep_btn", submittedInput: lastSubmittedInput || qEl.value || "" });
   }
 
   async function onClickRunSafe(opts = {}){
