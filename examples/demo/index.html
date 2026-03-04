@@ -479,6 +479,7 @@
       pollNonce: 0,
       pollTimerId: null,
       polls: 0,
+      lastAppliedHash: "",
     },
     showPanel: false,
     showExtra: false,
@@ -1759,8 +1760,9 @@
 
   function startDeepOverlay(submittedInput){
     if (mode !== "live") return;
-    slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0 };
+    slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
     slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
+    slotState.deepOverlay.lastAppliedHash = "";
     if (slotState.deepOverlay.pollTimerId) {
       clearTimeout(slotState.deepOverlay.pollTimerId);
       slotState.deepOverlay.pollTimerId = null;
@@ -3663,8 +3665,9 @@
       if (hasJobId) {
         const jobId = String(data.job_id);
         console.debug("[DG] deep_job", { jobId });
-        slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0 };
+        slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
         slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
+        slotState.deepOverlay.lastAppliedHash = "";
         const myNonce = slotState.deepOverlay.pollNonce;
         if (slotState.deepOverlay.pollTimerId) {
           clearTimeout(slotState.deepOverlay.pollTimerId);
@@ -3694,7 +3697,8 @@
         let lastSeen = null;
         let lastSeenHash = "";
         let jobDoneNoTextCount = 0;
-        const terminalPhases = new Set(["applied", "partial", "failed", "cancelled", "done", "error"]);
+        const terminalPhases = new Set(["applied", "failed", "cancelled", "done", "error"]);
+        let pollDelayMs = 500;
         while (true) {
           if (myNonce !== Number((slotState.deepOverlay && slotState.deepOverlay.pollNonce) || 0)) return;
           console.log("[DG] POLL_FN", "POLL_ONCE_V3", { polls: Number((slotState.deepOverlay && slotState.deepOverlay.polls) || 0), nonce: myNonce });
@@ -3770,7 +3774,7 @@
               st.pollTimerId = null;
               if (typeof fn === "function") fn();
               else resolve();
-            }, 500);
+            }, pollDelayMs);
             slotState.deepOverlay = st;
           });
           const nextPolls = triesNow + 1;
@@ -3795,18 +3799,31 @@
             clearPollTimer();
             return;
           }
-          if ((status === "done" || status === "succeeded") && hasResultText) {
+          const endpointHash = `${endpointText.length}:${endpointText.slice(0, 32)}:${endpointText.slice(-32)}`;
+          slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
+          slotState.deepOverlay.lastAppliedHash = String(slotState.deepOverlay.lastAppliedHash || "");
+          if (hasResultText && endpointHash !== slotState.deepOverlay.lastAppliedHash) {
+            const isFinalStage = status === "done" || status === "succeeded";
             await applyDeepResult({
               run_id: activeRunId,
               compare: endpointText,
               expand: endpointText,
               merge: endpointText,
               diff: "",
-              deep_status: "ok",
-            }, "job_endpoint", { skipRetry: true, stageHint: "final", polls: nextPolls });
-            dgDebug("deep_applied_stage", { stage: "applied", source: "job_endpoint", polls: nextPolls });
-            clearPollTimer();
-            return;
+              deep_status: isFinalStage ? "ok" : "partial",
+            }, "job_endpoint", { skipRetry: true, stageHint: isFinalStage ? "final" : "partial", polls: nextPolls });
+            slotState.deepOverlay.lastAppliedHash = endpointHash;
+            if (isFinalStage) {
+              slotState.deepOverlay.phase = "applied";
+              slotState.deepOverlay.endedAt = slotState.deepOverlay.endedAt || Date.now();
+              dgDebug("deep_applied_stage", { stage: "applied", source: "job_endpoint", polls: nextPolls, textLen: endpointText.length });
+              clearPollTimer();
+              return;
+            }
+            slotState.deepOverlay.phase = "partial";
+            pollDelayMs = 2000;
+            dgDebug("deep_applied_stage", { stage: "partial", source: "job_endpoint", polls: nextPolls, textLen: endpointText.length });
+            continue;
           }
           if (status === "running" || status === "slow") {
             const elapsed = (typeof j.elapsed_sec === "number") ? j.elapsed_sec : 0;
@@ -3814,6 +3831,7 @@
             liveHintEl.textContent = `Thinking… ${elapsedInt}s`;
             liveThinkTimeEl.textContent = `Think time: ${formatThinkTime(elapsed)}`;
             liveStatus = (status === "slow") ? "slow" : "running";
+            pollDelayMs = 500;
             setRunVisual("running", runSpeed);
             updateCtrlPanel();
             continue;
