@@ -474,6 +474,12 @@
       tries: 0,
       errorMsg: "",
     },
+    deepOverlay: {
+      phase: "idle",
+      pollNonce: 0,
+      pollTimerId: null,
+      polls: 0,
+    },
     showPanel: false,
     showExtra: false,
     compare: {
@@ -552,6 +558,11 @@
       tries: Number(slotState.deep.tries || 0),
       errorMsg: slotState.deep.errorMsg || "",
     });
+    slotState.deepOverlay = {
+      ...(slotState.deepOverlay || {}),
+      phase,
+      polls: Number(slotState.deep && slotState.deep.tries || 0),
+    };
   }
 
   function setDebugUiMode(on){
@@ -1713,6 +1724,13 @@
 
   function startDeepOverlay(submittedInput){
     if (mode !== "live") return;
+    slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0 };
+    slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
+    if (slotState.deepOverlay.pollTimerId) {
+      clearTimeout(slotState.deepOverlay.pollTimerId);
+      slotState.deepOverlay.pollTimerId = null;
+    }
+    slotState.__pollOnce = null;
     if (!slotState.selected.goal) {
       slotState.selected.goal = "守る";
       slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
@@ -3609,11 +3627,19 @@
       if (hasJobId) {
         const jobId = String(data.job_id);
         console.debug("[DG] deep_job", { jobId });
+        slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0 };
+        slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
+        const myNonce = slotState.deepOverlay.pollNonce;
+        if (slotState.deepOverlay.pollTimerId) {
+          clearTimeout(slotState.deepOverlay.pollTimerId);
+          slotState.deepOverlay.pollTimerId = null;
+        }
+        slotState.__pollOnce = null;
         const clearPollTimer = () => {
           try {
-            if (slotState.deep && slotState.deep.pollTimerId) {
-              clearTimeout(slotState.deep.pollTimerId);
-              slotState.deep.pollTimerId = 0;
+            if (slotState.deepOverlay && slotState.deepOverlay.pollTimerId) {
+              clearTimeout(slotState.deepOverlay.pollTimerId);
+              slotState.deepOverlay.pollTimerId = null;
             }
           } catch (_) {}
           slotState.__pollOnce = null;
@@ -3633,7 +3659,8 @@
         let lastSeenHash = "";
         const terminalPhases = new Set(["applied", "partial", "failed", "cancelled", "done", "error"]);
         while (true) {
-          console.log("[DG] POLL_FN", "POLL_ONCE_V3");
+          if (myNonce !== Number((slotState.deepOverlay && slotState.deepOverlay.pollNonce) || 0)) return;
+          console.log("[DG] POLL_FN", "POLL_ONCE_V3", { polls: Number((slotState.deepOverlay && slotState.deepOverlay.polls) || 0), nonce: myNonce });
           const curPhase = (slotState.deep && slotState.deep.phase) || "idle";
           if (terminalPhases.has(curPhase)) {
             clearPollTimer();
@@ -3690,21 +3717,27 @@
             return;
           }
           await new Promise((resolve) => {
-            const st = slotState.deep || {};
-            if (st.pollTimerId) return resolve();
+            const st = slotState.deepOverlay || {};
+            if (myNonce !== Number(st.pollNonce || 0)) return resolve();
+            if (st.pollTimerId) {
+              clearTimeout(st.pollTimerId);
+              st.pollTimerId = null;
+            }
             slotState.__pollOnce = () => {
               slotState.__pollOnce = null;
               resolve();
             };
             st.pollTimerId = setTimeout(() => {
+              if (myNonce !== Number((slotState.deepOverlay && slotState.deepOverlay.pollNonce) || 0)) return resolve();
               const fn = slotState.__pollOnce;
-              st.pollTimerId = 0;
+              st.pollTimerId = null;
               if (typeof fn === "function") fn();
               else resolve();
             }, 500);
-            slotState.deep = st;
+            slotState.deepOverlay = st;
           });
           const nextPolls = triesNow + 1;
+          slotState.deepOverlay.polls = nextPolls;
           setDeepPhase("polling", {
             runId,
             jobId,
@@ -3771,7 +3804,7 @@
           const j = await jr.json();
           const pollRunId = (j && typeof j.run_id === "string") ? j.run_id : "";
           const matched = !!(pollRunId && pollRunId === activeRunId);
-          console.debug("[DG] deep_poll_tick", { polls: nextPolls, matched });
+          console.debug("[DG] deep_job_tick", { polls: nextPolls, matched });
           if (!matched) continue;
           if (myDeepSession !== deepSessionId) {
             clearPollTimer();
