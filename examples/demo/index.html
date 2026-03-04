@@ -655,6 +655,37 @@
     refreshDeepReadiness(false);
   }
 
+  function autofillMissingForTryDeep(){
+    const req = getEffectiveRequiredFields();
+    const before = computeRequiredProgress(req);
+    const filled = {};
+    slotState.extra = slotState.extra || {};
+    const setIfMissing = (key, val) => {
+      if (!slotState.selected[key]) {
+        slotState.selected[key] = val;
+        slotState.selectedSource[key] = slotState.selectedSource[key] || "auto_fill";
+        filled[key] = val;
+      }
+    };
+    for (const key of before.missing) {
+      if (key === "goal") setIfMissing("goal", "守る");
+      else if (key === "risk") setIfMissing("risk", "中");
+      else if (key === "horizon") setIfMissing("horizon", "短期");
+      else if (key === "amount") setIfMissing("amount", "中");
+      else {
+        const cur = String(slotState.extra[key] || "").trim();
+        if (!cur) {
+          slotState.extra[key] = "tmp";
+          filled[key] = "tmp";
+        }
+      }
+    }
+    syncRequiredFields();
+    const after = computeRequiredProgress(req);
+    dgDebug("try_deep_autofill", { missingBefore: before.missing, missingAfter: after.missing, filled });
+    return after.missing.length === 0;
+  }
+
   function loadABModeOverride(){
     try {
       const v = String(localStorage.getItem(AB_MODE_STORAGE_KEY) || "auto");
@@ -3186,6 +3217,7 @@
             refreshDeepReadiness(false);
             return;
           }
+          autofillMissingForTryDeep();
           setLastBlockReason("");
           refreshDeepReadiness(false);
           snapshot("before_deep_click_effective", { compareLocked: true });
@@ -3194,7 +3226,7 @@
             mode: "deep",
             inputOverride: deepInput,
             force: true,
-            reason: "manual_retry",
+            reason: "try_deep",
           });
         });
         if (liveStatus !== "running" && slotState.deep.phase === "running") {
@@ -3494,6 +3526,9 @@
     }
     try {
       if (isDeep) {
+        if (reason === "try_deep") {
+          autofillMissingForTryDeep();
+        }
         // Final guard: never call deep API while effective required still has missing fields.
         const reqNow = getDeepRequiredSnapshot();
         let progNow = computeRequiredProgress(reqNow);
