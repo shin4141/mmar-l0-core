@@ -264,6 +264,16 @@ def _derive_llm_mode(payload: dict) -> str:
     return "lite"
 
 
+def _derive_result_text(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for k in ("result_text", "result", "output", "output_text", "compare", "expand", "merge", "diff"):
+        v = payload.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
 def _run_ask_triad(user_input: str, timeout_s: int | None, env_extra: dict | None = None) -> subprocess.CompletedProcess:
     cmd = [
         sys.executable,
@@ -407,6 +417,7 @@ def _start_full_job(user_input: str, run_id: str, input_hash: str, model_cfg_has
                     "model_cfg_hash": model_cfg_hash,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                     "ask_sha": str(payload.get("build_sha") or ""),
+                    "result_text": _derive_result_text(payload),
                     **_run_meta(),
                     **payload,
                 }
@@ -511,6 +522,7 @@ class Handler(BaseHTTPRequestHandler):
             # elapsed_secは表示のみ
 
             out = dict(job)
+            out["job_id"] = job_id
             out["server_sha_end"] = GIT_SHA
             out["pid_end"] = PID
             if out.get("status") in ("running", "slow") and elapsed_sec > MAX_THINK_SECONDS:
@@ -525,6 +537,8 @@ class Handler(BaseHTTPRequestHandler):
             if out.get("status") == "running" and elapsed_sec > 20:
                 out["status"] = "slow"
                 out["hint"] = "still running"
+            if out.get("status") in ("done", "succeeded") and not isinstance(out.get("result_text"), str):
+                out["result_text"] = _derive_result_text(out)
             out["elapsed_sec"] = round(elapsed_sec, 1)
             self._send_json(200, out)
             return
