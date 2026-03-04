@@ -178,6 +178,10 @@
         <span id="core-only-badge" class="pillBadge" style="display:none; background:#fee2e2; border-color:#fca5a5; color:#991b1b;">CORE ONLY MODE</span>
         <span id="live-hint" class="muted"></span>
       </div>
+      <label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+        <input id="quickstart-toggle" type="checkbox" />
+        QuickStart (recommended)
+      </label>
       <div id="left-unlock" style="margin-top:10px;"></div>
       <div class="row" style="margin-top:10px;">
         <button id="reload" type="button">Reload files</button>
@@ -257,6 +261,7 @@
   const ctrlLlmStatusEl = document.getElementById("ctrl-llm-status");
   const ctrlOutcomeEl = document.getElementById("ctrl-outcome");
   const slotDebugToggleEl = document.getElementById("slot-debug-toggle");
+  const quickStartToggleEl = document.getElementById("quickstart-toggle");
   const slotSensitivityTestEl = document.getElementById("slot-sensitivity-test");
   const PREVIEW_LINES_MAIN = 7;
   const PREVIEW_LINES_DELTA = 3;
@@ -290,7 +295,9 @@
   let analysisStatus = "idle";
   let analysisError = null;
   let slotDebugEnabled = false;
+  let quickStartEnabled = true;
   const DEBUG_UI_STORAGE_KEY = "DG_DEBUG_UI";
+  const QUICKSTART_STORAGE_KEY = "DG_QUICKSTART";
   window.DG_PANIC = window.DG_PANIC || {
     disableDeep: false,
     swallowAllSubmit: true,
@@ -569,6 +576,13 @@
       phase,
       polls: Number(slotState.deep && slotState.deep.tries || 0),
     };
+    if (phase === "starting" || phase === "running" || phase === "polling") {
+      slotState.deepOverlay.startedAt = slotState.deepOverlay.startedAt || Date.now();
+      slotState.deepOverlay.endedAt = 0;
+    }
+    if (phase === "applied" || phase === "failed" || phase === "cancelled" || phase === "error" || phase === "done") {
+      slotState.deepOverlay.endedAt = slotState.deepOverlay.endedAt || Date.now();
+    }
   }
 
   function setDebugUiMode(on){
@@ -579,6 +593,56 @@
     if (window.DG_HUD_SET_VISIBLE) window.DG_HUD_SET_VISIBLE(enabled);
     if (window.DG_HUD_SET_INTERACTIVE) window.DG_HUD_SET_INTERACTIVE(enabled);
     if (slotSensitivityTestEl) slotSensitivityTestEl.style.display = enabled ? "inline-block" : "none";
+  }
+
+  function loadQuickStartEnabled(){
+    try {
+      const raw = localStorage.getItem(QUICKSTART_STORAGE_KEY);
+      if (raw == null) return true;
+      return String(raw) !== "0";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function saveQuickStartEnabled(on){
+    quickStartEnabled = !!on;
+    try { localStorage.setItem(QUICKSTART_STORAGE_KEY, quickStartEnabled ? "1" : "0"); } catch (_) {}
+    if (quickStartToggleEl) quickStartToggleEl.checked = quickStartEnabled;
+  }
+
+  function applyQuickStartDefaults(submittedInput){
+    if (!quickStartEnabled) return;
+    if (!slotState.selected.risk) {
+      slotState.selected.risk = "中";
+      slotState.selectedSource.risk = slotState.selectedSource.risk || "auto_fill";
+    }
+    if (!slotState.selected.horizon) {
+      slotState.selected.horizon = "短期";
+      slotState.selectedSource.horizon = slotState.selectedSource.horizon || "auto_fill";
+    }
+    if (!slotState.selected.amount) {
+      slotState.selected.amount = "中";
+      slotState.selectedSource.amount = slotState.selectedSource.amount || "auto_fill";
+    }
+    if (!slotState.selected.goal) {
+      slotState.selected.goal = "守る";
+      slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
+    }
+    const ca = normalizeCompareText(slotState.compare && slotState.compare.a);
+    const cb = normalizeCompareText(slotState.compare && slotState.compare.b);
+    if (!(ca && cb)) {
+      const top2 = top2OptionDraft();
+      if (top2 && top2.a && top2.b) {
+        slotState.compare.a = normalizeCompareText(top2.a);
+        slotState.compare.b = normalizeCompareText(top2.b);
+        slotState.compare.locked = true;
+        slotState.compare.source = "quickstart_top2";
+        dgDebug("quickstart_compare_autolock", { a: slotState.compare.a, b: slotState.compare.b });
+      }
+    }
+    recomputeSlotRequirements(submittedInput || qEl.value || "");
+    refreshDeepReadiness(false);
   }
 
   function loadABModeOverride(){
@@ -1792,6 +1856,9 @@
     slotState.deepOverlay = slotState.deepOverlay || { phase: "idle", pollNonce: 0, pollTimerId: null, polls: 0, lastAppliedHash: "" };
     slotState.deepOverlay.pollNonce = Number(slotState.deepOverlay.pollNonce || 0) + 1;
     slotState.deepOverlay.lastAppliedHash = "";
+    slotState.deepOverlay.startedAt = Date.now();
+    slotState.deepOverlay.endedAt = 0;
+    slotState.deepOverlay.lastReason = "";
     if (slotState.deepOverlay.pollTimerId) {
       clearTimeout(slotState.deepOverlay.pollTimerId);
       slotState.deepOverlay.pollTimerId = null;
@@ -1833,6 +1900,7 @@
     const filled = slotFilledCount();
     const enabled = slotDeepEnabled();
     const compareReady = compareHasPair();
+    const quickUi = !!quickStartEnabled;
     const req = getEffectiveRequiredFields();
     const prog = computeRequiredProgress(req);
     const requiredTotal = prog.total;
@@ -1852,7 +1920,7 @@
     const abOverride = slotState.abModeOverride || "auto";
     const abMode = slotState.abMode || "B";
     const abModeLabel = abOverride === "auto" ? `Auto(${abMode})` : abOverride;
-    const modeControls = `
+    const modeControls = quickUi ? "" : `
       <div class="slotRow" style="margin-top:2px;">
         <span class="slotLabel">Mode</span>
         <span class="muted" style="font-weight:700;">${escapeHtml(abModeLabel)}</span>
@@ -1866,21 +1934,21 @@
       ? SLOT_SPEC
       : req.map((k) => SLOT_SPEC.find((g) => g.key === k)).filter(Boolean);
     const unknownRequired = req.filter((k) => !KNOWN_SLOT_KEYS.has(k));
-    const rowsHtml = rows.length
+    const rowsHtml = quickUi ? "" : (rows.length
       ? rows.map((g) => `
         <div class="slotRow ${(g.key === "constraint" && constraintMissing) ? "constraint-missing" : ""}">
           <span class="slotLabel">${escapeHtml(g.label)}</span>
           ${g.values.map((v) => `<button class="slotChip ${slotState.selected[g.key] === v ? "active" : ""}" data-slot="${escapeHtml(g.key)}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}
         </div>
       `).join("")
-      : `<div class="muted">required fields はありません。追加指定したい場合は下のリンクを開いてください。</div>`;
+      : `<div class="muted">required fields はありません。追加指定したい場合は下のリンクを開いてください。</div>`);
     const conflictText = slotState.conflict.length
       ? `<div class="muted" style="margin-top:4px;">Conflict: ${escapeHtml(slotState.conflict.map((c) => `${c.field}(${c.extracted} vs ${c.selected})`).join(", "))}</div>`
       : "";
     const externalMissingText = externalMissing.length
       ? `<div class="muted" style="margin-top:4px; color:#b45309;">Deep missing (server): ${escapeHtml(externalMissing.join(", "))}${slotState.externalNextQuestion ? ` / next: ${escapeHtml(slotState.externalNextQuestion)}` : ""}</div>`
       : "";
-    const unknownInputsHtml = unknownRequired.length
+    const unknownInputsHtml = quickUi ? "" : (unknownRequired.length
       ? `<div class="slotRow" style="margin-top:6px;"><span class="slotLabel">Extra</span>
         ${unknownRequired.map((k) => {
           const rawVal = String((slotState.extra && slotState.extra[k]) || "");
@@ -1888,10 +1956,10 @@
           return `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-right:8px;">${escapeHtml(k)}<input data-extra-key="${escapeHtml(k)}" value="${escapeHtml(safeVal)}" placeholder="${escapeHtml(k)}" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;min-width:140px;"></label>`;
         }).join("")}
       </div>`
-      : "";
+      : "");
     const cmp = slotState.compare || { a: "", b: "", locked: false };
     const compareCollapsed = !!cmp.collapsed;
-    const compareBlock = `
+    const compareBlock = quickUi ? "" : `
       <div class="slotRow" style="margin-top:6px; align-items:flex-start; flex-direction:column;">
         <div style="display:flex; gap:6px; align-items:center; width:100%;">
           <span class="slotLabel" style="min-width:auto;">Compare SSOT</span>
@@ -1910,6 +1978,7 @@
         </div>
       </div>
     `;
+    const quickNote = quickUi ? `<div class="muted">QuickStart: 詳細設定は非表示（必要ならOFF）</div>` : "";
     slotPanelEl.innerHTML = `
       <div class="slotStatus ${enabled ? "" : "locked"}">Confidence: ${slotState.confidence == null ? "-" : slotState.confidence}/100</div>
       <div class="slotStatus ${enabled ? "" : "locked"}">${escapeHtml(status)}</div>
@@ -1920,9 +1989,10 @@
       ${externalMissingText}
       ${modeControls}
       ${compareBlock}
+      ${quickNote}
       ${rowsHtml}
       ${unknownInputsHtml}
-      <a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>
+      ${quickUi ? "" : `<a href="#" id="slot-more-toggle" class="muted">${slotState.showExtra ? "追加指定を閉じる" : "追加で指定する"}</a>`}
       ${conflictText}
     `;
     const more = document.getElementById("slot-more-toggle");
@@ -2132,10 +2202,10 @@
 
   function updateQuickGate(){
     const q = quickQualityPercent(qEl.value || "");
-    quickQualityEl.textContent = (mode === "live") ? `Quality: ${q}%` : "";
+    quickQualityEl.textContent = (mode === "live" && slotDebugEnabled) ? `Quality: ${q}%` : "";
     const locked = (mode === "live") && !canThink();
     runFullEl.disabled = locked;
-    quickGateHintEl.textContent = locked ? "Fill template to unlock Think" : "";
+    quickGateHintEl.textContent = slotDebugEnabled ? (locked ? "Fill template to unlock Think" : "") : "";
   }
 
   function updateStopButton(){
@@ -2212,12 +2282,41 @@
     const cur = runIdShort(slotState.run.currentRunId) || "-";
     const ap = runIdShort(slotState.run.appliedRunId) || "-";
     if (!slotDebugEnabled) {
-      return isStalled ? `Stalled (t=${t}s)` : `Running (t=${t}s)`;
+      return `Running (t=${t}s)`;
     }
     if (isStalled) {
       return `Stalled (t=${t}s) runId=${cur} applied=${ap} — check poll/apply`;
     }
     return `Running (t=${t}s) runId=${cur} applied=${ap} — showing previous result`;
+  }
+
+  function deepStatusLineText(){
+    const st = slotState.deepOverlay || {};
+    const phase = String(st.phase || (slotState.deep && slotState.deep.phase) || "idle");
+    const startedAt = Number(st.startedAt || (slotState.deep && slotState.deep.startedAt) || 0);
+    const endedAt = Number(st.endedAt || 0);
+    const end = endedAt || Date.now();
+    const t = startedAt > 0 ? Math.max(0, Math.floor((end - startedAt) / 1000)) : 0;
+    const polls = Number(st.polls || (slotState.deep && slotState.deep.tries) || 0);
+    return `Deep: ${phase} (t=${t}s, polls=${polls})`;
+  }
+
+  function updateDeepStatusLineOnly(){
+    const el = document.getElementById("deep-status-line");
+    if (el) el.textContent = deepStatusLineText();
+    const dbg = document.getElementById("deep-status-debug");
+    if (dbg) {
+      if (!slotDebugEnabled) {
+        dbg.textContent = "";
+        dbg.style.display = "none";
+      } else {
+        const st = slotState.deepOverlay || {};
+        const reason = String(st.lastReason || (slotState.deep && slotState.deep.errorMsg) || "");
+        const head = String(st.lastHttpHead || "").slice(0, 120);
+        dbg.textContent = [reason, head].filter(Boolean).join(" / ");
+        dbg.style.display = dbg.textContent ? "block" : "none";
+      }
+    }
   }
 
   function updateRunningBannerOnly(){
@@ -2801,15 +2900,14 @@
     const comparePairReady = compareHasPair();
     const canCompare = compareIsConfigured();
     const deepGateOpen = canCompare;
-    const deepDisabledReasons = [];
-    if (deepIsBusy()) deepDisabledReasons.push(slotState.deep.phase === "polling" ? "Polling..." : "Deep running...");
-    if (!comparePairReady) deepDisabledReasons.push("Lock Compare to enable Deep");
-    const deepDisabledReason = deepDisabledReasons[0] || "";
-    const deepDisabled = !!deepDisabledReason;
+    const deepDisabledReason = !comparePairReady ? "Lock Compare to enable Deep" : "";
     const deepAction = (mode === "live")
-      ? `<span style="display:inline-flex; align-items:center; gap:6px; margin-right:6px;">
-          <button id="after-deep-btn" type="button" ${deepDisabled ? "disabled" : ""} title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px; ${(!deepDisabled) ? "border-color:#16a34a;color:#166534;background:#ecfdf5;" : ""}">${(deepMetaDomain === "asset_allocation" && !deepDisabled) ? "構造を分解する" : ((slotState.deep && slotState.deep.phase === "done") ? "Re-run" : "Deep ▸")}</button>
-          ${deepDisabledReason ? `<span class="muted">${escapeHtml(deepDisabledReason)}</span>` : ""}
+      ? `<span style="display:flex; flex-direction:column; gap:4px; margin-right:6px;">
+          <span style="display:inline-flex; align-items:center; gap:6px;">
+            <span id="deep-status-line" class="pillBadge">${escapeHtml(deepStatusLineText())}</span>
+            <button id="after-deep-btn" type="button" title="${escapeHtml(deepDisabledReason || "")}" style="padding:2px 8px;">Retry</button>
+          </span>
+          <span id="deep-status-debug" class="muted" style="display:${debugUiOn ? "block" : "none"};"></span>
         </span>`
       : "";
     const lockMissingFromAfter = pickSectionLines(after || "", "MISSING_TOP2");
@@ -2851,7 +2949,7 @@
       ? `<button id="deep-status-badge" class="pillBadge" style="cursor:pointer;">${deepMetaStatus === "partial" ? "解析途中（再実行推奨）" : (deepMetaStatus === "insufficient" ? "材料不足（補完待ち）" : "解析失敗（再実行）")}</button>`
       : (showCoreErrorBadge ? `<span class="pillBadge" style="border-color:#d98b2b;color:#b15f00;">解析失敗（再実行）</span>` : "");
     const formatStage = hasDisplayText ? classifyFormatStage(activeViewText || afterWithSource) : "";
-    const formatBadge = !formatStage ? "" : (
+    const formatBadge = (!debugUiOn || !formatStage) ? "" : (
       formatStage === "final_ok"
         ? `<span class="pillBadge" style="border-color:#16a34a;color:#166534;">Format: final_ok</span>`
         : (formatStage === "partial_ok"
@@ -2877,7 +2975,9 @@
       : "";
     const isCachedView = !!(viewDataForBadges && viewDataForBadges.__cached);
     const qualityLabel = (viewDataForBadges && typeof viewDataForBadges.quality_label === "string") ? viewDataForBadges.quality_label : "";
-    const qualityBadge = `<span class="pillBadge">Quality: ${staleDeep ? "-" : (qualityLabel === "insufficient" ? "insufficient" : `${qualityTotal}/5`)}</span>`;
+    const qualityBadge = debugUiOn
+      ? `<span class="pillBadge">Quality: ${staleDeep ? "-" : (qualityLabel === "insufficient" ? "insufficient" : `${qualityTotal}/5`)}</span>`
+      : ((mode === "live" && deepMetaStatus !== "ok") ? `<span class="muted">改善余地あり（必要ならRetry）</span>` : "");
     const cachedBadge = isCachedView ? `<span class="pillBadge">cached</span>` : "";
     const hasDiff = !!String(delta || "").trim();
     const canShowDiff = (mode !== "live") || (deepMetaStatus === "ok" && hasDiff);
@@ -3067,12 +3167,11 @@
           refreshDeepReadiness(false);
           snapshot("before_deep_click_effective", { compareLocked: true });
           const deepInput = buildDeepPrompt(lastSubmittedInput || qEl.value || "");
-          const forceRerun = ((slotState.deep && slotState.deep.phase) || "") === "done";
           await onClickRunSafe({
             mode: "deep",
             inputOverride: deepInput,
-            force: forceRerun,
-            reason: forceRerun ? "rerun" : "deep_button",
+            force: true,
+            reason: "manual_retry",
           });
         });
         if (liveStatus !== "running" && slotState.deep.phase === "running") {
@@ -3080,6 +3179,7 @@
         }
       });
     }
+    updateDeepStatusLineOnly();
   }
 
   function renderCompareSafe(txt){
@@ -3113,6 +3213,9 @@
       deepPhase: (slotState.deep && slotState.deep.phase) || "idle",
     });
     try {
+      if (mode === "live" && forceMode === "core") {
+        applyQuickStartDefaults(inputOverride || qEl.value || "");
+      }
       await runLive(forceMode, inputOverride, { allowDuplicate, force, reason });
     } catch (e) {
       dgDebug("run_exception", { err: String(e), stack: e && e.stack ? e.stack : "" });
@@ -3578,6 +3681,8 @@
       );
       const rawText = String(raw || "");
       console.debug("[DG] deep_http", { ok: rDeep.ok, status: rDeep.status, rawHead: rawText.slice(0, 160) });
+      slotState.deepOverlay = slotState.deepOverlay || {};
+      slotState.deepOverlay.lastHttpHead = rawText.slice(0, 160);
       const parsed = (parsedData && typeof parsedData === "object") ? parsedData : {};
       const fallbackStart = (typeof parsed.fallback_reason_primary === "string" && parsed.fallback_reason_primary)
         ? parsed.fallback_reason_primary
@@ -3590,6 +3695,7 @@
         const retried = await retryDeepDueToMissingOnce(missingRaw, parsed.next_question, "deep_http");
         if (retried) return;
         dgDebug("deep_insufficient_context", { fallback: fallbackStart || "insufficient_context" });
+        slotState.deepOverlay.lastReason = fallbackStart || "insufficient_context";
         setLastBlockReason((missingRaw && missingRaw[0]) ? missingRaw[0] : "insufficient_context");
         deepOverlayNotice = "Deep unavailable: keeping Core";
         setDeepPhase("done", { runId, errorMsg: "", tries: Number(slotState.deep.tries || 0) });
@@ -3607,6 +3713,7 @@
       }
       if (!rDeep.ok) {
         const msg = (parsed && (parsed.error || parsed.message)) ? String(parsed.error || parsed.message) : `HTTP ${rDeep.status}`;
+        slotState.deepOverlay.lastReason = msg;
         throw new Error(`deep_http_${rDeep.status}: ${msg}`);
       }
       const dataObj = (parsedData && typeof parsedData === "object") ? parsedData : null;
@@ -4236,6 +4343,15 @@
       await runSlotSensitivityTest();
     };
   }
+  quickStartEnabled = loadQuickStartEnabled();
+  if (quickStartToggleEl) {
+    quickStartToggleEl.checked = quickStartEnabled;
+    quickStartToggleEl.onchange = () => {
+      saveQuickStartEnabled(!!quickStartToggleEl.checked);
+      renderSlotPanel();
+      dgDebug("quickstart_toggle", { enabled: quickStartEnabled });
+    };
+  }
   slotState.abModeOverride = loadABModeOverride();
   decideABMode(qEl.value || "", "init");
   mode = "live";
@@ -4244,7 +4360,10 @@
   renderTabs();
   checkLiveHealth();
   loadActive();
-  setInterval(updateRunningBannerOnly, 1000);
+  setInterval(() => {
+    updateRunningBannerOnly();
+    updateDeepStatusLineOnly();
+  }, 1000);
 </script>
 </body>
 </html>
