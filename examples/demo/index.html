@@ -522,25 +522,38 @@
     return String(v == null ? "" : v).replace(/\s+/g, " ").trim();
   }
 
-  function compareHasPair(){
+  function getCompareSSOT(){
     const c = slotState.compare || {};
-    return !!(normalizeCompareText(c.a) && normalizeCompareText(c.b));
+    const domLockEl = document.getElementById("compare-lock");
+    const locked = (typeof c.locked === "boolean") ? c.locked : !!(domLockEl && domLockEl.checked);
+    return {
+      a: normalizeCompareText(c.a),
+      b: normalizeCompareText(c.b),
+      locked: !!locked,
+      source: c.source || "empty",
+      collapsed: !!c.collapsed,
+    };
+  }
+
+  function compareHasPair(){
+    const c = getCompareSSOT();
+    return !!(c.a && c.b);
   }
 
   function compareIsConfigured(){
-    const c = slotState.compare || {};
+    const c = getCompareSSOT();
     return !!(c.locked && compareHasPair());
   }
 
   function compareStatusText(){
-    const c = slotState.compare || {};
+    const c = getCompareSSOT();
     const pair = compareHasPair();
     const ready = compareIsConfigured();
     if (ready) {
-      return `Compare SSOT: locked (${normalizeCompareText(c.a)} vs ${normalizeCompareText(c.b)})`;
+      return `Compare SSOT: locked (${c.a} vs ${c.b})`;
     }
     if (pair) {
-      return `Compare SSOT: draft (${normalizeCompareText(c.a)} vs ${normalizeCompareText(c.b)})`;
+      return `Compare SSOT: draft (${c.a} vs ${c.b})`;
     }
     return "Compare SSOT: not locked";
   }
@@ -638,18 +651,6 @@
     if (!slotState.selected.goal) {
       slotState.selected.goal = "守る";
       slotState.selectedSource.goal = slotState.selectedSource.goal || "auto_fill";
-    }
-    const ca = normalizeCompareText(slotState.compare && slotState.compare.a);
-    const cb = normalizeCompareText(slotState.compare && slotState.compare.b);
-    if (!(ca && cb)) {
-      const top2 = top2OptionDraft();
-      if (top2 && top2.a && top2.b) {
-        slotState.compare.a = normalizeCompareText(top2.a);
-        slotState.compare.b = normalizeCompareText(top2.b);
-        slotState.compare.locked = true;
-        slotState.compare.source = "quickstart_top2";
-        dgDebug("quickstart_compare_autolock", { a: slotState.compare.a, b: slotState.compare.b });
-      }
     }
     recomputeSlotRequirements(submittedInput || qEl.value || "");
     refreshDeepReadiness(false);
@@ -1013,6 +1014,36 @@
     syncRequiredFields();
     renderSlotPanel();
     if (renderOutput && mode === "live" && active === "compare") loadActive();
+  }
+
+  function recomputeGates(reason){
+    refreshDeepReadiness(false);
+    const ds = computeDeepState();
+    slotState.deepEnabled = ds.enabled;
+    slotState.blockers = ds.blockers.slice();
+    slotState.requiredProgress = { ...ds.prog, missing: ds.prog.missing.slice() };
+    dgDebug("gate_after_autolock", {
+      reason: reason || "",
+      locked: getCompareSSOT().locked,
+      deepEnabled: slotState.deepEnabled,
+      blockers: slotState.blockers,
+    });
+  }
+
+  function quickStartAutoLockCompareAfterCore(){
+    if (!quickStartEnabled) return false;
+    const cmp = getCompareSSOT();
+    if (cmp.locked) return false;
+    const top2 = top2OptionDraft();
+    if (!(top2 && top2.a && top2.b)) return false;
+    slotState.compare.a = normalizeCompareText(top2.a);
+    slotState.compare.b = normalizeCompareText(top2.b);
+    slotState.compare.locked = true;
+    slotState.compare.source = "quickstart_top2";
+    const compareLockEl = document.getElementById("compare-lock");
+    if (compareLockEl) compareLockEl.checked = true;
+    dgDebug("quickstart_compare_autolock", { a: slotState.compare.a, b: slotState.compare.b });
+    return true;
   }
 
   function refreshCompareStatusOnly(){
@@ -3678,6 +3709,10 @@
           throw new Error("invalid core response shape");
         }
         applyCoreResult(coreData, submittedInput);
+        const didQuickStartAutoLock = quickStartAutoLockCompareAfterCore();
+        if (didQuickStartAutoLock) {
+          recomputeGates("post_autolock");
+        }
         await safeRenderAll("state_update");
         if (/^\s*Loading/.test(String(outEl.textContent || ""))) {
           try {
