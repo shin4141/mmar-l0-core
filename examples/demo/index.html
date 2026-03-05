@@ -373,7 +373,11 @@
     };
   })();
   window.addEventListener("beforeunload", () => {
-    console.warn("[DG] beforeunload fired (page is reloading/navigating)");
+    console.warn("[DG] beforeunload fired (page is reloading/navigating)", {
+      href: window.location.href,
+      runPhase: (slotState && slotState.run && slotState.run.phase) || "unknown",
+      deepPhase: (slotState && slotState.deep && slotState.deep.phase) || "unknown",
+    });
   });
   (() => {
     if (window.__dgNavTraceInstalled) return;
@@ -1029,12 +1033,14 @@
   function recomputeGates(reason){
     refreshDeepReadiness(false);
     const ds = computeDeepState();
+    const cmp = getCompareSSOT();
     slotState.deepEnabled = ds.enabled;
     slotState.blockers = ds.blockers.slice();
     slotState.requiredProgress = { ...ds.prog, missing: ds.prog.missing.slice() };
     dgDebug("gate_after_autolock", {
       reason: reason || "",
-      locked: getCompareSSOT().locked,
+      locked: cmp.locked,
+      hasAB: !!(cmp.a && cmp.b),
       deepEnabled: slotState.deepEnabled,
       blockers: slotState.blockers,
     });
@@ -4283,6 +4289,7 @@
       if (!isDeep) {
         if (slotState.exec.runNonce === lockNonce) slotState.exec.runLock = false;
       }
+      recomputeGates("run_unlock");
       dgDebug("run_unlock", { mode: apiMode, reason });
       renderMode();
     }
