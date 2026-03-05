@@ -1936,7 +1936,7 @@
 
   function applyCoreCompareV1Fallback(reason = "insufficient_context", runId = ""){
     if (!compareIsConfigured()) return "";
-    const text = buildCoreCompareV1Text(slotState.compare || {}, slotState.selected || {});
+    const text = buildCoreCompareV1Text(getCompareSSOT(), slotState.selected || {});
     if (!text.trim()) return "";
     const view = ensureViewState();
     view.coreText = text;
@@ -3404,6 +3404,7 @@
         source: slotState.abModeSource,
         hits: slotState.abModeHits || [],
       });
+      applyQuickStartDefaults(submittedInput);
       const runKey = buildRunKey(submittedInput);
       if (slotState.exec.runLock) {
         blockRun("runLock", { runKey, reason });
