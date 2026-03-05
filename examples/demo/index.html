@@ -646,7 +646,14 @@
   }
 
   function applyQuickStartDefaults(submittedInput){
-    if (!quickStartEnabled) return;
+    const domQuickStart = !!(quickStartToggleEl && quickStartToggleEl.checked);
+    if (quickStartToggleEl && quickStartEnabled !== domQuickStart) {
+      quickStartEnabled = domQuickStart;
+    }
+    if (!quickStartEnabled) {
+      dgDebug("quickstart_defaults_skipped", { reason: "quickstart_off" });
+      return;
+    }
     if (!slotState.selected.risk) {
       slotState.selected.risk = "中";
       slotState.selectedSource.risk = slotState.selectedSource.risk || "auto_fill";
@@ -3405,6 +3412,9 @@
         hits: slotState.abModeHits || [],
       });
       applyQuickStartDefaults(submittedInput);
+      dgDebug("run_gate_after_defaults", {
+        selected: { ...(slotState.selected || {}) },
+      });
       const runKey = buildRunKey(submittedInput);
       if (slotState.exec.runLock) {
         blockRun("runLock", { runKey, reason });
