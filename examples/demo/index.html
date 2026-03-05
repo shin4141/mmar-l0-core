@@ -1382,11 +1382,29 @@
     };
   }
 
+  function shouldKeepCoreFallback(coreText){
+    if (!coreCompareV1FallbackActive) return false;
+    const text = String(coreText || "").trim();
+    if (!text) return true;
+    const slotCheck = verifyAppliedSlots(text, slotState.selected || {}, slotState.extra || {});
+    if (slotCheck && slotCheck.reason === "slot_mismatch" && Array.isArray(slotCheck.mismatched) && slotCheck.mismatched.length > 0) {
+      return true;
+    }
+    return false;
+  }
+
   function applyCoreResult(coreData, submittedInput){
     const normalizedCore = enforceDeepAssumptionsInData(coreData);
     const coreText = primaryAfterTextFromData(normalizedCore);
     if (!coreText) {
       dgDebug("core_apply_skipped_empty", {});
+      return false;
+    }
+    if (shouldKeepCoreFallback(coreText)) {
+      const slotCheck = verifyAppliedSlots(coreText, slotState.selected || {}, slotState.extra || {});
+      dgDebug("core_apply_skipped_mismatch_keep_fallback", {
+        mismatched: slotCheck && slotCheck.mismatched ? slotCheck.mismatched : [],
+      });
       return false;
     }
     const view = ensureViewState();
