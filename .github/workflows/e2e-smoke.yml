@@ -30,6 +30,12 @@ jobs:
           set -euo pipefail
           python -m playwright install --with-deps chromium
 
+      - name: Install ripgrep
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
       - name: Detect whether local DG server is required
         id: detect_server_need
         shell: bash
@@ -69,23 +75,15 @@ jobs:
           if [ -f package.json ]; then
             while IFS= read -r c; do
               [ -n "$c" ] && candidates+=("$c")
-            done < <(python - <<'PY'
-import json
-from pathlib import Path
-p = Path("package.json")
+            done < <(python -c 'import json, pathlib; p=pathlib.Path("package.json"); 
 try:
-    data = json.loads(p.read_text(encoding="utf-8"))
+    data=json.loads(p.read_text(encoding="utf-8"))
 except Exception:
     raise SystemExit(0)
-scripts = data.get("scripts") if isinstance(data, dict) else {}
-if not isinstance(scripts, dict):
-    raise SystemExit(0)
-if "dev" in scripts:
-    print("npm ci && npm run dev")
-if "start" in scripts:
-    print("npm ci && npm run start")
-PY
-)
+scripts=data.get("scripts") if isinstance(data, dict) else {}
+if isinstance(scripts, dict):
+    print("npm ci && npm run dev" if "dev" in scripts else "")
+    print("npm ci && npm run start" if "start" in scripts else "")')
           fi
 
           # C) tools/dev_api.py
@@ -97,19 +95,13 @@ PY
           if [ -f README.md ]; then
             while IFS= read -r c; do
               [ -n "$c" ] && candidates+=("$c")
-            done < <(python - <<'PY'
-from pathlib import Path
-import re
-txt = Path("README.md").read_text(encoding="utf-8", errors="replace")
+            done < <(python -c 'from pathlib import Path; import re; txt=Path("README.md").read_text(encoding="utf-8", errors="replace");
 for line in txt.splitlines():
-    s = line.strip()
+    s=line.strip()
     if not s or s.startswith("#") or s.startswith("-"):
         continue
-    if "8787" in s or "localhost" in s or "127.0.0.1" in s:
-        if re.search(r"\b(python|python3|uvicorn|flask|npm|make)\b", s):
-            print(s)
-PY
-)
+    if ("8787" in s or "localhost" in s or "127.0.0.1" in s) and re.search(r"\b(python|python3|uvicorn|flask|npm|make)\b", s):
+        print(s)')
           fi
 
           # Deduplicate while preserving order
