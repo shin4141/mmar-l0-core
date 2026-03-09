@@ -2,6 +2,20 @@
 
 ## Quickstart (local)
 
+### Dev API (for DG_URL-based tests / demo)
+
+Canonical local server start command:
+
+```bash
+python tools/dev_api.py
+```
+
+Health check:
+
+```bash
+curl -fsS http://127.0.0.1:8787/api/health
+```
+
 ### Quickstart A: delta_entry → gate
 
 ```bash
@@ -69,4 +83,3 @@ ADD_MODEL (inject a different model/OS only if needed)
 Progress metric (v0): resolved_count per window (session/day).
 If a deadline exists: intervene earlier (threshold is compressed to meet the date).
 Default intervention order: SUBTRACT → ADD_MODEL (avoid endless adding).
-

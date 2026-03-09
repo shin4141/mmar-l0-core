@@ -1,0 +1,184 @@
+name: e2e-smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest-playwright:
+    runs-on: ubuntu-latest
+    env:
+      DG_URL: http://127.0.0.1:8787
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pytest playwright
+
+      - name: Install Playwright browser
+        run: |
+          set -euo pipefail
+          python -m playwright install --with-deps chromium
+
+      - name: Detect whether local DG server is required
+        id: detect_server_need
+        shell: bash
+        run: |
+          set -euo pipefail
+          need_server=false
+          for d in tests e2e; do
+            if [ -d "$d" ] && rg -n "DG_URL|api/health|/api/triad|playwright" "$d" >/dev/null 2>&1; then
+              need_server=true
+              break
+            fi
+          done
+          echo "need_server=${need_server}" >> "$GITHUB_OUTPUT"
+
+      - name: Detect and start local DG server
+        if: steps.detect_server_need.outputs.need_server == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          DG_HOSTPORT="${DG_URL#http://}"
+          DG_HEALTH="${DG_URL}/api/health"
+          : >/tmp/dg_server.log
+          rm -f /tmp/dg_server.pid
+
+          candidates=()
+
+          # A) Makefile targets: dev / serve / run
+          if [ -f Makefile ]; then
+            for t in dev serve run; do
+              if rg -n "^${t}:" Makefile >/dev/null 2>&1; then
+                candidates+=("make ${t}")
+              fi
+            done
+          fi
+
+          # B) package.json scripts: dev / start
+          if [ -f package.json ]; then
+            while IFS= read -r c; do
+              [ -n "$c" ] && candidates+=("$c")
+            done < <(python - <<'PY'
+import json
+from pathlib import Path
+p = Path("package.json")
+try:
+    data = json.loads(p.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+scripts = data.get("scripts") if isinstance(data, dict) else {}
+if not isinstance(scripts, dict):
+    raise SystemExit(0)
+if "dev" in scripts:
+    print("npm ci && npm run dev")
+if "start" in scripts:
+    print("npm ci && npm run start")
+PY
+)
+          fi
+
+          # C) tools/dev_api.py
+          if [ -f tools/dev_api.py ]; then
+            candidates+=("python tools/dev_api.py")
+          fi
+
+          # D) README lines mentioning localhost/8787 as shell-like commands
+          if [ -f README.md ]; then
+            while IFS= read -r c; do
+              [ -n "$c" ] && candidates+=("$c")
+            done < <(python - <<'PY'
+from pathlib import Path
+import re
+txt = Path("README.md").read_text(encoding="utf-8", errors="replace")
+for line in txt.splitlines():
+    s = line.strip()
+    if not s or s.startswith("#") or s.startswith("-"):
+        continue
+    if "8787" in s or "localhost" in s or "127.0.0.1" in s:
+        if re.search(r"\b(python|python3|uvicorn|flask|npm|make)\b", s):
+            print(s)
+PY
+)
+          fi
+
+          # Deduplicate while preserving order
+          uniq=()
+          for c in "${candidates[@]}"; do
+            skip=0
+            for u in "${uniq[@]}"; do
+              if [ "$u" = "$c" ]; then
+                skip=1
+                break
+              fi
+            done
+            [ "$skip" -eq 1 ] || uniq+=("$c")
+          done
+
+          if [ "${#uniq[@]}" -eq 0 ]; then
+            echo "No server start candidates found." >&2
+            exit 1
+          fi
+
+          start_ok=0
+          for cmd in "${uniq[@]}"; do
+            echo "Trying server command: $cmd"
+            bash -lc "$cmd" >>/tmp/dg_server.log 2>&1 &
+            pid=$!
+            echo "$pid" > /tmp/dg_server.pid
+
+            ready=0
+            for _ in $(seq 1 30); do
+              if curl -fsS "$DG_HEALTH" >/tmp/dg_health.json 2>/dev/null; then
+                ready=1
+                break
+              fi
+              sleep 1
+            done
+
+            if [ "$ready" -eq 1 ]; then
+              echo "Server is up via: $cmd"
+              echo "DG_SERVER_CMD=$cmd" >> "$GITHUB_ENV"
+              start_ok=1
+              break
+            fi
+
+            echo "Command failed health check: $cmd"
+            kill "$pid" >/dev/null 2>&1 || true
+            sleep 1
+          done
+
+          if [ "$start_ok" -ne 1 ]; then
+            echo "Failed to start local DG server from candidates." >&2
+            echo "==== /tmp/dg_server.log ====" >&2
+            cat /tmp/dg_server.log >&2 || true
+            exit 1
+          fi
+
+      - name: Run pytest
+        run: |
+          set -euo pipefail
+          pytest -q
+
+      - name: Dump server log on failure
+        if: failure() && steps.detect_server_need.outputs.need_server == 'true'
+        run: |
+          echo "==== /tmp/dg_server.log ===="
+          cat /tmp/dg_server.log || true
+
+      - name: Stop local DG server
+        if: always() && steps.detect_server_need.outputs.need_server == 'true'
+        run: |
+          if [ -f /tmp/dg_server.pid ]; then
+            kill "$(cat /tmp/dg_server.pid)" >/dev/null 2>&1 || true
+          fi
