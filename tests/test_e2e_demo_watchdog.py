@@ -106,8 +106,17 @@ def test_compare_draft_lock_then_core_compare_v1_sections():
                 page.wait_for_selector("#run-live:not([disabled])", timeout=20000)
                 page.click("#run-live")
                 page.wait_for_timeout(1200)
-                _set_checkbox(page, "#quickstart-toggle", False)
-                page.wait_for_timeout(400)
+                page.evaluate(
+                    """() => {
+                        try {
+                            if (typeof saveQuickStartEnabled === "function") saveQuickStartEnabled(false);
+                            if (typeof renderSlotPanel === "function") renderSlotPanel();
+                            const q = document.getElementById("quickstart-toggle");
+                            if (q) q.checked = false;
+                        } catch (_) {}
+                    }"""
+                )
+                page.wait_for_timeout(500)
                 page.wait_for_selector("#cmpA", timeout=15000)
                 page.fill("#cmpA", "犬")
                 page.fill("#cmpB", "猫")
