@@ -1882,63 +1882,135 @@
   function buildCoreCompareV1Text(compare, selected){
     const c = compare || {};
     const s = selected || {};
-    const a = normalizeCompareText(c.a) || "Option A";
-    const b = normalizeCompareText(c.b) || "Option B";
+    const aRaw = normalizeCompareText(c.a) || "Option A";
+    const bRaw = normalizeCompareText(c.b) || "Option B";
     const risk = s.risk || "中";
     const horizon = s.horizon || "短期";
     const amount = s.amount || "中";
     const goal = s.goal || "未入力";
     const constraint = s.constraint || "未入力";
-    const isAHighVol = /(課金|ギャンブル|借金|夜キャバ|投機|ハイリスク)/i.test(a);
-    const isBHighVol = /(課金|ギャンブル|借金|夜キャバ|投機|ハイリスク)/i.test(b);
-    const upsideA = clampScore(3 + (isAHighVol ? 1 : 0) + (goal === "増やす" ? 1 : 0) - (goal === "守る" ? 1 : 0));
-    const upsideB = clampScore(3 + (isBHighVol ? 1 : 0) + (goal === "増やす" ? 1 : 0) - (goal === "守る" ? 1 : 0));
-    let downsideA = clampScore(3 + (isAHighVol ? 2 : 0));
-    let downsideB = clampScore(3 + (isBHighVol ? 2 : 0));
-    let regretA = clampScore(3 + (horizon === "長期" ? (isAHighVol ? 2 : 1) : (isAHighVol ? 1 : 0)));
-    let regretB = clampScore(3 + (horizon === "長期" ? (isBHighVol ? 2 : 1) : (isBHighVol ? 1 : 0)));
-    let revA = clampScore(3 + (amount === "大" ? (isAHighVol ? 2 : 1) : (amount === "小" ? -1 : 0)));
-    let revB = clampScore(3 + (amount === "大" ? (isBHighVol ? 2 : 1) : (amount === "小" ? -1 : 0)));
-    if (risk === "高") {
-      downsideA = clampScore(downsideA + 1);
-      downsideB = clampScore(downsideB + 1);
-      regretA = clampScore(regretA + 1);
-      regretB = clampScore(regretB + 1);
-    }
-    const totalA = clampScore(5 - downsideA) + clampScore(5 - regretA) + clampScore(5 - revA) + upsideA;
-    const totalB = clampScore(5 - downsideB) + clampScore(5 - regretB) + clampScore(5 - revB) + upsideB;
-    const lean = totalA > totalB ? a : (totalB > totalA ? b : "ほぼ同等（暫定）");
-    const caution = (risk === "高" || amount === "大")
-      ? "分割実行・上限設定・途中撤退条件を先に置く"
-      : "小さく試して差分観察";
-    const longHorizonNote = horizon === "長期" ? "長期後悔を重視（短期快楽の反動を割引しない）" : "短期の可逆性を優先";
-    return [
-      "MODE: COMPARE_V1_FALLBACK",
-      "CALL: CORE_COMPARE_V1",
+    const summarizeOption = (src) => {
+      const t = normalizeCompareText(src);
+      if (!t) return "比較対象が未入力";
+      let intent = "前提を固定して判断";
+      if (/(攻撃|先制|武力|破壊|制圧|強行)/.test(t)) intent = "先制行動で短期決着を狙う";
+      else if (/(交渉|外交|停戦|査察|制裁|合意)/.test(t)) intent = "交渉と検証で被害拡大を抑える";
+      else if (/(課金|投資|購入|契約|利用)/.test(t)) intent = "資源投入で成果を取りに行く";
+      else if (/(保留|見送り|維持|温存|観察)/.test(t)) intent = "保留して可逆性を確保する";
+      const head = t.split(/[。！？!?]/)[0].slice(0, 28);
+      return `${head}: ${intent}`;
+    };
+    const a = summarizeOption(aRaw);
+    const b = summarizeOption(bRaw);
+
+    const hasStrikeA = /(攻撃|先制|武力|破壊|制圧|強行)/.test(aRaw);
+    const hasStrikeB = /(攻撃|先制|武力|破壊|制圧|強行)/.test(bRaw);
+    const hasDiplomacyA = /(交渉|外交|停戦|査察|制裁|合意)/.test(aRaw);
+    const hasDiplomacyB = /(交渉|外交|停戦|査察|制裁|合意)/.test(bRaw);
+    const hasLawA = /(国際法|条約|決議|自衛|法的|手続)/.test(aRaw);
+    const hasLawB = /(国際法|条約|決議|自衛|法的|手続)/.test(bRaw);
+
+    const riskPenalty = risk === "高" ? 1 : 0;
+    const horizonBonus = horizon === "長期" ? 1 : 0;
+    const amountPenalty = amount === "大" ? 1 : 0;
+
+    const legitimacyA = clampScore(3 + (hasLawA ? 2 : 0) + (hasDiplomacyA ? 1 : 0) - (hasStrikeA ? 1 : 0));
+    const legitimacyB = clampScore(3 + (hasLawB ? 2 : 0) + (hasDiplomacyB ? 1 : 0) - (hasStrikeB ? 1 : 0));
+    const harmRiskA = clampScore(3 - (hasStrikeA ? 2 : 0) + (hasDiplomacyA ? 1 : 0) - riskPenalty);
+    const harmRiskB = clampScore(3 - (hasStrikeB ? 2 : 0) + (hasDiplomacyB ? 1 : 0) - riskPenalty);
+    const stabilityA = clampScore(3 + (hasDiplomacyA ? 2 : 0) + horizonBonus - (hasStrikeA ? 1 : 0));
+    const stabilityB = clampScore(3 + (hasDiplomacyB ? 2 : 0) + horizonBonus - (hasStrikeB ? 1 : 0));
+    const reversibilityA = clampScore(3 + (hasDiplomacyA ? 1 : 0) - (hasStrikeA ? 2 : 0) - amountPenalty);
+    const reversibilityB = clampScore(3 + (hasDiplomacyB ? 1 : 0) - (hasStrikeB ? 2 : 0) - amountPenalty);
+
+    const totalA = legitimacyA + harmRiskA + stabilityA + reversibilityA;
+    const totalB = legitimacyB + harmRiskB + stabilityB + reversibilityB;
+    const defaultLean = totalA > totalB ? "A寄り（条件付き）" : (totalB > totalA ? "B寄り（条件付き）" : "拮抗（追加情報待ち）");
+
+    const decisionRisk = (risk === "高")
+      ? (harmRiskA >= harmRiskB ? "A寄り。ただし誤認時停止条件と被害上限を先に固定。"
+        : "B寄り。ただし時間コスト増を許容し検証手順を維持。")
+      : "A/Bとも許容。被害上限を置いた上で比較継続。";
+    const decisionHorizon = (horizon === "長期")
+      ? (stabilityA >= stabilityB ? "A寄り。ただし報復連鎖を避ける出口条件を明記。"
+        : "B寄り。停戦/査察など検証可能性を優先。")
+      : "短期成果優先。可逆な小さい実行から開始。";
+    const decisionAmount = (amount === "大")
+      ? (reversibilityA >= reversibilityB ? "A寄り。ただし分割実行と再評価ゲートを必須化。"
+        : "B寄り。不可逆コスト回避のため段階実行。")
+      : "小〜中規模なので試行と観察で更新。";
+
+    const tradeRisk = (risk === "高")
+      ? "If Risk=高: 誤認/報復の連鎖コストが重いため、HARM_RISKが高い案は後順位。"
+      : "If Risk=高: 高リスク時は強硬案でも被害上限・停止条件が前提。";
+    const tradeHorizon = (horizon === "長期")
+      ? "If Horizon=長期: 一度の成果より連鎖抑制を重視し、STABILITYが高い案を優先。"
+      : "If Horizon=長期: 長期でないなら即効性を取るが検証ログを残す。";
+    const tradeAmount = (amount === "大")
+      ? "If Amount=大: 不可逆コストが大きいのでREVERSIBILITY重視、分割/可逆策を優先。"
+      : "If Amount=大: 金額が小〜中なら短い検証サイクルで更新。";
+
+    const nextStep = compareIsConfigured()
+      ? "NEXT_STEP:\n- 先に比較前提を1つ固定（成功条件 or 中止条件）して、A/Bを同じ物差しで再採点する。"
+      : "NEXT_STEP:\n- Compare A/B を確定してから同じ4軸で再評価する。";
+
+    const lines = [
       `APPLIED_SLOTS: Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}`,
       "COMPARE:",
       `- A: ${a}`,
       `- B: ${b}`,
       "AXES:",
-      "- UPSIDE（得られるもの）",
-      "- DOWNSIDE（失うもの）",
-      "- REGRET（後悔しやすさ）",
-      "- REVERSIBILITY（引き返し可能性）",
+      "- LEGITIMACY (正当性/手続き/根拠の筋)",
+      "- HARM_RISK (被害/二次被害/拡大リスク)",
+      "- STABILITY (長期安定/エスカレーション耐性)",
+      "- REVERSIBILITY (引き返し/やり直し/検証可能性)",
       "SCORE_TABLE:",
-      `- UPSIDE: A=${upsideA}, B=${upsideB}, note=Goal=${goal}を加味`,
-      `- DOWNSIDE: A=${downsideA}, B=${downsideB}, note=Risk=${risk}なら注意を増やす`,
-      `- REGRET: A=${regretA}, B=${regretB}, note=${longHorizonNote}`,
-      `- REVERSIBILITY: A=${revA}, B=${revB}, note=Amount=${amount}なら可逆性重視`,
+      `- LEGITIMACY: A=${legitimacyA} B=${legitimacyB} | because: 手続きと根拠の明確性を比較 | evidence: A='${aRaw.slice(0, 16)}' B='${bRaw.slice(0, 16)}'`,
+      `- HARM_RISK: A=${harmRiskA} B=${harmRiskB} | because: 先制/強行は誤認と報復誘発を増やす | evidence: Risk=${risk} / strike(A=${hasStrikeA},B=${hasStrikeB})`,
+      `- STABILITY: A=${stabilityA} B=${stabilityB} | because: 停戦/査察など検証可能な運用は長期で崩れにくい | evidence: Horizon=${horizon} / diplomacy(A=${hasDiplomacyA},B=${hasDiplomacyB})`,
+      `- REVERSIBILITY: A=${reversibilityA} B=${reversibilityB} | because: 不可逆行為はやり直し不能、分割実行は損失限定 | evidence: Amount=${amount} / strike(A=${hasStrikeA},B=${hasStrikeB})`,
       "TRADEOFFS:",
-      `- Aが勝つ条件: ${a}で得る上振れを取りにいく価値が、下振れ許容より大きい`,
-      `- Bが勝つ条件: ${b}の下振れ管理が優先で、期待値より安定を取る`,
-      `- 共通ガード: ${caution}`,
+      `- ${tradeRisk}`,
+      `- ${tradeHorizon}`,
+      `- ${tradeAmount}`,
       "DECISION:",
-      `- If Risk=高: 高下振れ案は上限と撤退条件を先に固定`,
-      `- If Horizon=長期: 一時満足より長期後悔が小さい案を優先`,
-      `- If Amount=大: 一括より分割・保守寄りで可逆性を確保`,
-      `- Default: ${lean}`,
-    ].join("\n");
+      `- If Risk=高: ${decisionRisk}`,
+      `- If Horizon=長期: ${decisionHorizon}`,
+      `- If Amount=大: ${decisionAmount}`,
+      `- Default: ${defaultLean}（TOTAL A=${totalA}, B=${totalB}）`,
+      nextStep,
+    ];
+    const out = lines.join("\n");
+    if (!/AXES:/.test(out) || !/SCORE_TABLE:/.test(out) || !/DECISION:/.test(out)) {
+      return [
+        `APPLIED_SLOTS: Risk=${risk}, Horizon=${horizon}, Amount=${amount}, Goal=${goal}, Constraint=${constraint}`,
+        "COMPARE:",
+        `- A: ${aRaw}`,
+        `- B: ${bRaw}`,
+        "AXES:",
+        "- LEGITIMACY",
+        "- HARM_RISK",
+        "- STABILITY",
+        "- REVERSIBILITY",
+        "SCORE_TABLE:",
+        "- LEGITIMACY: A=3 B=3 | because: 安全文 | evidence: fallback",
+        "- HARM_RISK: A=3 B=3 | because: 安全文 | evidence: fallback",
+        "- STABILITY: A=3 B=3 | because: 安全文 | evidence: fallback",
+        "- REVERSIBILITY: A=3 B=3 | because: 安全文 | evidence: fallback",
+        "TRADEOFFS:",
+        "- If Risk=高: 安全側に寄せる。",
+        "- If Horizon=長期: 安定性優先。",
+        "- If Amount=大: 可逆性優先。",
+        "DECISION:",
+        "- If Risk=高: 条件付きで保守案。",
+        "- If Horizon=長期: 条件付きで安定案。",
+        "- If Amount=大: 条件付きで可逆案。",
+        "- Default: 拮抗（追加情報待ち）",
+        "NEXT_STEP:",
+        "- 比較前提を1つ固定して再採点する。",
+      ].join("\n");
+    }
+    return out;
   }
 
   function applyCoreCompareV1Fallback(reason = "insufficient_context", runId = ""){
