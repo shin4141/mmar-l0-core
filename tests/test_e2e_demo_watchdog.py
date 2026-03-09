@@ -43,6 +43,18 @@ def _screenshot_on_fail(page, name: str):
     page.screenshot(path=str(ARTIFACT_DIR / f"{name}.png"), full_page=True)
 
 
+def _set_checkbox(page, selector: str, checked: bool):
+    page.eval_on_selector(
+        selector,
+        """(el, wantChecked) => {
+            if (!el) return;
+            el.checked = !!wantChecked;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }""",
+        checked,
+    )
+
+
 @contextlib.contextmanager
 def _open_demo_page(page):
     dg_url = os.getenv("DG_URL", "http://127.0.0.1:8787").rstrip("/")
@@ -86,7 +98,7 @@ def test_compare_draft_lock_then_core_compare_v1_sections():
             with _open_demo_page(page):
                 page.fill("#q", "犬と猫どちらが賢いか？")
                 if page.is_checked("#quickstart-toggle"):
-                    page.uncheck("#quickstart-toggle")
+                    _set_checkbox(page, "#quickstart-toggle", False)
                     page.wait_for_selector("#cmpA", timeout=10000)
                 page.fill("#cmpA", "犬")
                 page.fill("#cmpB", "猫")
@@ -94,7 +106,7 @@ def test_compare_draft_lock_then_core_compare_v1_sections():
                 assert "draft" in page.locator("#cmp-status-line").inner_text()
 
                 if not page.is_checked("#compare-lock"):
-                    page.check("#compare-lock")
+                    _set_checkbox(page, "#compare-lock", True)
                 page.wait_for_timeout(300)
                 assert "locked" in page.locator("#cmp-status-line").inner_text()
 
