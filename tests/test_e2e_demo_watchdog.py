@@ -59,11 +59,11 @@ def _set_checkbox(page, selector: str, checked: bool):
 def _open_demo_page(page, quickstart_on: bool = True):
     dg_url = os.getenv("DG_URL", "http://127.0.0.1:8787").rstrip("/")
     with _serve_demo_dir() as port:
+        qs = "1" if quickstart_on else "0"
         page.add_init_script(
-            """(on) => {
-                try { localStorage.setItem("DG_QUICKSTART", on ? "1" : "0"); } catch (_) {}
-            }""",
-            quickstart_on,
+            f"""() => {{
+                try {{ localStorage.setItem("DG_QUICKSTART", "{qs}"); }} catch (_) {{}}
+            }}"""
         )
         page.goto(f"http://127.0.0.1:{port}/index.html?api={dg_url}", wait_until="domcontentloaded")
         page.wait_for_selector("#run-live", timeout=20000)
