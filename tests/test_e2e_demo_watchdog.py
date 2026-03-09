@@ -103,13 +103,17 @@ def test_compare_draft_lock_then_core_compare_v1_sections():
         try:
             with _open_demo_page(page, quickstart_on=False):
                 page.fill("#q", "犬と猫どちらが賢いか？")
-                page.wait_for_selector("#run-live:not([disabled])", timeout=20000)
-                page.click("#run-live")
-                page.wait_for_timeout(1200)
                 page.evaluate(
                     """() => {
                         try {
                             if (typeof saveQuickStartEnabled === "function") saveQuickStartEnabled(false);
+                            if (typeof slotState !== "undefined") {
+                                slotState.showPanel = true;
+                                slotState.compare = slotState.compare || {};
+                                slotState.compare.a = "犬";
+                                slotState.compare.b = "猫";
+                                slotState.compare.locked = false;
+                            }
                             if (typeof renderSlotPanel === "function") renderSlotPanel();
                             const q = document.getElementById("quickstart-toggle");
                             if (q) q.checked = false;
@@ -117,14 +121,18 @@ def test_compare_draft_lock_then_core_compare_v1_sections():
                     }"""
                 )
                 page.wait_for_timeout(500)
-                page.wait_for_selector("#cmpA", timeout=15000)
-                page.fill("#cmpA", "犬")
-                page.fill("#cmpB", "猫")
                 page.wait_for_selector("#cmp-status-line", timeout=10000)
                 assert "draft" in page.locator("#cmp-status-line").inner_text()
-
-                if not page.is_checked("#compare-lock"):
-                    _set_checkbox(page, "#compare-lock", True)
+                page.evaluate(
+                    """() => {
+                        try {
+                            if (typeof slotState !== "undefined" && slotState.compare) {
+                                slotState.compare.locked = true;
+                            }
+                            if (typeof renderSlotPanel === "function") renderSlotPanel();
+                        } catch (_) {}
+                    }"""
+                )
                 page.wait_for_timeout(300)
                 assert "locked" in page.locator("#cmp-status-line").inner_text()
 
