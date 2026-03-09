@@ -56,9 +56,15 @@ def _set_checkbox(page, selector: str, checked: bool):
 
 
 @contextlib.contextmanager
-def _open_demo_page(page):
+def _open_demo_page(page, quickstart_on: bool = True):
     dg_url = os.getenv("DG_URL", "http://127.0.0.1:8787").rstrip("/")
     with _serve_demo_dir() as port:
+        page.add_init_script(
+            """(on) => {
+                try { localStorage.setItem("DG_QUICKSTART", on ? "1" : "0"); } catch (_) {}
+            }""",
+            quickstart_on,
+        )
         page.goto(f"http://127.0.0.1:{port}/index.html?api={dg_url}", wait_until="domcontentloaded")
         page.wait_for_selector("#run-live", timeout=20000)
         page.wait_for_timeout(600)
@@ -95,11 +101,9 @@ def test_compare_draft_lock_then_core_compare_v1_sections():
         context = browser.new_context()
         page = context.new_page()
         try:
-            with _open_demo_page(page):
+            with _open_demo_page(page, quickstart_on=False):
                 page.fill("#q", "犬と猫どちらが賢いか？")
-                if page.is_checked("#quickstart-toggle"):
-                    _set_checkbox(page, "#quickstart-toggle", False)
-                    page.wait_for_selector("#cmpA", timeout=10000)
+                page.wait_for_selector("#cmpA", timeout=15000)
                 page.fill("#cmpA", "犬")
                 page.fill("#cmpB", "猫")
                 page.wait_for_selector("#cmp-status-line", timeout=10000)
