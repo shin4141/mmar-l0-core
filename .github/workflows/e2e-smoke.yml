@@ -73,17 +73,12 @@ jobs:
 
           # B) package.json scripts: dev / start
           if [ -f package.json ]; then
-            while IFS= read -r c; do
-              [ -n "$c" ] && candidates+=("$c")
-            done < <(python -c 'import json, pathlib; p=pathlib.Path("package.json"); 
-try:
-    data=json.loads(p.read_text(encoding="utf-8"))
-except Exception:
-    raise SystemExit(0)
-scripts=data.get("scripts") if isinstance(data, dict) else {}
-if isinstance(scripts, dict):
-    print("npm ci && npm run dev" if "dev" in scripts else "")
-    print("npm ci && npm run start" if "start" in scripts else "")')
+            if rg -n '"dev"\\s*:' package.json >/dev/null 2>&1; then
+              candidates+=("npm ci && npm run dev")
+            fi
+            if rg -n '"start"\\s*:' package.json >/dev/null 2>&1; then
+              candidates+=("npm ci && npm run start")
+            fi
           fi
 
           # C) tools/dev_api.py
@@ -95,13 +90,7 @@ if isinstance(scripts, dict):
           if [ -f README.md ]; then
             while IFS= read -r c; do
               [ -n "$c" ] && candidates+=("$c")
-            done < <(python -c 'from pathlib import Path; import re; txt=Path("README.md").read_text(encoding="utf-8", errors="replace");
-for line in txt.splitlines():
-    s=line.strip()
-    if not s or s.startswith("#") or s.startswith("-"):
-        continue
-    if ("8787" in s or "localhost" in s or "127.0.0.1" in s) and re.search(r"\b(python|python3|uvicorn|flask|npm|make)\b", s):
-        print(s)')
+            done < <(rg -n "8787|localhost|127\\.0\\.0\\.1" README.md | cut -d: -f2- | rg "python|python3|uvicorn|flask|npm|make" || true)
           fi
 
           # Deduplicate while preserving order
