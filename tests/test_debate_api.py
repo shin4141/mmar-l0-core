@@ -18,6 +18,8 @@ def test_run_debate_mock_minimum_shape():
     assert result["provider_statuses"]["openai"]["mode"] == "mock"
     assert result["provider_statuses"]["anthropic"]["mode"] == "mock"
     assert result["provider_statuses"]["gemini"]["mode"] == "mock"
+    assert result["judge_meta"]["mode"] == "mock"
+    assert result["judge_meta"]["reason"] == "api key missing"
 
     debate = result["debate"]
     assert debate["turn_count"] == 3
@@ -61,7 +63,53 @@ def test_run_debate_allows_single_provider_live(monkeypatch):
     assert result["provider_statuses"]["openai"]["mode"] == "live"
     assert result["provider_statuses"]["anthropic"]["mode"] == "mock"
     assert result["provider_statuses"]["gemini"]["mode"] == "mock"
+    assert result["judge_meta"]["mode"] == "mock"
     assert result["debate"]["turns"][0]["a"] == "OpenAI live turn"
+
+
+def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
+    def fake_openai(prompt, api_key):
+        return '{"speech":"A live","move":"claim"}'
+
+    def fake_anthropic(prompt, api_key):
+        return '{"speech":"B live","move":"claim"}'
+
+    calls = {"count": 0}
+
+    def fake_gemini_judge(prompt, api_key, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return (
+                '{"winner":{"side":"B","reason":"Bが押した。"},"reason_one_liner":"Bが押した。","confidence":"High","momentum":{"a":40,"b":60},"turningPointTurn":4}',
+                {"finish_reason": "STOP", "pass_label": "judge_pass1", "provider_error": "", "latency_ms": 111},
+            )
+        return (
+            '{"fatalPhrase":{"turn":4,"speaker":"B","text":"ここが崩れる。"}}',
+            {"finish_reason": "STOP", "pass_label": "judge_pass2", "provider_error": "", "latency_ms": 222},
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
+    monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
+    monkeypatch.setattr("tools.debate_api._call_gemini_judge", fake_gemini_judge)
+
+    result = run_debate(
+        {
+            "topic": "AIは感情を持つか",
+            "side_a": "持ちうる。",
+            "side_b": "持たない。",
+            "turn_count": 3,
+            "api_keys": {"openai": "sk-test", "anthropic": "ak-test", "gemini": "gm-test"},
+        }
+    )
+
+    out = capsys.readouterr().out
+    assert "[judge-provider]" in out
+    assert "[judge-pass1-ok]" in out
+    assert "[judge-pass2-fail]" in out
+    assert "[judge-fallback]" in out
+    assert result["provider_statuses"]["gemini"]["mode"] == "mock-fallback"
+    assert result["judge_meta"]["mode"] == "mock-fallback"
+    assert result["judge_meta"]["reason"] == "schema_mismatch"
 
 
 def test_turn1_b_prompt_does_not_read_turn1_a(monkeypatch):

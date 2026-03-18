@@ -61,10 +61,15 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
     cfg = _normalize_config(payload)
     debate, provider_statuses = _run_debate_with_provider_fallbacks(cfg)
     warning = _build_warning(provider_statuses)
+    judge_info = provider_statuses.get("gemini", {})
     return {
         "ok": True,
         "mode": _derive_mode(provider_statuses),
         "warning": warning,
+        "judge_meta": {
+            "mode": judge_info.get("mode", ""),
+            "reason": judge_info.get("reason", ""),
+        },
         "provider_statuses": provider_statuses,
         "debate": debate,
     }
@@ -278,32 +283,86 @@ def _judge_summary_data(
     provider_statuses: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     fallback = _mock_summary(cfg, turns)
+    _log_judge_stage(
+        "judge-provider",
+        {
+            "provider": "gemini",
+            "model": GEMINI_MODEL,
+            "selected": True,
+            "api_key_present": bool(cfg.gemini_key),
+        },
+    )
     if not cfg.gemini_key:
         provider_statuses["gemini"] = _provider_entry("mock", "api key missing")
+        _log_judge_stage("judge-fallback", {"reason": "api key missing", "stage": "provider_select"})
         return fallback
     judge_prompt_pass1 = _judge_pass1_prompt(cfg, turns, transcript)
     judge_metrics_pass1 = _judge_metrics(transcript, judge_prompt_pass1)
     try:
-        judge_raw_pass1, judge_debug_pass1 = _call_gemini_judge(
-            judge_prompt_pass1,
-            cfg.gemini_key,
-            judge_metrics=judge_metrics_pass1,
-            pass_label="judge_pass1",
-            timeout_s=JUDGE_PASS1_TIMEOUT_S,
-            retries=GEMINI_JUDGE_PASS1_RETRIES,
-        )
-        pass1 = _parse_judge_pass1_response(judge_raw_pass1)
+        try:
+            judge_raw_pass1, judge_debug_pass1 = _call_gemini_judge(
+                judge_prompt_pass1,
+                cfg.gemini_key,
+                judge_metrics=judge_metrics_pass1,
+                pass_label="judge_pass1",
+                timeout_s=JUDGE_PASS1_TIMEOUT_S,
+                retries=GEMINI_JUDGE_PASS1_RETRIES,
+            )
+            pass1 = _parse_judge_pass1_response(judge_raw_pass1)
+            _log_judge_stage(
+                "judge-pass1-ok",
+                {
+                    "raw_received": bool(str(judge_raw_pass1 or "").strip()),
+                    "raw_chars": len(str(judge_raw_pass1 or "")),
+                    "parse_success": True,
+                    "finish_reason": judge_debug_pass1.get("finish_reason", ""),
+                },
+            )
+        except JudgeError as exc:
+            _log_judge_stage(
+                "judge-pass1-fail",
+                {
+                    "raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
+                    "raw_chars": len(str(exc.debug.get("raw_text") or "")),
+                    "parse_success": False,
+                    "reason": exc.reason,
+                    "provider_error": exc.debug.get("provider_error", ""),
+                },
+            )
+            raise
         judge_prompt_pass2 = _judge_pass2_prompt(cfg, turns, transcript, pass1)
         judge_metrics_pass2 = _judge_metrics(transcript, judge_prompt_pass2)
-        judge_raw_pass2, judge_debug_pass2 = _call_gemini_judge(
-            judge_prompt_pass2,
-            cfg.gemini_key,
-            judge_metrics=judge_metrics_pass2,
-            pass_label="judge_pass2",
-            timeout_s=JUDGE_PASS2_TIMEOUT_S,
-            retries=GEMINI_JUDGE_PASS2_RETRIES,
-        )
-        pass2 = _parse_judge_pass2_response(judge_raw_pass2)
+        try:
+            judge_raw_pass2, judge_debug_pass2 = _call_gemini_judge(
+                judge_prompt_pass2,
+                cfg.gemini_key,
+                judge_metrics=judge_metrics_pass2,
+                pass_label="judge_pass2",
+                timeout_s=JUDGE_PASS2_TIMEOUT_S,
+                retries=GEMINI_JUDGE_PASS2_RETRIES,
+            )
+            pass2 = _parse_judge_pass2_response(judge_raw_pass2)
+            _log_judge_stage(
+                "judge-pass2-ok",
+                {
+                    "raw_received": bool(str(judge_raw_pass2 or "").strip()),
+                    "raw_chars": len(str(judge_raw_pass2 or "")),
+                    "parse_success": True,
+                    "finish_reason": judge_debug_pass2.get("finish_reason", ""),
+                },
+            )
+        except JudgeError as exc:
+            _log_judge_stage(
+                "judge-pass2-fail",
+                {
+                    "raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
+                    "raw_chars": len(str(exc.debug.get("raw_text") or "")),
+                    "parse_success": False,
+                    "reason": exc.reason,
+                    "provider_error": exc.debug.get("provider_error", ""),
+                },
+            )
+            raise
         summary = _normalize_summary(
             {
                 **pass1,
@@ -367,6 +426,7 @@ def _judge_summary_data(
         }
         path = _record_gemini_judge_debug(debug)
         _log_gemini_judge_event("mock-fallback", {**debug, "debug_path": str(path) if path else ""})
+        _log_judge_stage("judge-fallback", {"reason": exc.reason, "stage": exc.debug.get("pass_label", ""), "debug_path": str(path) if path else ""})
         return fallback
     except Exception as exc:
         reason = _classify_provider_reason(str(exc))
@@ -383,6 +443,7 @@ def _judge_summary_data(
         }
         path = _record_gemini_judge_debug(debug)
         _log_gemini_judge_event("mock-fallback", {**debug, "debug_path": str(path) if path else ""})
+        _log_judge_stage("judge-fallback", {"reason": reason, "stage": "", "debug_path": str(path) if path else ""})
         return fallback
 
 
@@ -2706,3 +2767,7 @@ def _log_gemini_judge_event(status: str, debug: dict[str, Any]) -> None:
         "debug_path": debug.get("debug_path", ""),
     }
     print(f"[{status}] " + json.dumps(summary, ensure_ascii=False))
+
+
+def _log_judge_stage(prefix: str, payload: dict[str, Any]) -> None:
+    print(f"[{prefix}] " + json.dumps(payload, ensure_ascii=False))
