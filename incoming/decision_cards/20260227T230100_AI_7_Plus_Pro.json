@@ -1,0 +1,65 @@
+{
+  "input_text": "「AIを仕事と趣味で週7時間 無料/Plus/Proどれが相応しい？」",
+  "domain_guess": {
+    "name": "subscription_pricing",
+    "confidence": 0.75
+  },
+  "deep_status": "ok",
+  "options": [
+    "無料",
+    "Plus",
+    "Pro"
+  ],
+  "axes": [
+    "AI代替耐性",
+    "機会費用",
+    "仕事適性",
+    "趣味適性"
+  ],
+  "scorecard": {
+    "AI代替耐性": {
+      "無料": 60,
+      "Plus": 80,
+      "Pro": 95
+    },
+    "機会費用": {
+      "無料": 50,
+      "Plus": 85,
+      "Pro": 95
+    },
+    "仕事適性": {
+      "無料": 50,
+      "Plus": 85,
+      "Pro": 95
+    },
+    "趣味適性": {
+      "無料": 90,
+      "Plus": 95,
+      "Pro": 90
+    }
+  },
+  "facts_3": [
+    "週あたりの利用時間は約7時間。",
+    "用途は「仕事」と「趣味」の混在。",
+    "検討中のプランは無料、Plus、Pro。"
+  ],
+  "recommend": {
+    "top": "Plus",
+    "runner_up": "無料"
+  },
+  "confidence": 80,
+  "falsifier": "結論を覆す条件：週あたりの利用が10時間超かつ半分以上が収益に直結する重要業務で、遅延や利用制限を絶対に避ける必要がある場合はProを選ぶべき。",
+  "next": "まず1ヶ月間Plusで試用（参考: OpenAI Plusページ）。30日間で「サーバー混雑による制限・遅延が週2回以上発生」または「応答速度/上位モデルが必要で作業効率が10%未満しか改善しない」なら、期限内にProへアップグレード。",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

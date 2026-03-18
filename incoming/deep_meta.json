@@ -1,0 +1,131 @@
+{
+  "deep_status": "partial",
+  "domain": "investing",
+  "domain_guess": {
+    "name": "investing",
+    "confidence": 0.5
+  },
+  "domain_confidence": 0.5,
+  "missing_fields": [],
+  "fallback_reason": "stepA_invalid_or_timeout",
+  "fallback_reason_primary": "stepA_invalid_or_timeout",
+  "fallback_reason_secondary": [
+    "stepA_fallback_local_v2",
+    "openai_timeout:expand",
+    "expand_invalid_kept_master",
+    "openai_timeout:diff"
+  ],
+  "missing_stages": [],
+  "stage_status": {
+    "stepA": "done",
+    "expand": "done",
+    "diff": "done"
+  },
+  "judgment_point_changes": [
+    "比較軸を宣言し、候補を軸採点で可視化した（入力文脈に合わせて推定）。",
+    "反転条件（FALSIFIER）を定義し、結論が変わる条件を明確化した。",
+    "次の一手（NEXT）を“取得データ/期限/閾値”で固定した。"
+  ],
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  },
+  "quality_total": 5,
+  "decision_card_path": "/Users/sn/workspaces/mmar-l0-core/incoming/decision_cards/20260310T062036_MODE_B_BUILD_User_question.json",
+  "build_sha": "6f1b104",
+  "timings": {
+    "stepA": 37.741,
+    "expand": 30.084,
+    "diff": 10.108
+  },
+  "sufficiency": {
+    "sufficient": true,
+    "missing_top2": [
+      "比較ドメインの確定"
+    ],
+    "missing_fields": [],
+    "next_question": "最重要な判断軸を1つ指定してください。",
+    "next_choices": [],
+    "required_fields": [
+      "goal_metric",
+      "priority_axis"
+    ],
+    "satisfied_fields": [
+      "goal_metric",
+      "priority_axis"
+    ],
+    "need_k": 2,
+    "questions": [
+      {
+        "field": "goal_metric",
+        "type": "choice",
+        "label": "目的指標",
+        "choices": [
+          "リスク最小",
+          "リターン最大",
+          "費用最小"
+        ]
+      },
+      {
+        "field": "priority_axis",
+        "type": "choice",
+        "label": "優先軸",
+        "choices": [
+          "リスク最小",
+          "リターン最大",
+          "流動性",
+          "手間最小"
+        ]
+      }
+    ],
+    "unlock_when_text": "目的指標と優先軸の2条件を満たすと深掘り可能",
+    "cap_split": 70
+  },
+  "ui_state": {
+    "deep_enabled": true,
+    "deep_block_reason": "",
+    "missing_top2": [
+      "比較ドメインの確定"
+    ],
+    "missing_fields": [],
+    "next_question": "最重要な判断軸を1つ指定してください。",
+    "next_choices": [],
+    "required_fields": [
+      "goal_metric",
+      "priority_axis"
+    ],
+    "satisfied_fields": [
+      "goal_metric",
+      "priority_axis"
+    ],
+    "need_k": 2,
+    "questions": [
+      {
+        "field": "goal_metric",
+        "type": "choice",
+        "label": "目的指標",
+        "choices": [
+          "リスク最小",
+          "リターン最大",
+          "費用最小"
+        ]
+      },
+      {
+        "field": "priority_axis",
+        "type": "choice",
+        "label": "優先軸",
+        "choices": [
+          "リスク最小",
+          "リターン最大",
+          "流動性",
+          "手間最小"
+        ]
+      }
+    ],
+    "unlock_when_text": "目的指標と優先軸の2条件を満たすと深掘り可能"
+  }
+}

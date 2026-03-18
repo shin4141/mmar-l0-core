@@ -1,0 +1,59 @@
+{
+  "input_text": "核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？",
+  "domain_guess": {
+    "name": "travel_safety",
+    "confidence": 1.0
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "危険",
+    "思い指摘した"
+  ],
+  "axes": [
+    "治安",
+    "移動リスク",
+    "医療アクセス",
+    "情勢変動",
+    "コスト"
+  ],
+  "scorecard": {
+    "治安": {
+      "危険": 2,
+      "思い指摘した": 2
+    },
+    "移動リスク": {
+      "危険": 2,
+      "思い指摘した": 2
+    },
+    "医療アクセス": {
+      "危険": 2,
+      "思い指摘した": 2
+    }
+  },
+  "facts_3": [
+    "状況=核を保有しているA国、B国が危険だと思い指摘した",
+    "比較対象=核を保有しているA国、B国が危険だ/思い指摘した。それでもA国は自国が成り上がるために必要だ",
+    "候補数=2",
+    "追加情報なし"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "思い指摘した"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "478513f",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

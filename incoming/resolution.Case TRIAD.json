@@ -1,0 +1,262 @@
+{
+  "schema": "mmar.resolution.v0",
+  "case_id": "Case TRIAD",
+  "asof": "2026-03-10T06:19:56Z",
+  "source_claims": "examples/tmp/triad_claims.latest.json",
+  "statuses": {
+    "claim_001": "resolved",
+    "claim_002": "pending",
+    "claim_003": "pending",
+    "claim_004": "pending",
+    "claim_005": "pending",
+    "claim_006": "pending",
+    "claim_007": "pending",
+    "claim_008": "pending",
+    "claim_009": "pending",
+    "claim_010": "pending",
+    "claim_011": "pending",
+    "claim_012": "pending",
+    "claim_013": "pending",
+    "claim_014": "pending",
+    "claim_015": "pending",
+    "claim_016": "pending",
+    "claim_017": "pending",
+    "claim_018": "pending",
+    "claim_019": "pending",
+    "claim_020": "pending",
+    "claim_021": "pending",
+    "claim_022": "pending",
+    "claim_023": "pending",
+    "claim_024": "pending",
+    "claim_025": "pending",
+    "claim_026": "pending",
+    "claim_027": "pending",
+    "claim_028": "pending",
+    "claim_029": "pending",
+    "claim_030": "pending",
+    "claim_031": "pending",
+    "claim_032": "pending",
+    "claim_033": "pending",
+    "claim_034": "pending",
+    "claim_035": "pending",
+    "claim_036": "pending",
+    "claim_037": "pending",
+    "claim_038": "pending",
+    "claim_039": "pending",
+    "claim_040": "pending",
+    "claim_041": "pending",
+    "claim_042": "pending",
+    "claim_043": "pending",
+    "claim_044": "pending",
+    "claim_045": "pending",
+    "claim_046": "pending",
+    "claim_047": "pending"
+  },
+  "items": [
+    {
+      "claim_id": "claim_001",
+      "text_head": "OPTIONS:",
+      "status": "resolved"
+    },
+    {
+      "claim_id": "claim_002",
+      "text_head": "blocks",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_003",
+      "text_head": "MODE: CONDITIONAL",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_004",
+      "text_head": "LEAN: blocks寄り",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_005",
+      "text_head": "ALT: AXES",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_006",
+      "text_head": "LEAN_SPLIT: blocks 70 / AXES 30",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_007",
+      "text_head": "CALL: PROCEED_WITH_CONDITIONS",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_008",
+      "text_head": "WHY_TOP2: 1) 期待リターン で blocks が優位 2) 最大損失 で差が出る",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_009",
+      "text_head": "WHY_GAP: 1位と2位の合計差=5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_010",
+      "text_head": "WHY_LOSER: AXES は主要軸の合計で blocks に届かず下位化",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_011",
+      "text_head": "GAP: 5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_012",
+      "text_head": "STABILITY: 55",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_013",
+      "text_head": "RESOLUTION: high",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_014",
+      "text_head": "ΔSCORE: +10",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_015",
+      "text_head": "AXES:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_016",
+      "text_head": "期待リターン",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_017",
+      "text_head": "SCORECARD:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_018",
+      "text_head": "期待リターン: a=4 b=5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_019",
+      "text_head": "最大損失: a=4 b=5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_020",
+      "text_head": "流動性: a=4 b=5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_021",
+      "text_head": "手数料: a=4 b=5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_022",
+      "text_head": "税効率: a=4 b=5",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_023",
+      "text_head": "AXIS_WINNERS_3:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_024",
+      "text_head": "期待リターン=b",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_025",
+      "text_head": "最大損失=b",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_026",
+      "text_head": "流動性=b",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_027",
+      "text_head": "FACTS_3:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_028",
+      "text_head": "比較対象=犬/猫は",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_029",
+      "text_head": "候補数=2",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_030",
+      "text_head": "比較対象=AXES/blocks",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_031",
+      "text_head": "SCENARIOS:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_032",
+      "text_head": "AI加速: blocks の優位が維持されるかを検証",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_033",
+      "text_head": "AI停滞: AXES の中長期リターン再評価で逆転し得る",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_034",
+      "text_head": "RULE:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_035",
+      "text_head": "比率条件で暫定順位を採用し、反転条件を先に固定する",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_036",
+      "text_head": "FLIP:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_037",
+      "text_head": "許容DDを超える下落が想定されるなら保守案へ反転",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_038",
+      "text_head": "FALSIFIER:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_039",
+      "text_head": "NEXT:",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_040",
+      "text_head": "投資期間は？",
+      "status": "pending"
+    },
+    {
+      "claim_id": "claim_041",
+      "text_head": "OUTCOME: Partial_OK",
+      "status": "pending"
+    }
+  ]
+}

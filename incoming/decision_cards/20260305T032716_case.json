@@ -1,0 +1,58 @@
+{
+  "input_text": "犬と猫どちらが賢いか？",
+  "domain_guess": {
+    "name": "general",
+    "confidence": 0.35
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "犬",
+    "猫"
+  ],
+  "axes": [
+    "コスト",
+    "リスク",
+    "柔軟性"
+  ],
+  "scorecard": {
+    "コスト": {
+      "犬": 2,
+      "猫": 2
+    },
+    "リスク": {
+      "犬": 2,
+      "猫": 2
+    },
+    "柔軟性": {
+      "犬": 2,
+      "猫": 2
+    }
+  },
+  "facts_3": [
+    "比較対象=犬/猫",
+    "候補数=2",
+    "比較形式=二択",
+    "比較ドメインの確定",
+    "目的指標（何を最適化するか）"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "猫"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "b10f23e",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "input_text": "ウイスキーとビールどちらが体に悪い？\n\nMODE=B (BUILD)\nUser question: ウイスキーとビールどちらが体に悪い？\n\nAB mode: B\nContext slots (selected by user):\n- Amount: 中\n- Horizon: 長期\n- Goal: 守る\n- Risk: 中\n- Constraint: 未入力\n\n- PriorityAxis: 未指定\n\nNormalized slots: {\"risk\":\"中\",\"risk_level\":2,\"horizon\":\"長期\",\"horizon_days\":365,\"amount\":\"中\",\"stakes\":\"med\",\"goal\":\"守る\",\"objective\":\"preserve\",\"constraint\":null,\"constraints\":[],\"goal_metric\":null,\"priority_axis\":null}\n\nTask:\n- MODE=B (BUILD). Focus on concrete decision and implementation.\n- Output MUST include this line exactly once: \"APPLIED_SLOTS: Risk=中, Horizon=長期, Amount=中, Goal=守る, Constraint=未入力, GoalMetric=未指定, PriorityAxis=未指定\"\n- Output MUST include this line exactly once: \"Assumptions: Risk=中, Horizon=長期, Amount=中, Goal=守る, Constraint=未入力, GoalMetric=未指定, PriorityAxis=未指定\"\n- Output MUST include a line: \"SLOT_EFFECT: <0-100>\"\n- Mention at least two slots explicitly across the answer.\n- Output MUST include COMPARE section:\n  - A: ウイスキー\n  - B: ビール\n- Output MUST include AXES section with fixed 4 axes: LEGITIMACY, HARM_RISK, STABILITY, REVERSIBILITY.\n- Output MUST include: \"WEIGHTS: legitimacy=1 harm=2 stability=3 reversibility=2\"\n- Output MUST include SCORE_TABLE with exactly 4 rows (LEGITIMACY/HARM_RISK/STABILITY/REVERSIBILITY) in format: Axis: A=x, B=y, note=...\n- At least 2 SCORE_TABLE rationale lines must explicitly include one of: Risk/Horizon/Amount.\n- Output MUST include TRADEOFFS with 3 bullets and include both 'Aが勝つ条件' and 'Bが勝つ条件'.\n- Output MUST include TOTAL line: TOTAL: A=<num> B=<num>\n- Output MUST include DECISION with exactly 4 lines: If Risk=高, If Horizon=長期, If Amount=大, Default.\n- Required headings (exact):\n  Assumptions:\n  COMPARE:\n  AXES:\n  WEIGHTS:\n  SCORE_TABLE:\n  TRADEOFFS:\n  TOTAL:\n  DECISION:\n  Options:\n  Guardrails:\n  Next step:\n  Unknowns:\n- Options: provide 2-3 if/then lines, each referencing at least one slot.\n- Guardrails: provide exactly 3 bullets; stricter when Risk=高.\n- Next step: provide exactly one concrete action line.\n- Unknowns: up to 3 bullets, only if truly needed.\n- Avoid long abstract essays.\namount=中\n投資期間=長期\ngoal=守る\nrisk=中",
+  "domain_guess": {
+    "name": "investing",
+    "confidence": 0.5
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "ウイスキー",
+    "ビール"
+  ],
+  "axes": [
+    "期待リターン",
+    "最大損失",
+    "流動性",
+    "手数料",
+    "税効率"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "ウイスキー": 2,
+      "ビール": 2
+    },
+    "最大損失": {
+      "ウイスキー": 2,
+      "ビール": 2
+    },
+    "流動性": {
+      "ウイスキー": 2,
+      "ビール": 2
+    }
+  },
+  "facts_3": [
+    "比較対象=ウイスキー/ビール",
+    "候補数=2",
+    "比較形式=二択",
+    "比較ドメインの確定",
+    "優先軸（リスク最小/リターン最大/流動性/手間最小）"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "ビール"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "b288e37",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

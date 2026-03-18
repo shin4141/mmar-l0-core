@@ -1,0 +1,68 @@
+{
+  "input_text": "核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？ MODE=B (BUILD) User question: 核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？ AB mode: B Context slots (selected by user): - Amount: 大 - Horizon: 長期 - Goal: 増やす - Risk: 高 - Constraint: 未入力 Normalized slots: {\"risk\":\"高\",\"risk_level\":3,\"horizon\":\"長期\",\"horizon_days\":365,\"amount\":\"大\",\"stakes\":\"high\",\"goal\":\"増やす\",\"objective\":\"growth\",\"constraint\":null,\"constraints\":[],\"goal_metric\":null,\"priority_axis\":null} Task: - MODE=B (BUILD). Focus on concrete decision and implementation. - Output MUST include this line exactly once: \"APPLIED_SLOTS: Risk=高, Horizon=長期, Amount=大, Goal=増やす, Constraint=未入力, GoalMetric=未指定, PriorityAxis=未指定\" - Output MUST include this line exactly once: \"Assumptions: Risk=高, Horizon=長期, Amount=大, Goal=増やす, Constraint=未入力, GoalMetric=未指定, PriorityAxis=未指定\" - Output MUST include a line: \"SLOT_EFFECT: <0-100>\" - Mention at least two slots explicitly across the answer. - Output MUST include COMPARE section: - A: B国が危険だ - B: 思い指摘した - Output MUST include AXES section with fixed 4 axes: LEGITIMACY, HARM_RISK, STABILITY, REVERSIBILITY. - Output MUST include: \"WEIGHTS: legitimacy=1 harm=3 stability=3 reversibility=3\" - Output MUST include SCORE_TABLE with exactly 4 rows (LEGITIMACY/HARM_RISK/STABILITY/REVERSIBILITY) in format: Axis: A=x, B=y, note= - At least 2 SCORE_TABLE rationale lines must explicitly include one of: Risk/Horizon/Amount. - Output MUST include TRADEOFFS with 3 bullets and include both 'Aが勝つ条件' and 'Bが勝つ条件'. - Output MUST include TOTAL line: TOTAL: A=<num> B=<num> - Output MUST include DECISION with exactly 4 lines: If Risk=高, If Horizon=長期, If Amount=大, Default. - Required headings (exact): Assumptions: COMPARE: AXES: WEIGHTS: SCORE_TABLE: TRADEOFFS: TOTAL: DECISION: Options: Guardrails: Next step: Unknowns: - Options: provide 2-3 if/then lines, each referencing at least one slot. - Guardrails: provide exactly 3 bullets; stricter when Risk=高. - Next step: provide exactly one concrete action line. - Unknowns: up to 3 bullets, only if truly needed. - Avoid long abstract essays.\namount=大\n投資期間=長期\ngoal=増やす\nrisk=高",
+  "domain_guess": {
+    "name": "investing",
+    "confidence": 0.5
+  },
+  "deep_status": "partial",
+  "options": [
+    "B国が危険だ",
+    "思い指摘した"
+  ],
+  "axes": [
+    "期待リターン",
+    "最大損失",
+    "流動性",
+    "手数料",
+    "税効率"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "a": 4,
+      "b": 5
+    },
+    "最大損失": {
+      "a": 4,
+      "b": 5
+    },
+    "流動性": {
+      "a": 4,
+      "b": 5
+    },
+    "手数料": {
+      "a": 4,
+      "b": 5
+    },
+    "税効率": {
+      "a": 4,
+      "b": 5
+    }
+  },
+  "facts_3": [
+    "状況=核を保有しているA国、B国が危険だと思い指摘した",
+    "比較対象=核を保有しているA国、B国が危険だ/思い指摘した。それでもA国は自国が成り上がるために必要だ",
+    "候補数=2"
+  ],
+  "recommend": {
+    "top": "思い指摘した寄り",
+    "runner_up": "B国が危険だ"
+  },
+  "confidence": 55,
+  "falsifier": "許容DDを超える下落が想定されるなら保守案へ反転",
+  "next": "目的/優先軸を1つ選択（例: 収益/リスク/楽しさ/健康/学費/就職）",
+  "build_sha": "b1f9984",
+  "meta": {
+    "missing_stages": [
+      "stepA"
+    ],
+    "fallback_reason_primary": "openai_timeout"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

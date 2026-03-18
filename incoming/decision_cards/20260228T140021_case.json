@@ -1,0 +1,68 @@
+{
+  "input_text": "私は現在四十歳で独り身です。投資として２０００万円で金とロレックスを買うかまたは神奈川県相模原市駅二十分の距離にに新築マンションを購入するかまよっている。どっちがいいか？期間は５年。どちらが上がるかよりも円での保有が怖いのでどちらが下がらないかを重視して考えて欲しい User question: 私は現在四十歳で独り身です。投資として２０００万円で金とロレックスを買うかまたは神奈川県相模原市駅二十分の距離にに新築マンションを購入するかまよっている。どっちがいいか？期間は５年。どちらが上がるかよりも円での保有が怖いのでどちらが下がらないかを重視して考えて欲しい Context slots (selected by user): - Amount: 中 - Horizon: 長期 - Goal: 守る - Risk: 低 - Constraint: 未入力 Task: - Give a decision-oriented answer tailored to the context slots. - Start by restating the slots as assumptions (1 line). - Provide 2–3 options with conditions (if/then). - List 3 key unknowns to ask next (only if needed). - Keep it practical; no EV, no long theory.",
+  "domain_guess": {
+    "name": "asset_allocation",
+    "confidence": 0.9
+  },
+  "deep_status": "partial",
+  "options": [
+    "金+ロレックス（動産・換金性）",
+    "新築マンション（不動産）"
+  ],
+  "axes": [
+    "期待リターン",
+    "流動性",
+    "価格変動リスク",
+    "管理負担",
+    "分散効果"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "a": 4,
+      "b": 5
+    },
+    "流動性": {
+      "a": 4,
+      "b": 5
+    },
+    "価格変動リスク": {
+      "a": 4,
+      "b": 5
+    },
+    "管理負担": {
+      "a": 4,
+      "b": 5
+    },
+    "分散効果": {
+      "a": 4,
+      "b": 5
+    }
+  },
+  "facts_3": [
+    "状況=私は現在四十歳で独り身です",
+    "比較対象=私は現在四十歳で独り身です。投資/して２０００万円で金とロレックスを買うかまたは神奈川県相",
+    "期間=５年"
+  ],
+  "recommend": {
+    "top": "新築マンション（不動産）寄り",
+    "runner_up": "金+ロレックス（動産・換金性）"
+  },
+  "confidence": 60,
+  "falsifier": "運用期間が短期化するなら高ボラ側から低ボラ側へ反転",
+  "next": "レバレッジを許容しますか？（可/不可）",
+  "build_sha": "2a9339d",
+  "meta": {
+    "missing_stages": [
+      "stepA"
+    ],
+    "fallback_reason_primary": "openai_timeout"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "input_text": "スマホゲームに課金するのと夜キャバクラに飲みにいくのどっちも大したお金の使い方ではないがどっちが満足度が高いと思う？ MODE=B (BUILD) User question: スマホゲームに課金するのと夜キャバクラに飲みにいくのどっちも大したお金の使い方ではないがどっちが満足度が高いと思う？ AB mode: B Context slots (selected by user): - Amount: 中 - Horizon: 長期 - Goal: 守る - Risk: 中 - Constraint: 未入力 - PriorityAxis: 未指定 Normalized slots: {\"risk\":\"中\",\"risk_level\":2,\"horizon\":\"長期\",\"horizon_days\":365,\"amount\":\"中\",\"stakes\":\"med\",\"goal\":\"守る\",\"objective\":\"preserve\",\"constraint\":null,\"constraints\":[],\"goal_metric\":null,\"priority_axis\":null} Task: - MODE=B (BUILD). Focus on concrete decision and implementation. - Output MUST include this line exactly once: \"APPLIED_SLOTS: Risk=中, Horizon=長期, Amount=中, Goal=守る, Constraint=未入力, GoalMetric=未指定, PriorityAxis=未指定\" - Output MUST include this line exactly once: \"Assumptions: Risk=中, Horizon=長期, Amount=中, Goal=守る, Constraint=未入力, GoalMetric=未指定, PriorityAxis=未指定\" - Output MUST include a line: \"SLOT_EFFECT: <0-100>\" - Mention at least two slots explicitly across the answer. - Output MUST include COMPARE section: - A: スマホゲームに課金するの - B: 夜キャバクラに飲みにいくの - Output MUST include AXES section with fixed 4 axes: LEGITIMACY, HARM_RISK, STABILITY, REVERSIBILITY. - Output MUST include: \"WEIGHTS: legitimacy=1 harm=2 stability=3 reversibility=2\" - Output MUST include SCORE_TABLE with exactly 4 rows (LEGITIMACY/HARM_RISK/STABILITY/REVERSIBILITY) in format: Axis: A=x, B=y, note= - At least 2 SCORE_TABLE rationale lines must explicitly include one of: Risk/Horizon/Amount. - Output MUST include TRADEOFFS with 3 bullets and include both 'Aが勝つ条件' and 'Bが勝つ条件'. - Output MUST include TOTAL line: TOTAL: A=<num> B=<num> - Output MUST include DECISION with exactly 4 lines: If Risk=高, If Horizon=長期, If Amount=大, Default. - Required headings (exact): Assumptions: COMPARE: AXES: WEIGHTS: SCORE_TABLE: TRADEOFFS: TOTAL: DECISION: Options: Guardrails: Next step: Unknowns: - Options: provide 2-3 if/then lines, each referencing at least one slot. - Guardrails: provide exactly 3 bullets; stricter when Risk=高. - Next step: provide exactly one concrete action line. - Unknowns: up to 3 bullets, only if truly needed. - Avoid long abstract essays.\namount=中\n投資期間=長期\ngoal=守る\nrisk=中\n優先軸=未指定 Normalized slots: {\"risk\":\"中",
+  "domain_guess": {
+    "name": "subscription_pricing",
+    "confidence": 0.5
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "スマホゲームに課金するの",
+    "夜キャバクラに飲みにいくの"
+  ],
+  "axes": [
+    "コスト",
+    "制限",
+    "仕事適性",
+    "趣味適性",
+    "継続性"
+  ],
+  "scorecard": {
+    "コスト": {
+      "スマホゲームに課金するの": 2,
+      "夜キャバクラに飲みにいくの": 2
+    },
+    "制限": {
+      "スマホゲームに課金するの": 2,
+      "夜キャバクラに飲みにいくの": 2
+    },
+    "仕事適性": {
+      "スマホゲームに課金するの": 2,
+      "夜キャバクラに飲みにいくの": 2
+    }
+  },
+  "facts_3": [
+    "比較対象=スマホゲームに課金するの/夜キャバクラに飲みにいくの",
+    "論点=料金",
+    "候補数=2",
+    "比較ドメインの確定",
+    "優先軸（リスク最小/リターン最大/流動性/手間最小）"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "夜キャバクラに飲みにいくの"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "d1d84d1",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

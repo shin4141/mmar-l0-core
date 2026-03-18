@@ -1,0 +1,61 @@
+{
+  "input_text": "今日テンション上がらない。寿司か肉か",
+  "domain_guess": {
+    "name": "general",
+    "confidence": 0.35
+  },
+  "deep_status": "ok",
+  "options": [
+    "寿司",
+    "肉"
+  ],
+  "axes": [
+    "満足度",
+    "コスト",
+    "リスク",
+    "柔軟性"
+  ],
+  "scorecard": {
+    "満足度": {
+      "a": 4,
+      "b": 5
+    },
+    "コスト": {
+      "a": 5,
+      "b": 4
+    },
+    "リスク": {
+      "a": 4,
+      "b": 5
+    },
+    "柔軟性": {
+      "a": 4,
+      "b": 5
+    }
+  },
+  "facts_3": [
+    "状況=今日テンション上がらない",
+    "候補数=2",
+    "比較対象=寿司/肉"
+  ],
+  "recommend": {
+    "top": "肉 (b)",
+    "runner_up": "寿司 (a)"
+  },
+  "confidence": 55,
+  "falsifier": "主要軸で逆転データが出たら反転",
+  "next": "目的/優先軸を1つ選択（例: 収益/リスク/楽しさ/健康/学費/就職）",
+  "build_sha": "d0d1b79",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 0,
+    "next_ok": 0,
+    "total": 3
+  }
+}

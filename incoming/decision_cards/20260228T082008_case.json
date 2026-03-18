@@ -1,0 +1,60 @@
+{
+  "input_text": "横浜マンションと金ロレどっちがいい？",
+  "domain_guess": {
+    "name": "asset_allocation",
+    "confidence": 0.9
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "横浜マンション",
+    "金ロレ"
+  ],
+  "axes": [
+    "期待リターン",
+    "流動性",
+    "価格変動リスク",
+    "管理負担",
+    "分散効果"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "横浜マンション": 2,
+      "金ロレ": 2
+    },
+    "流動性": {
+      "横浜マンション": 2,
+      "金ロレ": 2
+    },
+    "価格変動リスク": {
+      "横浜マンション": 2,
+      "金ロレ": 2
+    }
+  },
+  "facts_3": [
+    "比較対象=横浜マンション/金ロレ",
+    "候補=横浜",
+    "候補数=2",
+    "運用期間（短期/中期/長期）",
+    "用途（住む/貸す/未定）"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "金ロレ"
+  },
+  "confidence": 40,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "運用期間は？（短期/中期/長期）",
+  "build_sha": "4c26e97",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "input_text": "「AIを仕事と趣味で週7時間 無料/Plus/Proどれが相応しい？」",
+  "domain_guess": {
+    "name": "subscription_pricing",
+    "confidence": 0.75
+  },
+  "deep_status": "ok",
+  "options": [
+    "無料",
+    "Plus",
+    "Pro"
+  ],
+  "axes": [
+    "AI代替耐性",
+    "機会費用",
+    "仕事適性",
+    "趣味適性"
+  ],
+  "scorecard": {
+    "AI代替耐性": {
+      "Pro": 90
+    },
+    "機会費用": {
+      "Pro": 90
+    },
+    "仕事適性": {
+      "Pro": 95
+    },
+    "趣味適性": {
+      "Pro": 70
+    }
+  },
+  "facts_3": [
+    "AIを仕事と趣味の両方で使うと明記されている。",
+    "合計利用時間は週7時間である。",
+    "検討中のプランは「無料／Plus／Pro」である。"
+  ],
+  "recommend": {
+    "top": "Plus",
+    "runner_up": "無料"
+  },
+  "confidence": 75,
+  "falsifier": "週7時間が急増して週15時間以上になり、かつ仕事側が高可用性・優先アクセス（納期や連続処理が頻繁に必要）を要求するなら「Pro」が優先される。",
+  "next": "2週間トライ: まず無料で通常利用を続け、2週間で「応答遅延・アクセス制限・GPT-4が必要な場面」が週3回以上発生したら（しきい値＝3回/2週）、Plusへ加入する。参考: OpenAIプラン比較ページ（確認期限＝2週間）。",
+  "build_sha": "0259f42",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

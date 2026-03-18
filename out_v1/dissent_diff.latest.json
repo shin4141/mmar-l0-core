@@ -1,0 +1,20 @@
+{
+  "schema": "mmar.dissent_diff.v1",
+  "key_type": "line",
+  "lines": {
+    "line_001": {
+      "openai": "DEMO: OpenAI line 1",
+      "gemini": "DEMO: Gemini line 1",
+      "claude": "DEMO: Claude line 1"
+    },
+    "line_002": {
+      "openai": "DEMO: OpenAI line 2",
+      "gemini": "DEMO: Gemini line 2",
+      "claude": "DEMO: Claude line 2"
+    }
+  },
+  "source": "examples/raw_local/{openai,gemini,claude}.json",
+  "stats": {
+    "lines_total": 2
+  }
+}

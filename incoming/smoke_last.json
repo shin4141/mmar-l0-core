@@ -1,0 +1,68 @@
+{
+  "timestamp": "2026-02-28T04:49:18Z",
+  "results": [
+    {
+      "case_id": "pricing",
+      "build_sha": "0b6ce26",
+      "deep_status": "ok",
+      "quality_total": 5,
+      "quality": {
+        "options_ok": 1,
+        "axes_ok": 1,
+        "facts_ok": 1,
+        "falsifier_ok": 1,
+        "next_ok": 1,
+        "total": 5
+      },
+      "recommend_top": "",
+      "next": "仕事利用比率は何%ですか？（0/30/70/100 のどれに近いか）",
+      "recommend": {
+        "top": "",
+        "runner_up": ""
+      },
+      "delta_total": 0
+    },
+    {
+      "case_id": "education",
+      "build_sha": "0b6ce26",
+      "deep_status": "ok",
+      "quality_total": 5,
+      "quality": {
+        "options_ok": 1,
+        "axes_ok": 1,
+        "facts_ok": 1,
+        "falsifier_ok": 1,
+        "next_ok": 1,
+        "total": 5
+      },
+      "recommend_top": "専門スキル直行（実務→就職） (b)",
+      "next": "志望職種を1つ固定し、職種別の就職率を取得",
+      "recommend": {
+        "top": "専門スキル直行（実務→就職） (b)",
+        "runner_up": "大学進学（学歴ルート） (a)"
+      },
+      "delta_total": 0
+    },
+    {
+      "case_id": "leisure",
+      "build_sha": "0b6ce26",
+      "deep_status": "ok",
+      "quality_total": 5,
+      "quality": {
+        "options_ok": 1,
+        "axes_ok": 1,
+        "facts_ok": 1,
+        "falsifier_ok": 1,
+        "next_ok": 1,
+        "total": 5
+      },
+      "recommend_top": "鎌倉 (b)",
+      "next": "優先は静けさと移動の楽さのどちらですか？（二択）",
+      "recommend": {
+        "top": "鎌倉 (b)",
+        "runner_up": "横浜 (a)"
+      },
+      "delta_total": 0
+    }
+  ]
+}

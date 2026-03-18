@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mmar-debate
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python tools/dev_api.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: HISTORY_DB_PATH
+        value: /var/data/mmar/history.sqlite
+      - key: PYTHON_VERSION
+        value: 3.13.1
+    disk:
+      name: mmar-history
+      mountPath: /var/data
+      sizeGB: 1

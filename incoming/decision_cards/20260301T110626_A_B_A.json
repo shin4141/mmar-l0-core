@@ -1,0 +1,68 @@
+{
+  "input_text": "核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？ User question: 核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？ Context slots (selected by user): - Amount: 大 - Horizon: 長期 - Goal: 増やす - Risk: 高 - Constraint: 未入力 Task: - Give a decision-oriented answer tailored to the context slots. - Start by restating the slots as assumptions (1 line). - Provide 2–3 options with conditions (if/then). - List 3 key unknowns to ask next (only if needed). - Keep it practical; no EV, no long theory.\namount=大\n投資期間=長期\ngoal=増やす\nrisk=高",
+  "domain_guess": {
+    "name": "investing",
+    "confidence": 0.5
+  },
+  "deep_status": "partial",
+  "options": [
+    "B国が危険だ",
+    "思い指摘した"
+  ],
+  "axes": [
+    "期待リターン",
+    "最大損失",
+    "流動性",
+    "手数料",
+    "税効率"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "a": 4,
+      "b": 5
+    },
+    "最大損失": {
+      "a": 4,
+      "b": 5
+    },
+    "流動性": {
+      "a": 4,
+      "b": 5
+    },
+    "手数料": {
+      "a": 4,
+      "b": 5
+    },
+    "税効率": {
+      "a": 4,
+      "b": 5
+    }
+  },
+  "facts_3": [
+    "状況=核を保有しているA国、B国が危険だと思い指摘した",
+    "比較対象=核を保有しているA国、B国が危険だ/思い指摘した。それでもA国は自国が成り上がるために必要だ",
+    "候補数=2"
+  ],
+  "recommend": {
+    "top": "思い指摘した寄り",
+    "runner_up": "B国が危険だ"
+  },
+  "confidence": 55,
+  "falsifier": "許容DDを超える下落が想定されるなら保守案へ反転",
+  "next": "目的/優先軸を1つ選択（例: 収益/リスク/楽しさ/健康/学費/就職）",
+  "build_sha": "5547786",
+  "meta": {
+    "missing_stages": [
+      "stepA"
+    ],
+    "fallback_reason_primary": "stepA_invalid_or_timeout"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

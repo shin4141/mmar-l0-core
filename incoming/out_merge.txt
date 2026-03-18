@@ -1,0 +1,47 @@
+OPTIONS:
+- AXES
+- blocks
+MODE: CONDITIONAL
+LEAN: blocks寄り
+ALT: AXES
+LEAN_SPLIT: blocks 70 / AXES 30
+CALL: PROCEED_WITH_CONDITIONS
+WHY_TOP2: 1) 期待リターン で blocks が優位 2) 最大損失 で差が出る
+WHY_GAP: 1位と2位の合計差=5
+WHY_LOSER: AXES は主要軸の合計で blocks に届かず下位化
+GAP: 5
+STABILITY: 55
+RESOLUTION: high
+ΔSCORE: +10
+AXES:
+- 期待リターン
+- 最大損失
+- 流動性
+- 手数料
+- 税効率
+SCORECARD:
+- 期待リターン: a=4 b=5
+- 最大損失: a=4 b=5
+- 流動性: a=4 b=5
+- 手数料: a=4 b=5
+- 税効率: a=4 b=5
+AXIS_WINNERS_3:
+- 期待リターン=b
+- 最大損失=b
+- 流動性=b
+FACTS_3:
+- 比較対象=犬/猫は
+- 候補数=2
+- 比較対象=AXES/blocks
+SCENARIOS:
+- AI加速: blocks の優位が維持されるかを検証
+- AI停滞: AXES の中長期リターン再評価で逆転し得る
+RULE:
+- 比率条件で暫定順位を採用し、反転条件を先に固定する
+FLIP:
+- 許容DDを超える下落が想定されるなら保守案へ反転
+FALSIFIER:
+- 許容DDを超える下落が想定されるなら保守案へ反転
+NEXT:
+- 投資期間は？
+OUTCOME: Partial_OK

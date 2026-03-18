@@ -1,0 +1,32 @@
+SSOT:
+- OpenAI応答がタイムアウトしたため、暫定の構造化ドラフトを返します。
+
+PURPOSE/CONSTRAINTS:
+- 目的: まず比較可能な初稿を出し、Thinkで精度を上げる。
+- 制約: 外部LLM応答なし。入力テキストと既存ルールのみで生成。
+
+WEIGHTS (Low/Med/High, optional):
+- Time:
+- Money:
+- Growth:
+
+DOMINANT_AXIS:
+- Time dominates under mapped weights (Time=Med(2), Money=Med(2), Growth=Med(2)).
+
+FLIP_THRESHOLD:
+- If Time drops by one level (e.g., High->Med), decision may flip.
+- If another axis rises by one level (e.g., Med->High), ranking can invert.
+- If two axes tie at High, prefer explicit tie-break criterion (time vs cost vs growth).
+
+ASSUMPTIONS:
+- missing Time weight; defaulted to Med
+- missing Money weight; defaulted to Med
+- missing Growth weight; defaulted to Med
+
+NEXT_3_QUESTIONS:
+1) いつまでに意思決定が必要ですか？（期限）
+2) 許容できるコスト上限は？（予算レンジ）
+3) 今回の成功条件は何ですか？（成長KPI）
+
+Next step: 上の3質問に回答し、Thinkモードで再実行してください。
+(openai_error: OpenAI request failed: The read operation timed out)

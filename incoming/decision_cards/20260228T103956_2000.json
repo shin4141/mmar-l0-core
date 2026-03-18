@@ -1,0 +1,60 @@
+{
+  "input_text": "2000万で金ロレと横浜マンションどっちがいい？",
+  "domain_guess": {
+    "name": "asset_allocation",
+    "confidence": 0.9
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "2000万で金ロレ",
+    "横浜マンション"
+  ],
+  "axes": [
+    "期待リターン",
+    "流動性",
+    "価格変動リスク",
+    "管理負担",
+    "分散効果"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "2000万で金ロレ": 2,
+      "横浜マンション": 2
+    },
+    "流動性": {
+      "2000万で金ロレ": 2,
+      "横浜マンション": 2
+    },
+    "価格変動リスク": {
+      "2000万で金ロレ": 2,
+      "横浜マンション": 2
+    }
+  },
+  "facts_3": [
+    "比較対象=2000万で金ロレ/横浜マンション",
+    "対象年=2000",
+    "候補=横浜",
+    "運用期間（〜3年 / 3–10年 / 10年以上）",
+    "用途（住む/貸す/未定）"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "横浜マンション"
+  },
+  "confidence": 40,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "投資期間は？（〜3年 / 3–10年 / 10年以上）",
+  "build_sha": "ee605cd",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

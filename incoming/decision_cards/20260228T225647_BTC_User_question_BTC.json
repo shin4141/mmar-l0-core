@@ -1,0 +1,60 @@
+{
+  "input_text": "BTCは今後価格が上昇していくか？ User question: BTCは今後価格が上昇していくか？ Context slots (selected by user): - Amount: 大 - Horizon: 長期 - Goal: 増やす - Risk: 中 - Constraint: 未入力 Task: - Give a decision-oriented answer tailored to the context slots. - Start by restating the slots as assumptions (1 line). - Provide 2–3 options with conditions (if/then). - List 3 key unknowns to ask next (only if needed). - Keep it practical; no EV, no long theory.",
+  "domain_guess": {
+    "name": "shopping",
+    "confidence": 0.5
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "Pro",
+    "BTCは今後価格が上昇していくか？ User quest"
+  ],
+  "axes": [
+    "総コスト",
+    "性能",
+    "耐久性",
+    "保証",
+    "納期"
+  ],
+  "scorecard": {
+    "総コスト": {
+      "Pro": 2,
+      "quest": 2
+    },
+    "性能": {
+      "Pro": 2,
+      "quest": 2
+    },
+    "耐久性": {
+      "Pro": 2,
+      "quest": 2
+    }
+  },
+  "facts_3": [
+    "候補数=2",
+    "比較対象=Pro/BTCは今後価格が上昇していくか？ User quest",
+    "比較形式=二択",
+    "選択肢の定義（2案を短く）",
+    "比較ドメインの確定"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "BTCは今後価格が上昇していくか？ User quest"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "2a9339d",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 0,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 3
+  }
+}

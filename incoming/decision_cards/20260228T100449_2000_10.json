@@ -1,0 +1,66 @@
+{
+  "input_text": "2000万で金ロレと横浜マンションどっちがいい？ 投資期間=10年以上",
+  "domain_guess": {
+    "name": "asset_allocation",
+    "confidence": 0.9
+  },
+  "deep_status": "partial",
+  "options": [
+    "2000万で金ロレ",
+    "横浜マンション"
+  ],
+  "axes": [
+    "期待リターン",
+    "流動性",
+    "価格変動リスク",
+    "管理負担",
+    "分散効果"
+  ],
+  "scorecard": {
+    "期待リターン": {
+      "a": 4,
+      "b": 5
+    },
+    "流動性": {
+      "a": 4,
+      "b": 5
+    },
+    "価格変動リスク": {
+      "a": 4,
+      "b": 5
+    },
+    "管理負担": {
+      "a": 4,
+      "b": 5
+    },
+    "分散効果": {
+      "a": 4,
+      "b": 5
+    }
+  },
+  "facts_3": [
+    "比較対象=2000万で金ロレ/横浜マンション",
+    "期間=10年",
+    "対象年=2000"
+  ],
+  "recommend": {
+    "top": "横浜マンション寄り",
+    "runner_up": "2000万で金ロレ"
+  },
+  "confidence": 70,
+  "falsifier": "運用期間が短期化するなら高ボラ側から低ボラ側へ反転",
+  "next": "レバレッジを許容しますか？（可/不可）",
+  "build_sha": "82e6c4a",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "openai_error"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

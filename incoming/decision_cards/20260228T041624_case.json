@@ -1,0 +1,66 @@
+{
+  "input_text": "神奈川在住です。一人でリラックスするなら横浜と鎌倉どちらが良いですか？費用と移動時間も考慮したいです。",
+  "domain_guess": {
+    "name": "leisure",
+    "confidence": 1.0
+  },
+  "deep_status": "ok",
+  "options": [
+    "横浜",
+    "鎌倉"
+  ],
+  "axes": [
+    "機会費用",
+    "移動リスク",
+    "費用",
+    "静けさ",
+    "移動ラク"
+  ],
+  "scorecard": {
+    "機会費用": {
+      "a": 4,
+      "b": 5
+    },
+    "移動リスク": {
+      "a": 4,
+      "b": 5
+    },
+    "費用": {
+      "a": 5,
+      "b": 4
+    },
+    "静けさ": {
+      "a": 4,
+      "b": 5
+    },
+    "移動ラク": {
+      "a": 4,
+      "b": 5
+    }
+  },
+  "facts_3": [
+    "比較対象=横浜/鎌倉",
+    "同行条件=一人",
+    "居住地=神奈川"
+  ],
+  "recommend": {
+    "top": "鎌倉 (b)",
+    "runner_up": "横浜 (a)"
+  },
+  "confidence": 63,
+  "falsifier": "天候/混雑で体験価値が下がるなら反転",
+  "next": "優先は静けさと移動の楽さのどちらですか？（二択）",
+  "build_sha": "6884d77",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

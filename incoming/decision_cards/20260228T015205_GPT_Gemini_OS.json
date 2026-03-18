@@ -1,0 +1,66 @@
+{
+  "input_text": "GPTとGeminiをどちらに課金をしようかと思っている。全体記憶にこだわっていて長期的にOSを育てるつもりだ。",
+  "domain_guess": {
+    "name": "ai_tool_subscription_compare",
+    "confidence": 0.92
+  },
+  "deep_status": "core",
+  "options": [
+    "GPT",
+    "Gemini"
+  ],
+  "axes": [
+    "料金",
+    "画像生成の相性",
+    "表計算/資料作成の相性",
+    "制限（回数/待ち/速度）",
+    "利用頻度"
+  ],
+  "scorecard": {
+    "料金": {
+      "gpt": 4,
+      "gemini": 5
+    },
+    "画像生成の相性": {
+      "gpt": 4,
+      "gemini": 5
+    },
+    "表計算/資料作成の相性": {
+      "gpt": 4,
+      "gemini": 5
+    },
+    "制限（回数/待ち/速度）": {
+      "gpt": 4,
+      "gemini": 5
+    },
+    "利用頻度": {
+      "gpt": 4,
+      "gemini": 5
+    }
+  },
+  "facts_3": [
+    "比較対象=GPT/Geminiを",
+    "入力語=GPTとGeminiをど",
+    "入力語=ちらに課金をしようかと思"
+  ],
+  "recommend": {
+    "top": "",
+    "runner_up": ""
+  },
+  "confidence": 55,
+  "falsifier": "画像生成比率が高ければGemini側へ反転",
+  "next": "画像生成と表計算、どちらの比率が高いですか？（画像/半々/表計算）",
+  "build_sha": "1313c59",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 0,
+    "falsifier_ok": 0,
+    "next_ok": 1,
+    "total": 3
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "input_text": "ウイスキーとビールどちらが体に悪い？",
+  "domain_guess": {
+    "name": "general",
+    "confidence": 0.35
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "ウイスキー",
+    "ビール"
+  ],
+  "axes": [
+    "コスト",
+    "リスク",
+    "柔軟性"
+  ],
+  "scorecard": {
+    "コスト": {
+      "ウイスキー": 2,
+      "ビール": 2
+    },
+    "リスク": {
+      "ウイスキー": 2,
+      "ビール": 2
+    },
+    "柔軟性": {
+      "ウイスキー": 2,
+      "ビール": 2
+    }
+  },
+  "facts_3": [
+    "比較対象=ウイスキー/ビール",
+    "候補数=2",
+    "比較形式=二択",
+    "比較ドメインの確定",
+    "目的指標（何を最適化するか）"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "ビール"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "1ba3570",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

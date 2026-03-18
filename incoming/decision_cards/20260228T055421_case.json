@@ -1,0 +1,47 @@
+{
+  "input_text": "三千円を使って映画館で見るのかそれとも家でレンタルしてお酒や食事を楽しみながら映画を見るのかどちらの方が満足度は高いか。なお一人で土曜日の話である。",
+  "domain_guess": {
+    "name": "food",
+    "confidence": 1.0
+  },
+  "deep_status": "partial",
+  "options": [
+    "三千円を使って映画館で見るのかそれ",
+    "も家でレンタルしてお酒や食事を楽しみながら映画を見る"
+  ],
+  "axes": [
+    "健康効果",
+    "価格",
+    "継続可能性"
+  ],
+  "scorecard": {
+    "健康効果": {},
+    "価格": {},
+    "継続可能性": {}
+  },
+  "facts_3": [
+    "比較対象=三千円を使って映画館で見るのかそれ/も家でレンタルしてお酒や食事を楽しみながら映画を見る",
+    "同行条件=一人",
+    "候補数=2"
+  ],
+  "recommend": {
+    "top": "ほぼ同等",
+    "runner_up": "候補確定後に提示"
+  },
+  "confidence": 25,
+  "falsifier": "選択肢定義が確定し次第、結論を再計算",
+  "next": "候補を箇条書きで指定してください（最大5）",
+  "build_sha": "b8de367",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "stepA_invalid_or_timeout"
+  },
+  "quality": {
+    "options_ok": 0,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 0,
+    "next_ok": 0,
+    "total": 2
+  }
+}

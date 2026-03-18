@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mmar.local/schemas/debate_response.public.json",
+  "title": "DebateResponsePublic",
+  "description": "Public response contract for /api/debate consumed by the Debate UI.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "mode", "provider_statuses", "debate"],
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "description": "Top-level success flag."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["live", "mock", "mock-fallback"],
+      "description": "Overall source mode shown by the UI."
+    },
+    "warning": {
+      "type": "string",
+      "description": "Optional user-facing warning string."
+    },
+    "provider_statuses": {
+      "type": "object",
+      "required": ["openai", "anthropic", "gemini"],
+      "properties": {
+        "openai": { "$ref": "#/$defs/providerStatus" },
+        "anthropic": { "$ref": "#/$defs/providerStatus" },
+        "gemini": { "$ref": "#/$defs/providerStatus" }
+      },
+      "additionalProperties": true
+    },
+    "debate": {
+      "type": "object",
+      "required": ["topic", "turn_count", "turns", "summary"],
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "turn_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "participants": {
+          "type": "object",
+          "properties": {
+            "a": { "type": "string" },
+            "b": { "type": "string" },
+            "judge": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "turns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/debateTurn" }
+        },
+        "summary": { "$ref": "#/$defs/debateSummary" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "providerStatus": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["live", "mock", "mock-fallback"]
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional provider-specific note. Public UI should treat this as display-only."
+        }
+      },
+      "additionalProperties": true
+    },
+    "debateTurn": {
+      "type": "object",
+      "required": ["turn", "stage_label", "a", "b"],
+      "properties": {
+        "turn": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stage_label": {
+          "type": "string",
+          "description": "Display label such as Opening, Rebuttal, or Rally 3."
+        },
+        "phase": {
+          "type": "string",
+          "description": "Future optional phase value to replace UI-side phase inference."
+        },
+        "a": {
+          "type": "string"
+        },
+        "b": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "fatalPhrase": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "required": ["turn", "speaker", "text", "reason"],
+          "properties": {
+            "turn": {
+              "type": ["integer", "string"]
+            },
+            "speaker": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "debateSummary": {
+      "type": "object",
+      "required": [
+        "fatal_phrase",
+        "turning_point",
+        "contradiction_exposed",
+        "unresolved_residue",
+        "provisional_judgment",
+        "key_disagreement_top3"
+      ],
+      "properties": {
+        "fatal_phrase": { "$ref": "#/$defs/fatalPhrase" },
+        "turning_point": {
+          "type": ["string", "object", "array"]
+        },
+        "contradiction_exposed": {
+          "type": ["string", "object", "array"]
+        },
+        "unresolved_residue": {
+          "type": ["string", "object", "array"]
+        },
+        "provisional_judgment": {
+          "type": ["string", "object", "array"]
+        },
+        "key_disagreement_top3": {
+          "type": ["array", "string"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "rule_expansion": {
+          "type": ["string", "object", "array"],
+          "description": "Future optional key."
+        },
+        "rule_capture": {
+          "type": ["string", "object", "array"],
+          "description": "Future optional key."
+        },
+        "contradiction": {
+          "type": ["string", "object", "array"],
+          "description": "Future optional key. Keep contradiction_exposed for current UI compatibility."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

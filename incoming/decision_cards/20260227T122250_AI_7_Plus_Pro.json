@@ -1,0 +1,57 @@
+{
+  "input_text": "「AIを仕事と趣味で週7時間… 無料/Plus/Proどれが相応しい？」",
+  "domain_guess": {
+    "name": "subscription_pricing",
+    "confidence": 0.75
+  },
+  "deep_status": "ok",
+  "options": [
+    "無料プラン",
+    "Plus",
+    "Pro"
+  ],
+  "axes": [
+    "AI代替耐性",
+    "機会費用",
+    "仕事適性",
+    "趣味適性"
+  ],
+  "scorecard": {
+    "AI代替耐性": {
+      "Pro": 8
+    },
+    "機会費用": {
+      "Pro": 6
+    },
+    "仕事適性": {
+      "Pro": 8
+    },
+    "趣味適性": {
+      "Pro": 7
+    }
+  },
+  "facts_3": [
+    "利用時間は週7時間（仕事＋趣味での利用）。",
+    "検討中の選択肢は無料 / Plus / Pro のサブスク。",
+    "予算上限（budget_cap）は提供されていない（不明）。"
+  ],
+  "recommend": {
+    "top": "Plus",
+    "runner_up": "Pro"
+  },
+  "confidence": 80,
+  "falsifier": "もし週7時間のうち「業務で占める時間が4時間以上」で、かつ低遅延・高優先度アクセスや大量トークン（例：月100kトークン超）が必須なら、Proが優位になる。",
+  "next": "行動：まず30日間Plusを契約して実運用で試す。ソース：OpenAIサブスク比較ページ。期限：今から30日以内にログを評価。評価閾値：①週あたり待ち/レート制限により作業が中断した回数が2回以上、または②月間トークン使用が100,000を超えた場合はProへ切替。",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "input_text": "核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？ User question: 核を保有しているA国、B国が危険だと思い指摘した。それでもA国は自国が成り上がるために必要だと自分たちの正義を信じて従わなかった。B国がA国を攻撃した。これはどちらが悪いのか？ Context slots (selected by user): - Amount: 大 - Horizon: 長期 - Goal: 増やす - Risk: 高 - Constraint: 未入力 Task: - Give a decision-oriented answer tailored to the context slots. - Start by restating the slots as assumptions (1 line). - Provide 2–3 options with conditions (if/then). - List 3 key unknowns to ask next (only if needed). - Keep it practical; no EV, no long theory.",
+  "domain_guess": {
+    "name": "subscription_pricing",
+    "confidence": 0.5
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "B国が危険だ",
+    "思い指摘した"
+  ],
+  "axes": [
+    "コスト",
+    "制限",
+    "仕事適性",
+    "趣味適性",
+    "継続性"
+  ],
+  "scorecard": {
+    "コスト": {
+      "B国が危険だ": 2,
+      "思い指摘した": 2
+    },
+    "制限": {
+      "B国が危険だ": 2,
+      "思い指摘した": 2
+    },
+    "仕事適性": {
+      "B国が危険だ": 2,
+      "思い指摘した": 2
+    }
+  },
+  "facts_3": [
+    "状況=核を保有しているA国、B国が危険だと思い指摘した",
+    "比較対象=核を保有しているA国、B国が危険だ/思い指摘した。それでもA国は自国が成り上がるために必要だ",
+    "候補数=2",
+    "比較ドメインの確定"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "思い指摘した"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "478513f",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}

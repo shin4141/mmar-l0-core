@@ -1,0 +1,57 @@
+{
+  "input_text": "「AIを仕事と趣味で週7時間 無料/Plus/Proどれが相応しい？」",
+  "domain_guess": {
+    "name": "subscription_pricing",
+    "confidence": 0.75
+  },
+  "deep_status": "ok",
+  "options": [
+    "無料",
+    "Plus",
+    "Pro"
+  ],
+  "axes": [
+    "AI代替耐性",
+    "機会費用",
+    "仕事適性",
+    "趣味適性"
+  ],
+  "scorecard": {
+    "AI代替耐性": {
+      "Pro": 90
+    },
+    "機会費用": {
+      "Pro": 85
+    },
+    "仕事適性": {
+      "Pro": 95
+    },
+    "趣味適性": {
+      "Pro": 70
+    }
+  },
+  "facts_3": [
+    "週7時間をAI利用（仕事と趣味の両方）と指定されている。",
+    "比較対象のプランは「無料／Plus／Pro」。",
+    "予算上限（budget_cap）は提供されていない（不明）。"
+  ],
+  "recommend": {
+    "top": "Plus",
+    "runner_up": "無料"
+  },
+  "confidence": 75,
+  "falsifier": "もし週7時間のうち「有料の高額案件・高リスク業務」が4時間以上を占め、誤りのコストが月あたり大きい（例：$200相当以上）なら、Proが最適になる。",
+  "next": "アクション：まず2週間Plusを試用し、利用ログで「仕事寄りの時間（有料・高影響タスク）」が週4時間以上か、週あたり高度モデル（長文コンテキストや高精度回答）が2回以上必要かを計測する。期限：今から2週間。閾値：仕事時間≥4時間/週または高度タスク≥2回/週→Proへアップグレード、どちらも未満→継続してPlusまたは予算優先なら無料へ切替。",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": ""
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 1,
+    "total": 5
+  }
+}

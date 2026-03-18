@@ -1,0 +1,158 @@
+=== INPUT ===
+犬と猫はどっちが強いか？
+
+MODE=B (BUILD)
+User question: 犬と猫はどっちが強いか？
+
+AB mode: B
+Context slots (selected by user):
+- Amount: 中
+- Horizon: 短期
+- Goal: 守る
+- Risk: 中
+- Constraint: 未入力
+
+- PriorityAxis: stability
+
+Normalized slots: {"risk":"中","risk_level":2,"horizon":"短期","horizon_days":7,"amount":"中","stakes":"med","goal":"守る","objective":"preserve","constraint":null,"constraints":[],"goal_metric":null,"priority_axis":"stability"}
+
+Task:
+- MODE=B (BUILD). Focus on concrete decision and implementation.
+- Output MUST include this line exactly once: "APPLIED_SLOTS: Risk=中, Horizon=短期, Amount=中, Goal=守る, Constraint=未入力, GoalMetric=未指定, PriorityAxis=stability"
+- Output MUST include this line exactly once: "Assumptions: Risk=中, Horizon=短期, Amount=中, Goal=守る, Constraint=未入力, GoalMetric=未指定, PriorityAxis=stability"
+- Output MUST include a line: "SLOT_EFFECT: <0-100>"
+- Mention at least two slots explicitly across the answer.
+- Output MUST include exactly these headings in this order: APPLIED_SLOTS / COMPARE / AXES / SCORE_TABLE / TRADEOFFS / DECISION / NEXT_STEP.
+- Do NOT output any other AXES or SCORECARD blocks.
+- If info is missing, assume minimally and continue (do not stop at NEED_INFO).
+- Output MUST include COMPARE section:
+  - A: 犬
+  - B: 猫は
+- Output MUST include AXES section with fixed 4 axes: LEGITIMACY, HARM_RISK, STABILITY, REVERSIBILITY.
+- Output MUST include: "WEIGHTS: legitimacy=1 harm=2 stability=1 reversibility=2"
+- Output MUST include SCORE_TABLE with exactly 4 rows (LEGITIMACY/HARM_RISK/STABILITY/REVERSIBILITY) in format: Axis: A=x, B=y, note=...
+- At least 2 SCORE_TABLE rationale lines must explicitly include one of: Risk/Horizon/Amount.
+- Output MUST include TRADEOFFS with 3 bullets and include both 'Aが勝つ条件' and 'Bが勝つ条件'.
+- Output MUST include TOTAL line: TOTAL: A=<num> B=<num>
+- Output MUST include DECISION with exactly 4 lines: If Risk=高, If Horizon=長期, If Amount=大, Default.
+- Required headings (exact):
+  Assumptions:
+  COMPARE:
+  AXES:
+  WEIGHTS:
+  SCORE_TABLE:
+  TRADEOFFS:
+  TOTAL:
+  DECISION:
+  Options:
+  Guardrails:
+  Next step:
+  Unknowns:
+- Options: provide 2-3 if/then lines, each referencing at least one slot.
+- Guardrails: provide exactly 3 bullets; stricter when Risk=高.
+- Next step: provide exactly one concrete action line.
+- Unknowns: up to 3 bullets, only if truly needed.
+- Avoid long abstract essays.
+amount=中
+投資期間=短期
+goal=守る
+risk=中
+優先軸=stability
+
+=== BEFORE (Single / seed) ===
+犬と猫はどっちが強いか？
+=== AFTER (MMAR / EXPAND) ===
+OPTIONS:
+- AXES
+- blocks
+MODE: CONDITIONAL
+LEAN: blocks寄り
+ALT: AXES
+LEAN_SPLIT: blocks 70 / AXES 30
+CALL: PROCEED_WITH_CONDITIONS
+WHY_TOP2: 1) 期待リターン で blocks が優位 2) 最大損失 で差が出る
+WHY_GAP: 1位と2位の合計差=5
+WHY_LOSER: AXES は主要軸の合計で blocks に届かず下位化
+GAP: 5
+STABILITY: 55
+RESOLUTION: high
+ΔSCORE: +10
+AXES:
+- 期待リターン
+- 最大損失
+- 流動性
+- 手数料
+- 税効率
+SCORECARD:
+- 期待リターン: a=4 b=5
+- 最大損失: a=4 b=5
+- 流動性: a=4 b=5
+- 手数料: a=4 b=5
+- 税効率: a=4 b=5
+AXIS_WINNERS_3:
+- 期待リターン=b
+- 最大損失=b
+- 流動性=b
+FACTS_3:
+- 比較対象=犬/猫は
+- 候補数=2
+- 比較対象=AXES/blocks
+SCENARIOS:
+- AI加速: blocks の優位が維持されるかを検証
+- AI停滞: AXES の中長期リターン再評価で逆転し得る
+RULE:
+- 比率条件で暫定順位を採用し、反転条件を先に固定する
+FLIP:
+- 許容DDを超える下落が想定されるなら保守案へ反転
+FALSIFIER:
+- 許容DDを超える下落が想定されるなら保守案へ反転
+NEXT:
+- 投資期間は？
+OUTCOME: Partial_OK
+
+=== Δ (Diff head) ===
+SSOT:
+- OpenAI応答がタイムアウトしたため、暫定の構造化ドラフトを返します。
+
+PURPOSE/CONSTRAINTS:
+- 目的: まず比較可能な初稿を出し、Thinkで精度を上げる。
+- 制約: 外部LLM応答なし。入力テキストと既存ルールのみで生成。
+
+WEIGHTS (Low/Med/High, optional):
+- Time:
+- Money:
+- Growth:
+
+DOMINANT_AXIS:
+- Time dominates under mapped weights (Time=Med(2), Money=Med(2), Growth=Med(2)).
+
+FLIP_THRESHOLD:
+- If Time drops by one level (e.g., High->Med), decision may flip.
+- If another axis rises by one level (e.g., Med->High), ranking can invert.
+- If two axes tie at High, prefer explicit tie-break criterion (time vs cost vs growth).
+
+ASSUMPTIONS:
+- missing Time weight; defaulted to Med
+- missing Money weight; defaulted to Med
+- missing Growth weight; defaulted to Med
+
+NEXT_3_QUESTIONS:
+1) いつまでに意思決定が必要ですか？（期限）
+2) 許容できるコスト上限は？（予算レンジ）
+3) 今回の成功条件は何ですか？（成長KPI）
+
+Next step: 上の3質問に回答し、Thinkモードで再実行してください。
+(openai_error: OpenAI request failed: The read operation timed out)
+
+=== DEEP META ===
+deep_status: partial
+domain: investing
+domain_guess: {"name": "investing", "confidence": 0.5}
+domain_confidence: 0.50
+missing_fields: []
+fallback_reason_primary: stepA_invalid_or_timeout
+fallback_reason_secondary: ["stepA_fallback_local_v2", "openai_timeout:expand", "expand_invalid_kept_master", "openai_timeout:diff"]
+missing_stages: []
+judgment_point_changes: ["比較軸を宣言し、候補を軸採点で可視化した（入力文脈に合わせて推定）。", "反転条件（FALSIFIER）を定義し、結論が変わる条件を明確化した。", "次の一手（NEXT）を“取得データ/期限/閾値”で固定した。"]
+quality: {"options_ok": 1, "axes_ok": 1, "facts_ok": 1, "falsifier_ok": 1, "next_ok": 1, "total": 5}
+timings: {"stepA": 37.741, "expand": 30.084, "diff": 10.108}

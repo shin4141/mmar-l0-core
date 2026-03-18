@@ -1,0 +1,58 @@
+{
+  "input_text": "",
+  "domain_guess": {
+    "name": "general",
+    "confidence": 0.35
+  },
+  "deep_status": "insufficient",
+  "options": [
+    "候補A",
+    "候補B"
+  ],
+  "axes": [
+    "コスト",
+    "リスク",
+    "柔軟性"
+  ],
+  "scorecard": {
+    "コスト": {
+      "候補A": 2,
+      "候補B": 2
+    },
+    "リスク": {
+      "候補A": 2,
+      "候補B": 2
+    },
+    "柔軟性": {
+      "候補A": 2,
+      "候補B": 2
+    }
+  },
+  "facts_3": [
+    "比較形式=二択",
+    "評価条件=要確認",
+    "追加条件=未入力",
+    "選択肢の定義（2案を短く）",
+    "比較ドメインの確定"
+  ],
+  "recommend": {
+    "top": "ほぼ同等（暫定）",
+    "runner_up": "候補B"
+  },
+  "confidence": 45,
+  "falsifier": "追加情報で主要軸が逆転した場合に再判定",
+  "next": "最重要な判断軸を1つ指定してください。",
+  "build_sha": "c93778d",
+  "meta": {
+    "missing_stages": [],
+    "fallback_reason_primary": "insufficient_context"
+  },
+  "quality": {
+    "options_ok": 1,
+    "axes_ok": 1,
+    "facts_ok": 1,
+    "falsifier_ok": 1,
+    "next_ok": 0,
+    "total": 4
+  }
+}
