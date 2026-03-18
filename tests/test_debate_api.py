@@ -441,6 +441,16 @@ def test_parse_judge_pass1_response_extracts_fast_judgment():
     assert parsed["turning_point"] == "Turn 4で流れが大きく動いた。"
 
 
+def test_parse_judge_pass1_response_accepts_camel_case_keys():
+    parsed = _parse_judge_pass1_response(
+        '{"winner":{"side":"B","reason":"Bが押した。"},"reasonOneLiner":"Bが押した。","confidence":"High","momentum":{"a":42,"b":58},"turningPointTurn":4}'
+    )
+
+    assert parsed["winner"]["side"] == "B"
+    assert parsed["reason_one_liner"] == "Bが押した。"
+    assert parsed["turning_point_turn"] == 4
+
+
 def test_parse_judge_pass2_response_extracts_structure_only():
     parsed = _parse_judge_pass2_response(
         '{"fatal_phrase":{"turn":4,"speaker":"B","text":"そこが崩れる。","reason":"ここで傾いた。"},"weak_spot":{"side":"A","turn":4,"speaker":"A","label":"論拠不足","quote_excerpt":"証拠がない。","why_one_sentence":"根拠が足りない。","how_to_fix":"指標を足すべきだった。"},"flip_condition":"先に指標を出すこと。"}'
@@ -449,6 +459,20 @@ def test_parse_judge_pass2_response_extracts_structure_only():
     assert parsed["fatal_phrase"]["speaker"] == "B"
     assert parsed["weak_spot"]["side"] == "A"
     assert parsed["flip_condition"] == "先に指標を出すこと。"
+
+
+def test_parse_judge_pass2_response_accepts_camel_case_keys():
+    parsed = _parse_judge_pass2_response(
+        '{"fatalPhrase":{"turn":4,"speaker":"B","text":"そこが崩れる。","reason":"ここで傾いた。"},"weakSpot":{"side":"A","turn":4,"speaker":"A","label":"論拠不足","quoteExcerpt":"証拠がない。","whyOneSentence":"根拠が足りない。","howToFix":"指標を足すべきだった。"},"flipCondition":"先に指標を出すこと。","geminiTakeaway":{"structuralExplanation":"Aが崩れた。","debateDynamic":"Bが押した。","quote":"「Bが残った。」"},"geminiQuote":{"quote":"Bが残った。"}}'
+    )
+
+    assert parsed["fatal_phrase"]["speaker"] == "B"
+    assert parsed["weak_spot"]["quote_excerpt"] == "証拠がない。"
+    assert parsed["weak_spot"]["why_one_sentence"] == "根拠が足りない。"
+    assert parsed["weak_spot"]["how_to_fix"] == "指標を足すべきだった。"
+    assert parsed["flip_condition"] == "先に指標を出すこと。"
+    assert parsed["gemini_takeaway"]["structural_explanation"] == "Aが崩れた。"
+    assert parsed["gemini_quote"]["text"] == "Bが残った。"
 
 
 def test_ask_match_gemini_returns_finish_reason_metadata(monkeypatch):
@@ -1134,4 +1158,3 @@ def test_history_store_lists_newest_first(tmp_path):
 
     listed = list_history_records(db_path)
     assert [item["id"] for item in listed] == ["match_new", "match_old"]
-

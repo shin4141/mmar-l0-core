@@ -1208,6 +1208,14 @@ def _coerce_judge_summary_keys(summary: dict[str, Any]) -> dict[str, Any]:
         "contradiction_exposed_text": "contradiction_exposed",
         "why_in_1_sentence": "reason_one_liner",
         "why_one_liner": "reason_one_liner",
+        "reasonOneLiner": "reason_one_liner",
+        "turningPointTurn": "turning_point_turn",
+        "turningPoint": "turning_point",
+        "fatalPhrase": "fatal_phrase",
+        "weakSpot": "weak_spot",
+        "flipCondition": "flip_condition",
+        "geminiTakeaway": "gemini_takeaway",
+        "geminiQuote": "gemini_quote",
     }
     for source, target in aliases.items():
         if source in data and target not in data:
@@ -1216,6 +1224,47 @@ def _coerce_judge_summary_keys(summary: dict[str, Any]) -> dict[str, Any]:
         data["contradiction_exposed"] = data["contradiction"]
     if "contradiction" not in data and "contradiction_exposed" in data:
         data["contradiction"] = data["contradiction_exposed"]
+    fatal = data.get("fatal_phrase")
+    if isinstance(fatal, dict):
+        nested_aliases = {
+            "quoteExcerpt": "quote_excerpt",
+            "whyOneSentence": "why_one_sentence",
+            "howToFix": "how_to_fix",
+        }
+        normalized_fatal = dict(fatal)
+        for source, target in nested_aliases.items():
+            if source in normalized_fatal and target not in normalized_fatal:
+                normalized_fatal[target] = normalized_fatal[source]
+        data["fatal_phrase"] = normalized_fatal
+    weak_spot = data.get("weak_spot")
+    if isinstance(weak_spot, dict):
+        nested_aliases = {
+            "quoteExcerpt": "quote_excerpt",
+            "whyOneSentence": "why_one_sentence",
+            "howToFix": "how_to_fix",
+        }
+        normalized_weak_spot = dict(weak_spot)
+        for source, target in nested_aliases.items():
+            if source in normalized_weak_spot and target not in normalized_weak_spot:
+                normalized_weak_spot[target] = normalized_weak_spot[source]
+        data["weak_spot"] = normalized_weak_spot
+    takeaway = data.get("gemini_takeaway")
+    if isinstance(takeaway, dict):
+        nested_aliases = {
+            "structuralExplanation": "structural_explanation",
+            "debateDynamic": "debate_dynamic",
+        }
+        normalized_takeaway = dict(takeaway)
+        for source, target in nested_aliases.items():
+            if source in normalized_takeaway and target not in normalized_takeaway:
+                normalized_takeaway[target] = normalized_takeaway[source]
+        data["gemini_takeaway"] = normalized_takeaway
+    quote = data.get("gemini_quote")
+    if isinstance(quote, dict):
+        normalized_quote = dict(quote)
+        if "quote" in normalized_quote and "text" not in normalized_quote:
+            normalized_quote["text"] = normalized_quote["quote"]
+        data["gemini_quote"] = normalized_quote
     return data
 
 
