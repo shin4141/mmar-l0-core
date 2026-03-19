@@ -8,14 +8,14 @@ import subprocess
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 try:
     from debate_api import ask_match_gemini, run_debate
-    from history_store import get_history_record, list_history_records, save_history_record
+    from history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 except ModuleNotFoundError:
     from tools.debate_api import ask_match_gemini, run_debate
-    from tools.history_store import get_history_record, list_history_records, save_history_record
+    from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 
 
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -99,7 +99,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
         if path == "/api/health":
             self._send_json(
                 200,
@@ -118,7 +119,9 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/history/list":
-            items = list_history_records()
+            query = parse_qs(parsed_url.query or "")
+            sort = str(query.get("sort", ["recent"])[0] or "recent")
+            items = list_history_records(sort=sort)
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/history/"):
@@ -146,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/api/debate", "/api/ask_match", "/api/history/save"}:
+        if path not in {"/api/debate", "/api/ask_match", "/api/history/save"} and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
 
@@ -187,6 +190,22 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self._send_json(200, {"ok": True, **saved})
                 return
+            if path.startswith("/api/history/view/"):
+                record_id = path.removeprefix("/api/history/view/").strip()
+                record = increment_history_metric(record_id, "views")
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": record})
+                return
+            if path.startswith("/api/history/like/"):
+                record_id = path.removeprefix("/api/history/like/").strip()
+                record = increment_history_metric(record_id, "likes")
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": record})
+                return
             result = ask_match_gemini(payload)
             print(
                 "[dev_api] ask_match "
@@ -218,6 +237,8 @@ def main() -> int:
     print(f"[dev_api] POST /api/debate")
     print(f"[dev_api] POST /api/ask_match")
     print(f"[dev_api] POST /api/history/save")
+    print(f"[dev_api] POST /api/history/view/{{id}}")
+    print(f"[dev_api] POST /api/history/like/{{id}}")
     print(
         "[dev_api] env "
         + json.dumps(

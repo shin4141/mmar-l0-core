@@ -46,10 +46,17 @@ def _init_schema(conn: sqlite3.Connection) -> None:
           transcript_json TEXT NOT NULL,
           judge_json TEXT NOT NULL,
           output_meta TEXT NOT NULL,
+          views INTEGER NOT NULL DEFAULT 0,
+          likes INTEGER NOT NULL DEFAULT 0,
           record_json TEXT NOT NULL
         )
         """
     )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(history_records)").fetchall()}
+    if "views" not in columns:
+        conn.execute("ALTER TABLE history_records ADD COLUMN views INTEGER NOT NULL DEFAULT 0")
+    if "likes" not in columns:
+        conn.execute("ALTER TABLE history_records ADD COLUMN likes INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -70,6 +77,8 @@ def _normalize_record(record: dict) -> dict:
     normalized.setdefault("transcript_json", [])
     normalized.setdefault("judge_json", {})
     normalized.setdefault("output_meta", "")
+    normalized.setdefault("views", 0)
+    normalized.setdefault("likes", 0)
     if not normalized.get("fingerprint"):
       raise ValueError("missing fingerprint")
     return normalized
@@ -78,7 +87,10 @@ def _normalize_record(record: dict) -> dict:
 def _record_from_row(row: sqlite3.Row) -> dict:
     raw = row["record_json"]
     if raw:
-        return json.loads(raw)
+        record = json.loads(raw)
+        record["views"] = int(row["views"] or 0)
+        record["likes"] = int(row["likes"] or 0)
+        return record
     return {
         "id": row["id"],
         "fingerprint": row["fingerprint"],
@@ -95,6 +107,8 @@ def _record_from_row(row: sqlite3.Row) -> dict:
         "transcript_json": json.loads(row["transcript_json"]),
         "judge_json": json.loads(row["judge_json"]),
         "output_meta": row["output_meta"],
+        "views": int(row["views"] or 0),
+        "likes": int(row["likes"] or 0),
     }
 
 
@@ -118,8 +132,8 @@ def save_history_record(record: dict, db_path: Path | None = None) -> dict:
               id, fingerprint, created_at, topic, mode, turn_count,
               fighter_a_provider, fighter_b_provider, judge_provider,
               fighter_a_model, fighter_b_model, judge_model,
-              transcript_json, judge_json, output_meta, record_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              transcript_json, judge_json, output_meta, views, likes, record_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               fingerprint=excluded.fingerprint,
               created_at=excluded.created_at,
@@ -135,6 +149,8 @@ def save_history_record(record: dict, db_path: Path | None = None) -> dict:
               transcript_json=excluded.transcript_json,
               judge_json=excluded.judge_json,
               output_meta=excluded.output_meta,
+              views=COALESCE(history_records.views, 0),
+              likes=COALESCE(history_records.likes, 0),
               record_json=excluded.record_json
             """,
             (
@@ -153,6 +169,8 @@ def save_history_record(record: dict, db_path: Path | None = None) -> dict:
                 transcript_json,
                 judge_json,
                 payload["output_meta"],
+                int(payload.get("views", 0) or 0),
+                int(payload.get("likes", 0) or 0),
                 record_json,
             ),
         )
@@ -160,16 +178,36 @@ def save_history_record(record: dict, db_path: Path | None = None) -> dict:
     return {"saved_id": normalized["id"], "deduped": deduped, "record": normalized}
 
 
-def list_history_records(db_path: Path | None = None) -> list[dict]:
+def list_history_records(db_path: Path | None = None, sort: str = "recent") -> list[dict]:
+    if sort == "likes":
+        order_by = "ORDER BY likes DESC, views DESC, datetime(created_at) DESC, rowid DESC"
+    else:
+        order_by = "ORDER BY datetime(created_at) DESC, rowid DESC"
     with _connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT * FROM history_records ORDER BY datetime(created_at) DESC, rowid DESC"
+            f"SELECT * FROM history_records {order_by}"
         ).fetchall()
     return [_record_from_row(row) for row in rows]
 
 
 def get_history_record(record_id: str, db_path: Path | None = None) -> dict | None:
     with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM history_records WHERE id = ?",
+            (record_id,),
+        ).fetchone()
+    return _record_from_row(row) if row else None
+
+
+def increment_history_metric(record_id: str, metric: str, db_path: Path | None = None) -> dict | None:
+    if metric not in {"views", "likes"}:
+        raise ValueError("invalid metric")
+    with _connect(db_path) as conn:
+        conn.execute(
+            f"UPDATE history_records SET {metric} = COALESCE({metric}, 0) + 1 WHERE id = ?",
+            (record_id,),
+        )
+        conn.commit()
         row = conn.execute(
             "SELECT * FROM history_records WHERE id = ?",
             (record_id,),

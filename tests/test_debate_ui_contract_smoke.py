@@ -134,7 +134,11 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "function renderArchiveList()" in js
     assert "function toggleArchive(open)" in js
     assert "function filteredArchiveRecords(records, query, modeFilter)" in js
-    assert "buildOutputMeta(providerStatuses, turns.length, mode, currentResult.output_meta || \"\")" in js
+    assert "function buildOutputMeta(providerStatuses, turnCount, mode, savedOutputMeta = \"\", options = {})" in js
+    assert "const { preferSaved = false } = options;" in js
+    assert "if (preferSaved && normalizedSavedOutputMeta) return normalizedSavedOutputMeta;" in js
+    assert "currentLoadedRecord ? currentResult.output_meta || \"\" : \"\"" in js
+    assert "{ preferSaved: Boolean(currentLoadedRecord) }" in js
     assert 'endpointUrl("/api/ask_match")' in js
     assert 'return raw || window.location.origin;' in js
     assert 'normalizeApiError("ask_match", response.status, data)' in js
@@ -241,11 +245,18 @@ def test_dev_api_exposes_server_history_routes():
     dev_api = _read(DEV_API_PATH)
 
     assert '"/api/history/list"' in dev_api
+    assert 'query = parse_qs(parsed_url.query or "")' in dev_api
+    assert 'sort = str(query.get("sort", ["recent"])[0] or "recent")' in dev_api
+    assert 'list_history_records(sort=sort)' in dev_api
     assert '"/api/history/save"' in dev_api
+    assert '"/api/history/view/"' in dev_api
+    assert '"/api/history/like/"' in dev_api
     assert 'if path.startswith("/api/history/")' in dev_api
     assert 'GET  /api/history/list' in dev_api
     assert 'GET  /api/history/{{id}}' in dev_api
     assert 'POST /api/history/save' in dev_api
+    assert 'POST /api/history/view/{{id}}' in dev_api
+    assert 'POST /api/history/like/{{id}}' in dev_api
     assert 'HOST = os.getenv("HOST", "0.0.0.0")' in dev_api
     assert 'candidate = "/mmar/apps/debate/debate.html"' in dev_api
     assert 'static_path = _safe_static_path(path)' in dev_api
@@ -291,10 +302,11 @@ def test_js_composes_human_verdict_strip_from_summary():
 
 def test_js_supports_save_history_and_load_flow():
     js = _read(JS_PATH)
+    html = _read(HTML_PATH)
 
     assert "function buildBattleRecord(result, payload)" in js
     assert "function normalizeSavedRecordForPreview(record)" in js
-    assert "function fetchHistoryListFromServer()" in js
+    assert 'function fetchHistoryListFromServer(sort = "recent")' in js
     assert "function fetchHistoryRecordById(recordId)" in js
     assert "function refreshHistoryRecords()" in js
     assert "function saveHistoryRecordToServer(record)" in js
@@ -306,9 +318,17 @@ def test_js_supports_save_history_and_load_flow():
     assert "function loadSavedMatch(recordId)" in js
     assert "function updateHistoryButton" in js
     assert "function updateArchiveButton" in js
-    assert 'endpointUrl("/api/history/list")' in js
+    assert 'let historySortMode = "recent";' in js
+    assert 'endpointUrl(`/api/history/list${query}`)' in js
+    assert 'const query = sort === "likes" ? "?sort=likes" : "";' in js
+    assert 'await fetchHistoryListFromServer(historySortMode);' in js
+    assert 'data-history-sort="recent"' in html
+    assert 'data-history-sort="likes"' in html
+    assert 'historyPanelEl.addEventListener("click", (event) => {' in js
+    assert 'sortTrigger.dataset.historySort' in js
     assert 'endpointUrl(`/api/history/${encodeURIComponent(recordId)}`)' in js
     assert 'endpointUrl("/api/history/save")' in js
+    assert 'endpointUrl(`/api/history/${metric}/${encodeURIComponent(recordId)}`)' in js
     assert "historyFetchInFlight = true;" in js
     assert "historyRecordsHydrated = true;" in js
     assert "履歴を読み込み中です。" in js
@@ -320,6 +340,10 @@ def test_js_supports_save_history_and_load_flow():
     assert 'historyBackdrop.addEventListener("click", () => toggleHistory(false));' in js
     assert 'archiveBackdrop.addEventListener("click", () => toggleArchive(false));' in js
     assert "loadSavedMatch(trigger.dataset.recordId);" in js
+    assert 'data-like-record-id' in js
+    assert 'Views ${preview.views || 0} · Likes ${preview.likes || 0}' in js
+    assert 'incrementHistoryMetric(likeTrigger.dataset.likeRecordId, "like")' in js
+    assert 'await incrementHistoryMetric(recordId, "view");' in js
     assert "function getCurrentBattleRecord()" in js
     assert "function sendAskQuestion(question)" in js
     assert "const preview = normalizeSavedRecordForPreview(record);" in js

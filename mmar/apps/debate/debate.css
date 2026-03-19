@@ -726,12 +726,41 @@ button:disabled {
   gap: 6px;
   width: 100%;
   padding: 14px;
-  text-align: left;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.78);
+}
+
+.history-item-main {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
   box-shadow: none;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.history-stats {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.history-like-button {
+  min-height: 28px;
+  padding: 0 10px;
 }
 
 .history-topic {

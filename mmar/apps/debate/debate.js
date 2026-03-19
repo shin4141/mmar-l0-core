@@ -82,6 +82,7 @@ let mobileAnalysisCollapsed = true;
 let historyRecordsCache = [];
 let historyRecordsHydrated = false;
 let historyFetchInFlight = false;
+let historySortMode = "recent";
 let currentConstraintReport = null;
 let currentJudgePass1 = null;
 let currentJudgePass2 = null;
@@ -452,9 +453,10 @@ function normalizeSavedOutputMeta(savedOutputMeta) {
   return `${turns} · A ${aMode.toLowerCase()} · B ${bMode.toLowerCase()} · J ${jMode.toLowerCase()}`;
 }
 
-function buildOutputMeta(providerStatuses, turnCount, mode, savedOutputMeta = "") {
+function buildOutputMeta(providerStatuses, turnCount, mode, savedOutputMeta = "", options = {}) {
+  const { preferSaved = false } = options;
   const normalizedSavedOutputMeta = normalizeSavedOutputMeta(savedOutputMeta);
-  if (normalizedSavedOutputMeta) return normalizedSavedOutputMeta;
+  if (preferSaved && normalizedSavedOutputMeta) return normalizedSavedOutputMeta;
   const countText = `${turnCount} turns`;
   const tokens = [
     formatProviderToken("A", currentFighters.a, providerStatuses),
@@ -549,8 +551,9 @@ function persistHistoryRecords(records) {
   window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(records));
 }
 
-async function fetchHistoryListFromServer() {
-  const response = await fetch(endpointUrl("/api/history/list"), { method: "GET" });
+async function fetchHistoryListFromServer(sort = "recent") {
+  const query = sort === "likes" ? "?sort=likes" : "";
+  const response = await fetch(endpointUrl(`/api/history/list${query}`), { method: "GET" });
   const data = await parseResponse(response);
   if (!response.ok || !data.ok || !Array.isArray(data.items)) {
     throw new Error(normalizeApiError("history_list", response.status, data));
@@ -583,7 +586,7 @@ async function refreshHistoryRecords() {
   renderHistoryList();
   renderArchiveList();
   try {
-    historyRecordsCache = await fetchHistoryListFromServer();
+    historyRecordsCache = await fetchHistoryListFromServer(historySortMode);
     persistHistoryRecords(historyRecordsCache);
   } catch {
     historyRecordsCache = loadHistoryRecordsFromLocalStorage();
@@ -644,6 +647,8 @@ function normalizeSavedRecordForPreview(record) {
   return {
     ...record,
     output_meta: normalizeSavedOutputMeta(record.output_meta || ""),
+    views: Number(record.views || 0),
+    likes: Number(record.likes || 0),
     judge_json: {
       ...summary,
       winner,
@@ -659,6 +664,24 @@ function normalizeSavedRecordForPreview(record) {
       gemini_quote: summary?.gemini_quote || { text: normalizeGeminiQuote(summary) },
     },
   };
+}
+
+async function incrementHistoryMetric(recordId, metric) {
+  const response = await fetch(endpointUrl(`/api/history/${metric}/${encodeURIComponent(recordId)}`), {
+    method: "POST",
+  });
+  const data = await parseResponse(response);
+  if (!response.ok || !data.ok || !data.item) {
+    throw new Error(normalizeApiError(`history_${metric}`, response.status, data));
+  }
+  const record = normalizeSavedRecordForPreview(data.item);
+  const existingIndex = historyRecordsCache.findIndex((item) => item.id === record.id);
+  if (existingIndex >= 0) historyRecordsCache[existingIndex] = record;
+  else historyRecordsCache.unshift(record);
+  persistHistoryRecords(historyRecordsCache);
+  renderHistoryList();
+  renderArchiveList();
+  return record;
 }
 
 function matchFingerprint(result, payload) {
@@ -775,12 +798,18 @@ function buildHistoryItemMarkup(record) {
   const winner = preview.judge_json?.winner?.side || "Draw";
   const verdict = preview.judge_json?.verdict_headline || "Saved match";
   return `
-    <button type="button" class="history-item" data-record-id="${escapeHtml(preview.id)}">
+    <div class="history-item">
+      <button type="button" class="history-item-main" data-record-id="${escapeHtml(preview.id)}">
       <div class="history-topic">${escapeHtml(preview.topic)}</div>
       <div class="history-meta">${escapeHtml(formatCreatedAt(preview.created_at))} / ${escapeHtml(winner)} / ${escapeHtml(preview.mode)} / ${escapeHtml(`${preview.turn_count} turns`)}</div>
       <div class="history-submeta">${escapeHtml(`${preview.fighter_a_model} vs ${preview.fighter_b_model} / ${preview.judge_model}`)}</div>
       <div class="history-verdict">${escapeHtml(verdict)}</div>
-    </button>
+      </button>
+      <div class="history-actions">
+        <span class="history-stats">${escapeHtml(`Views ${preview.views || 0} · Likes ${preview.likes || 0}`)}</span>
+        <button type="button" class="chip-button history-like-button" data-like-record-id="${escapeHtml(preview.id)}">Like</button>
+      </div>
+    </div>
   `;
 }
 
@@ -800,7 +829,9 @@ function buildViewerItemMarkup(record) {
 }
 
 function renderHistoryList() {
-  const records = [...historyRecordsCache].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const records = historySortMode === "likes"
+    ? [...historyRecordsCache].sort((a, b) => (Number(b.likes || 0) - Number(a.likes || 0)) || (Number(b.views || 0) - Number(a.views || 0)) || String(b.created_at).localeCompare(String(a.created_at)))
+    : [...historyRecordsCache].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   updateHistoryButton(records.length);
   if (historyFetchInFlight && !historyRecordsHydrated) {
     historyListEl.classList.add("empty");
@@ -1082,6 +1113,9 @@ async function sendAskQuestion(question) {
 }
 
 async function loadSavedMatch(recordId) {
+  try {
+    await incrementHistoryMetric(recordId, "view");
+  } catch {}
   const record = await fetchHistoryRecordById(recordId);
   if (!record) return;
   loadRecordIntoView(record, { saved: true });
@@ -1571,7 +1605,13 @@ function refreshOutput() {
   const providerStatuses = currentResult.provider_statuses || {};
   topicDisplayEl.textContent = debate.topic || "Topic";
   setRunMeta(analysisHidden ? "Generating..." : "Judging...", false);
-  outputMetaEl.textContent = buildOutputMeta(providerStatuses, turns.length, mode, currentResult.output_meta || "");
+  outputMetaEl.textContent = buildOutputMeta(
+    providerStatuses,
+    turns.length,
+    mode,
+    currentLoadedRecord ? currentResult.output_meta || "" : "",
+    { preferSaved: Boolean(currentLoadedRecord) },
+  );
   renderTurns(turns, debate.summary || {}, !analysisHidden);
 
   if (analysisHidden) {
@@ -1879,9 +1919,23 @@ archiveBackdrop.addEventListener("click", () => toggleArchive(false));
 askCloseButton.addEventListener("click", () => toggleAskPanel(false));
 askBackdrop.addEventListener("click", () => toggleAskPanel(false));
 historyListEl.addEventListener("click", (event) => {
+  const likeTrigger = event.target.closest("[data-like-record-id]");
+  if (likeTrigger) {
+    void incrementHistoryMetric(likeTrigger.dataset.likeRecordId, "like");
+    return;
+  }
   const trigger = event.target.closest("[data-record-id]");
   if (!trigger) return;
   void loadSavedMatch(trigger.dataset.recordId);
+});
+historyPanelEl.addEventListener("click", (event) => {
+  const sortTrigger = event.target.closest("[data-history-sort]");
+  if (!sortTrigger) return;
+  historySortMode = sortTrigger.dataset.historySort || "recent";
+  historyPanelEl.querySelectorAll("[data-history-sort]").forEach((node) => {
+    node.classList.toggle("is-active", node.dataset.historySort === historySortMode);
+  });
+  void refreshHistoryRecords();
 });
 viewerListEl.addEventListener("click", (event) => {
   const trigger = event.target.closest("[data-viewer-record-id]");
@@ -1891,6 +1945,11 @@ viewerListEl.addEventListener("click", (event) => {
   loadRecordIntoView(record, { saved: false });
 });
 archivePanelEl.addEventListener("click", (event) => {
+  const likeTrigger = event.target.closest("[data-like-record-id]");
+  if (likeTrigger) {
+    void incrementHistoryMetric(likeTrigger.dataset.likeRecordId, "like");
+    return;
+  }
   const filterTrigger = event.target.closest("[data-mode-filter]");
   if (filterTrigger) {
     archiveModeFilter = filterTrigger.dataset.modeFilter || "all";

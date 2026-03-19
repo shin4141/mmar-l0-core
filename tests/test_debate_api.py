@@ -1,5 +1,5 @@
 from tools.debate_api import _ask_match_prompt, _call_gemini_match_chat, _call_gemini_judge, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
-from tools.history_store import get_history_record, list_history_records, save_history_record
+from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 
 
 def test_run_debate_mock_minimum_shape():
@@ -22,6 +22,11 @@ def test_run_debate_mock_minimum_shape():
     assert result["judge_meta"]["judge_reason"] == "api key missing"
     assert result["judge_meta"]["judge_stage"] == "provider_select"
     assert result["judge_meta"]["judge_provider"] == "gemini"
+    assert result["judge_meta"]["judge_model"] == "gemini-1.5-flash"
+    assert result["judge_meta"]["judge_request_variant"] == "contents_with_generation_config"
+    assert result["judge_meta"]["judge_request_body_shape"] == "contents+generationConfig"
+    assert result["judge_meta"]["judge_request_has_generation_config"] is True
+    assert result["judge_meta"]["judge_request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
     assert result["judge_meta"]["judge_raw_received"] is False
     assert result["judge_meta"]["judge_parse_success"] is False
     assert result["output_meta"] == result["judge_meta"]
@@ -70,6 +75,7 @@ def test_run_debate_allows_single_provider_live(monkeypatch):
     assert result["provider_statuses"]["gemini"]["mode"] == "mock"
     assert result["judge_meta"]["judge_mode"] == "mock"
     assert result["judge_meta"]["judge_reason"] == "api key missing"
+    assert result["judge_meta"]["judge_request_variant"] == "contents_with_generation_config"
     assert result["debate"]["turns"][0]["a"] == "OpenAI live turn"
 
 
@@ -118,6 +124,11 @@ def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
     assert result["judge_meta"]["judge_reason"] == "schema_mismatch"
     assert result["judge_meta"]["judge_stage"] == "judge_pass2"
     assert result["judge_meta"]["judge_provider"] == "gemini"
+    assert result["judge_meta"]["judge_model"] == "gemini-1.5-flash"
+    assert result["judge_meta"]["judge_request_variant"] == "contents_with_generation_config"
+    assert result["judge_meta"]["judge_request_body_shape"] == "contents+generationConfig"
+    assert result["judge_meta"]["judge_request_has_generation_config"] is True
+    assert result["judge_meta"]["judge_request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
     assert result["judge_meta"]["judge_raw_received"] is True
     assert result["judge_meta"]["judge_parse_success"] is False
 
@@ -479,25 +490,17 @@ def test_call_gemini_judge_reports_payload_and_retry_metadata(monkeypatch):
     )
 
     assert "\"winner\"" in text
-    assert debug["finish_reason"] == "STOP"
-    assert debug["retry_count"] == 1
+    assert debug["finish_reason"] == "MAX_TOKENS"
+    assert debug["retry_count"] == 0
     assert debug["pass_label"] == "judge_pass1"
     assert debug["judge_payload_char_count"] > 0
     assert debug["transcript_char_count"] == 12
     assert debug["judge_prompt_char_count"] == 24
-    assert calls[0]["generationConfig"]["maxOutputTokens"] < calls[1]["generationConfig"]["maxOutputTokens"]
+    assert calls == [{"contents": [{"parts": [{"text": "judge prompt"}]}], "generationConfig": {"temperature": 0.15, "maxOutputTokens": 4096}}]
 
 
-def test_call_gemini_judge_retries_without_response_mime_on_bad_request(monkeypatch):
+def test_call_gemini_judge_uses_same_shape_as_ask_payload(monkeypatch):
     responses = [
-        {
-            "ok": False,
-            "error_kind": "http_error",
-            "status_code": 400,
-            "latency_ms": 111,
-            "raw_body": '{"error":{"message":"Invalid JSON mode"}}',
-            "exception_message": "HTTP Error 400: Bad Request",
-        },
         {
             "ok": True,
             "latency_ms": 222,
@@ -531,10 +534,12 @@ def test_call_gemini_judge_retries_without_response_mime_on_bad_request(monkeypa
     )
 
     assert '"winner"' in text
-    assert calls[0]["generationConfig"]["responseMimeType"] == "application/json"
-    assert "responseMimeType" not in calls[1]["generationConfig"]
-    assert debug["request_variant"] == "plain_text_retry"
+    assert calls == [{"contents": [{"parts": [{"text": "judge prompt"}]}], "generationConfig": {"temperature": 0.15, "maxOutputTokens": 4096}}]
+    assert debug["request_variant"] == "contents_with_generation_config"
+    assert debug["request_body_shape"] == "contents+generationConfig"
+    assert debug["request_has_generation_config"] is True
     assert debug["request_has_response_mime"] is False
+    assert debug["request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
 
 
 def test_parse_judge_pass1_response_extracts_fast_judgment():
@@ -1265,3 +1270,56 @@ def test_history_store_lists_newest_first(tmp_path):
 
     listed = list_history_records(db_path)
     assert [item["id"] for item in listed] == ["match_new", "match_old"]
+
+
+def test_history_store_lists_popular_by_likes_then_views_then_created_at(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    base = {
+        "mode": "casual",
+        "turn_count": 5,
+        "fighter_a_provider": "openai",
+        "fighter_b_provider": "anthropic",
+        "judge_provider": "gemini",
+        "fighter_a_model": "GPT-5-mini",
+        "fighter_b_model": "Claude Sonnet 4.5",
+        "judge_model": "Gemini 2.5 Flash",
+        "transcript_json": [],
+        "judge_json": {"winner": {"side": "A"}},
+        "output_meta": "",
+    }
+    save_history_record({**base, "id": "low", "fingerprint": "fp_low", "created_at": "2026-03-14T09:00:00+00:00", "topic": "low", "likes": 1, "views": 10}, db_path)
+    save_history_record({**base, "id": "high", "fingerprint": "fp_high", "created_at": "2026-03-14T08:00:00+00:00", "topic": "high", "likes": 3, "views": 1}, db_path)
+    save_history_record({**base, "id": "mid", "fingerprint": "fp_mid", "created_at": "2026-03-14T10:00:00+00:00", "topic": "mid", "likes": 3, "views": 5}, db_path)
+
+    listed = list_history_records(db_path, sort="likes")
+    assert [item["id"] for item in listed] == ["mid", "high", "low"]
+
+
+def test_history_store_increments_views_and_likes(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    record = {
+        "id": "match_1",
+        "fingerprint": "fp_1",
+        "created_at": "2026-03-14T10:00:00+00:00",
+        "topic": "AIは感情を持つか",
+        "mode": "casual",
+        "turn_count": 5,
+        "fighter_a_provider": "openai",
+        "fighter_b_provider": "anthropic",
+        "judge_provider": "gemini",
+        "fighter_a_model": "GPT-5-mini",
+        "fighter_b_model": "Claude Sonnet 4.5",
+        "judge_model": "Gemini 2.5 Flash",
+        "transcript_json": [],
+        "judge_json": {"winner": {"side": "B"}},
+        "output_meta": "",
+    }
+
+    save_history_record(record, db_path)
+    viewed = increment_history_metric("match_1", "views", db_path)
+    liked = increment_history_metric("match_1", "likes", db_path)
+
+    assert viewed["views"] == 1
+    assert viewed["likes"] == 0
+    assert liked["views"] == 1
+    assert liked["likes"] == 1
