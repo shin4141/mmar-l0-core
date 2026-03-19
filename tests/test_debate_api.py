@@ -1,4 +1,4 @@
-from tools.debate_api import _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _call_gemini_judge, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
+from tools.debate_api import JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
 from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 
 
@@ -88,21 +88,21 @@ def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
 
     calls = {"count": 0}
 
-    def fake_gemini_judge(prompt, api_key, **kwargs):
+    def fake_gemini_chat(prompt, api_key, **kwargs):
         calls["count"] += 1
         if calls["count"] == 1:
             return (
                 '{"winner":{"side":"B","reason":"Bが押した。"},"reason_one_liner":"Bが押した。","confidence":"High","momentum":{"a":40,"b":60},"turningPointTurn":4}',
-                {"finish_reason": "STOP", "pass_label": "judge_pass1", "provider_error": "", "latency_ms": 111},
+                {"finish_reason": "STOP", "pass_label": "judge_pass1", "provider_error": "", "latency_ms": 111, "judge_prompt_char_count": 24},
             )
         return (
             '{"fatalPhrase":{"turn":4,"speaker":"B","text":"ここが崩れる。"}}',
-            {"finish_reason": "STOP", "pass_label": "judge_pass2", "provider_error": "", "latency_ms": 222},
+            {"finish_reason": "STOP", "pass_label": "judge_pass2", "provider_error": "", "latency_ms": 222, "judge_prompt_char_count": 24},
         )
 
     monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
     monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
-    monkeypatch.setattr("tools.debate_api._call_gemini_judge", fake_gemini_judge)
+    monkeypatch.setattr("tools.debate_api._call_gemini_match_chat", fake_gemini_chat)
 
     result = run_debate(
         {
@@ -131,6 +131,7 @@ def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
     assert result["judge_meta"]["judge_request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
     assert result["judge_meta"]["judge_raw_received"] is True
     assert result["judge_meta"]["judge_parse_success"] is False
+    assert result["judge_meta"]["judge_prompt_chars"] == 24
 
 
 def test_turn1_b_prompt_does_not_read_turn1_a(monkeypatch):
@@ -216,7 +217,7 @@ def test_judge_two_pass_prompts_split_fast_verdict_and_structure():
     assert "The side that stays closer to the original proposition has a major advantage." in pass1
     assert "Replacing 'as before' with 'still possible in some new way' counts as proposition drift." in pass1
     assert "Proposition fidelity must weigh heavily in winner and momentum" in pass1
-    assert "If one side commits a major proposition violation and the other side explicitly exposes it, that should usually decide the match." in pass1
+    assert "If one side commits a major proposition violation and the other side exposes it, that usually decides the match." in pass1
     assert "Also use proposition-constraint labels when needed: 命題逸脱, 主語の縮小, 時間軸ずらし, 条件すり替え, 問いの再発明." in pass2
     assert "If one side changes 'humans' into exceptional humans, 'short-term' into long-term" in pass2
     assert "The side that stays closer to the original proposition has a major advantage." in pass1
@@ -441,7 +442,7 @@ def test_judge_metrics_counts_transcript_and_prompt_chars():
     assert metrics["judge_prompt_char_count"] == len("judge prompt body")
 
 
-def test_call_gemini_judge_reports_payload_and_retry_metadata(monkeypatch):
+def test_call_gemini_match_chat_supports_judge_mode_metadata(monkeypatch):
     responses = [
         {
             "ok": True,
@@ -480,26 +481,30 @@ def test_call_gemini_judge_reports_payload_and_retry_metadata(monkeypatch):
 
     monkeypatch.setattr("tools.debate_api._post_json_verbose", fake_post)
 
-    text, debug = _call_gemini_judge(
+    text, debug = _call_gemini_match_chat(
         "judge prompt",
         "gm-test",
-        judge_metrics={"transcript_char_count": 12, "judge_prompt_char_count": 24},
-        pass_label="judge_pass1",
         timeout_s=60,
         retries=1,
+        max_output_tokens=4096,
+        debug_context={"transcript_char_count": 12, "judge_prompt_char_count": 24, "pass_label": "judge_pass1"},
+        error_cls=JudgeError,
     )
 
     assert "\"winner\"" in text
-    assert debug["finish_reason"] == "MAX_TOKENS"
-    assert debug["retry_count"] == 0
+    assert debug["finish_reason"] == "STOP"
+    assert debug["retry_count"] == 1
     assert debug["pass_label"] == "judge_pass1"
     assert debug["judge_payload_char_count"] > 0
     assert debug["transcript_char_count"] == 12
     assert debug["judge_prompt_char_count"] == 24
-    assert calls == [{"contents": [{"parts": [{"text": "judge prompt"}]}], "generationConfig": {"temperature": 0.15, "maxOutputTokens": 4096}}]
+    assert calls == [
+        {"contents": [{"parts": [{"text": "judge prompt"}]}], "generationConfig": {"temperature": 0.15, "maxOutputTokens": 4096}},
+        {"contents": [{"parts": [{"text": "judge prompt"}]}], "generationConfig": {"temperature": 0.15, "maxOutputTokens": 8192}},
+    ]
 
 
-def test_call_gemini_judge_uses_same_shape_as_ask_payload(monkeypatch):
+def test_call_gemini_match_chat_uses_same_shape_for_judge_and_ask(monkeypatch):
     responses = [
         {
             "ok": True,
@@ -524,13 +529,14 @@ def test_call_gemini_judge_uses_same_shape_as_ask_payload(monkeypatch):
 
     monkeypatch.setattr("tools.debate_api._post_json_verbose", fake_post)
 
-    text, debug = _call_gemini_judge(
+    text, debug = _call_gemini_match_chat(
         "judge prompt",
         "gm-test",
-        judge_metrics={"transcript_char_count": 12, "judge_prompt_char_count": 24},
-        pass_label="judge_pass1",
         timeout_s=60,
         retries=0,
+        max_output_tokens=4096,
+        debug_context={"transcript_char_count": 12, "judge_prompt_char_count": 24, "pass_label": "judge_pass1"},
+        error_cls=JudgeError,
     )
 
     assert '"winner"' in text
@@ -538,7 +544,6 @@ def test_call_gemini_judge_uses_same_shape_as_ask_payload(monkeypatch):
     assert debug["request_variant"] == "contents_with_generation_config"
     assert debug["request_body_shape"] == "contents+generationConfig"
     assert debug["request_has_generation_config"] is True
-    assert debug["request_has_response_mime"] is False
     assert debug["request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
 
 
@@ -578,7 +583,15 @@ def test_ask_and_judge_share_same_gemini_generate_content_helper(monkeypatch):
     monkeypatch.setattr("tools.debate_api._call_gemini_generate_content", fake_generate)
 
     _call_gemini_match_chat("ask prompt", "gm-test")
-    _call_gemini_judge("judge prompt", "gm-test", pass_label="judge_pass1", retries=0)
+    _call_gemini_match_chat(
+        "judge prompt",
+        "gm-test",
+        retries=0,
+        timeout_s=60,
+        max_output_tokens=4096,
+        debug_context={"pass_label": "judge_pass1"},
+        error_cls=JudgeError,
+    )
 
     assert len(calls) == 2
     assert calls[0]["temperature"] == 0.15

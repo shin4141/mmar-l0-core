@@ -72,6 +72,7 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
         "judge_request_url": judge_info.get("judge_request_url", ""),
         "judge_request_body_shape": judge_info.get("judge_request_body_shape", ""),
         "judge_request_has_generation_config": bool(judge_info.get("judge_request_has_generation_config", False)),
+        "judge_prompt_chars": int(judge_info.get("judge_prompt_chars", 0) or 0),
         "judge_raw_received": bool(judge_info.get("judge_raw_received", False)),
         "judge_parse_success": bool(judge_info.get("judge_parse_success", False)),
     }
@@ -319,6 +320,7 @@ def _judge_summary_data(
             "judge_request_url": _gemini_generate_content_url(),
             "judge_request_body_shape": "contents+generationConfig",
             "judge_request_has_generation_config": True,
+            "judge_prompt_chars": 0,
             "judge_stage": "provider_select",
             "judge_raw_received": False,
             "judge_parse_success": False,
@@ -329,15 +331,19 @@ def _judge_summary_data(
     judge_metrics_pass1 = _judge_metrics(transcript, judge_prompt_pass1)
     try:
         try:
-            judge_raw_pass1, judge_debug_pass1 = _call_gemini_judge(
+            judge_raw_pass1, judge_debug_pass1 = _call_gemini_match_chat(
                 judge_prompt_pass1,
                 cfg.gemini_key,
-                judge_metrics=judge_metrics_pass1,
-                pass_label="judge_pass1",
                 timeout_s=JUDGE_PASS1_TIMEOUT_S,
                 retries=GEMINI_JUDGE_PASS1_RETRIES,
+                max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+                debug_context={**judge_metrics_pass1, "pass_label": "judge_pass1"},
+                error_cls=JudgeError,
             )
-            pass1 = _parse_judge_pass1_response(judge_raw_pass1)
+            try:
+                pass1 = _parse_judge_pass1_response(judge_raw_pass1)
+            except JudgeError as exc:
+                raise JudgeError(exc.reason, str(exc), debug={**judge_debug_pass1, **exc.debug})
             _log_judge_stage(
                 "judge-pass1-ok",
                 {
@@ -355,6 +361,7 @@ def _judge_summary_data(
                     "judge_request_url": judge_debug_pass1.get("request_url", _gemini_generate_content_url()),
                     "judge_request_body_shape": judge_debug_pass1.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(judge_debug_pass1.get("request_has_generation_config", True)),
+                    "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
                     "judge_stage": "judge_pass1",
                     "judge_raw_received": bool(str(judge_raw_pass1 or "").strip()),
                     "judge_parse_success": True,
@@ -379,6 +386,7 @@ def _judge_summary_data(
                     "judge_request_url": exc.debug.get("request_url", _gemini_generate_content_url()),
                     "judge_request_body_shape": exc.debug.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(exc.debug.get("request_has_generation_config", True)),
+                    "judge_prompt_chars": int(exc.debug.get("judge_prompt_char_count", 0) or 0),
                     "judge_stage": "judge_pass1",
                     "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
                     "judge_parse_success": False,
@@ -388,15 +396,19 @@ def _judge_summary_data(
         judge_prompt_pass2 = _judge_pass2_prompt(cfg, turns, transcript, pass1)
         judge_metrics_pass2 = _judge_metrics(transcript, judge_prompt_pass2)
         try:
-            judge_raw_pass2, judge_debug_pass2 = _call_gemini_judge(
+            judge_raw_pass2, judge_debug_pass2 = _call_gemini_match_chat(
                 judge_prompt_pass2,
                 cfg.gemini_key,
-                judge_metrics=judge_metrics_pass2,
-                pass_label="judge_pass2",
                 timeout_s=JUDGE_PASS2_TIMEOUT_S,
                 retries=GEMINI_JUDGE_PASS2_RETRIES,
+                max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+                debug_context={**judge_metrics_pass2, "pass_label": "judge_pass2"},
+                error_cls=JudgeError,
             )
-            pass2 = _parse_judge_pass2_response(judge_raw_pass2)
+            try:
+                pass2 = _parse_judge_pass2_response(judge_raw_pass2)
+            except JudgeError as exc:
+                raise JudgeError(exc.reason, str(exc), debug={**judge_debug_pass2, **exc.debug})
             _log_judge_stage(
                 "judge-pass2-ok",
                 {
@@ -414,6 +426,7 @@ def _judge_summary_data(
                     "judge_request_url": judge_debug_pass2.get("request_url", _gemini_generate_content_url()),
                     "judge_request_body_shape": judge_debug_pass2.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(judge_debug_pass2.get("request_has_generation_config", True)),
+                    "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
                     "judge_stage": "judge_pass2",
                     "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
                     "judge_parse_success": True,
@@ -438,6 +451,7 @@ def _judge_summary_data(
                     "judge_request_url": exc.debug.get("request_url", _gemini_generate_content_url()),
                     "judge_request_body_shape": exc.debug.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(exc.debug.get("request_has_generation_config", True)),
+                    "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
                     "judge_stage": "judge_pass2",
                     "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
                     "judge_parse_success": False,
@@ -468,6 +482,7 @@ def _judge_summary_data(
                 "judge_request_url": judge_debug_pass2.get("request_url", _gemini_generate_content_url()),
                 "judge_request_body_shape": judge_debug_pass2.get("request_body_shape", "contents+generationConfig"),
                 "judge_request_has_generation_config": bool(judge_debug_pass2.get("request_has_generation_config", True)),
+                "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
                 "judge_stage": "judge_pass2",
                 "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
                 "judge_parse_success": True,
@@ -516,6 +531,7 @@ def _judge_summary_data(
                 "judge_request_url": exc.debug.get("request_url", _gemini_generate_content_url()),
                 "judge_request_body_shape": exc.debug.get("request_body_shape", "contents+generationConfig"),
                 "judge_request_has_generation_config": bool(exc.debug.get("request_has_generation_config", True)),
+                "judge_prompt_chars": int(exc.debug.get("judge_prompt_char_count", 0) or 0),
                 "judge_stage": str(exc.debug.get("pass_label", "") or provider_statuses["gemini"].get("judge_stage") or "judge_pass1"),
                 "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
                 "judge_parse_success": False,
@@ -546,6 +562,7 @@ def _judge_summary_data(
                 "judge_request_url": _gemini_generate_content_url(),
                 "judge_request_body_shape": "contents+generationConfig",
                 "judge_request_has_generation_config": True,
+                "judge_prompt_chars": int(judge_metrics_pass1.get("judge_prompt_char_count", 0) or 0),
                 "judge_stage": "",
                 "judge_raw_received": False,
                 "judge_parse_success": False,
@@ -773,27 +790,19 @@ def _judge_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcript: st
 
 def _judge_pass1_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcript: str) -> str:
     return (
-        "You are Judge Gemini Pass1 for a debate structure extraction UI.\n"
+        "You are Judge Gemini Pass1.\n"
         f"Topic: {cfg.topic}\n"
-        f"Side A position: {cfg.side_a}\n"
-        f"Side B position: {cfg.side_b}\n"
-        f"Turn count: {cfg.turn_count}\n"
-        "Task: make the fast primary judgment first.\n"
+        f"A: {cfg.side_a}\n"
+        f"B: {cfg.side_b}\n"
+        "Return fast primary judgment only.\n"
         "Respond entirely in natural Japanese.\n"
-        "Read the debate as a sequential exchange.\n"
-        "Do not do full structural analysis in this pass.\n"
-        "Return only the fast judgment core.\n"
-        "Before judging, identify the proposition constraints and check whether each side stays inside them.\n"
-        "Pay close attention to scope, timeframe, subject, and condition words in the original proposition.\n"
+        "Major rule: the side that stays closer to the original proposition has a strong advantage.\n"
         "The side that stays closer to the original proposition has a major advantage.\n"
-        "Reframing is allowed only if it still answers the original proposition.\n"
-        "Narrowing a broad subject such as humans into a few exceptional humans counts as scope shift.\n"
+        "Penalize subject narrowing, timeframe shift, condition swap, and answering a different question.\n"
         "Replacing 'as before' with 'still possible in some new way' counts as proposition drift.\n"
-        "Replacing short-term with long-term, or ordinary humans with rare elite humans, is a major penalty.\n"
-        "If a side escapes the proposition, swaps the condition, or answers a different question, that side should usually lose unless it clearly forces a better reading while still answering the original question.\n"
-        "If one side commits a major proposition violation and the other side explicitly exposes it, that should usually decide the match.\n"
-        "Reframing alone is not enough. The side must still answer the original question.\n"
-        "Return strict JSON only with this schema:\n"
+        "Proposition fidelity must weigh heavily in winner and momentum.\n"
+        "If one side commits a major proposition violation and the other side exposes it, that usually decides the match.\n"
+        "Return strict JSON only:\n"
         "{"
         "\"winner\":{\"side\":\"A|B|Draw\",\"reason\":\"...\"},"
         "\"reason_one_liner\":\"...\","
@@ -801,10 +810,7 @@ def _judge_pass1_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcri
         "\"momentum\":{\"a\":40,\"b\":60},"
         "\"turning_point_turn\":1"
         "}\n"
-        "- Winner and reason_one_liner must be short enough to scan in a few seconds.\n"
-        "- Momentum must reflect pressure, not truth.\n"
-        "- Only return the turn number for the turning point in this pass.\n"
-        "- Proposition fidelity must weigh heavily in winner and momentum, not just style or drama.\n"
+        "Keep winner/reason short. Momentum is pressure, not truth. Return only the turn number.\n"
         f"Transcript:\n{transcript}\n"
     )
 
@@ -1005,56 +1011,107 @@ def _call_gemini(prompt: str, api_key: str) -> str:
     return "\n".join(parts).strip()
 
 
-def _call_gemini_match_chat(prompt: str, api_key: str) -> tuple[str, dict[str, Any]]:
-    last_error: RuntimeError | None = None
-    max_output_tokens = GEMINI_ASK_MAX_OUTPUT_TOKENS
-    for attempt in range(1, GEMINI_ASK_RETRIES + 2):
+def _call_gemini_match_chat(
+    prompt: str,
+    api_key: str,
+    *,
+    timeout_s: int = ASK_TIMEOUT_S,
+    retries: int = GEMINI_ASK_RETRIES,
+    max_output_tokens: int = GEMINI_ASK_MAX_OUTPUT_TOKENS,
+    debug_context: dict[str, Any] | None = None,
+    error_cls: type[Exception] = RuntimeError,
+) -> tuple[str, dict[str, Any]]:
+    last_error: Exception | None = None
+    current_max_output_tokens = max_output_tokens
+    context = dict(debug_context or {})
+    pass_label = str(context.get("pass_label") or "")
+    for attempt in range(1, retries + 2):
         response, payload = _call_gemini_generate_content(
             prompt,
             api_key,
             temperature=0.15,
-            max_output_tokens=max_output_tokens,
-            timeout_s=ASK_TIMEOUT_S,
+            max_output_tokens=current_max_output_tokens,
+            timeout_s=timeout_s,
         )
         if not response.get("ok"):
             kind = str(response.get("error_kind") or "provider_error")
             status_code = response.get("status_code")
             message = str(response.get("exception_message") or "")
-            if kind == "timeout" and attempt < GEMINI_ASK_RETRIES + 1:
-                last_error = RuntimeError(message or "timeout")
+            reason = _classify_provider_reason(f"{kind}:{message}:{str(response.get('raw_body') or '')}")
+            debug = {
+                "attempt": attempt,
+                "retry_count": max(0, attempt - 1),
+                "status_code": status_code,
+                "latency_ms": response.get("latency_ms"),
+                "raw_body": response.get("raw_body", ""),
+                "provider_error": message or kind or reason,
+                "request_url": _gemini_generate_content_url(),
+                "request_variant": "contents_with_generation_config",
+                "request_body_shape": "contents+generationConfig",
+                "request_has_generation_config": True,
+                "model": GEMINI_MODEL,
+                "pass_label": pass_label,
+                **context,
+            }
+            if reason == "timeout" and attempt < retries + 1:
+                if error_cls is JudgeError:
+                    last_error = JudgeError(reason, message or "timeout", debug=debug)
+                else:
+                    last_error = error_cls(message or "timeout")
                 continue
+            if error_cls is JudgeError:
+                raise JudgeError(reason, message or kind or reason, debug=debug)
             if kind == "http_error":
-                raise RuntimeError(f"http_error:{status_code}:{str(response.get('raw_body') or '')[:400]}")
+                raise error_cls(f"http_error:{status_code}:{str(response.get('raw_body') or '')[:400]}")
             if kind == "network_error":
-                raise RuntimeError(f"network_error:{message}")
+                raise error_cls(f"network_error:{message}")
             if kind == "timeout":
-                raise RuntimeError(message or "timeout")
-            raise RuntimeError(f"{kind}:{message or str(response.get('raw_body') or '')[:400]}")
+                raise error_cls(message or "timeout")
+            raise error_cls(f"{kind}:{message or str(response.get('raw_body') or '')[:400]}")
         data = response.get("data")
         if not isinstance(data, dict):
-            raise RuntimeError("invalid_response_shape")
+            if error_cls is JudgeError:
+                raise JudgeError("schema_mismatch", "invalid_response_shape", debug={**context, "pass_label": pass_label})
+            raise error_cls("invalid_response_shape")
         finish_reason = _gemini_finish_reason(data)
         text = _extract_gemini_text(data)
         debug = {
             "finish_reason": finish_reason,
             "truncated": finish_reason == "MAX_TOKENS",
             "latency_ms": response.get("latency_ms"),
-            "max_output_tokens": max_output_tokens,
+            "max_output_tokens": current_max_output_tokens,
             "attempt": attempt,
             "request_url": _gemini_generate_content_url(),
             "request_variant": "contents_with_generation_config",
             "request_body_shape": "contents+generationConfig",
             "request_has_generation_config": True,
             "model": GEMINI_MODEL,
+            "pass_label": pass_label,
+            "judge_payload_char_count": len(json.dumps(payload, ensure_ascii=False)),
+            "status_code": response.get("status_code"),
+            "raw_body": response.get("raw_body", ""),
+            "model_version": data.get("modelVersion", ""),
+            "raw_text": text,
+            "retry_count": max(0, attempt - 1),
+            **context,
         }
-        if finish_reason == "MAX_TOKENS" and attempt < GEMINI_ASK_RETRIES + 1:
-            max_output_tokens *= 2
-            last_error = RuntimeError("truncated")
+        if not text.strip():
+            if error_cls is JudgeError:
+                raise JudgeError("empty_response", "gemini returned empty text", debug=debug)
+            raise error_cls("empty_response")
+        if finish_reason == "MAX_TOKENS" and attempt < retries + 1:
+            current_max_output_tokens *= 2
+            if error_cls is JudgeError:
+                last_error = JudgeError("truncated", "truncated", debug=debug)
+            else:
+                last_error = error_cls("truncated")
             continue
         return text.strip(), debug
     if last_error:
         raise last_error
-    raise RuntimeError("ask_match_failed")
+    if error_cls is JudgeError:
+        raise JudgeError("unknown", "gemini call failed", debug={**context, "pass_label": pass_label})
+    raise error_cls("ask_match_failed")
 
 
 def _judge_metrics(transcript: str, judge_prompt: str) -> dict[str, int]:
@@ -1062,72 +1119,6 @@ def _judge_metrics(transcript: str, judge_prompt: str) -> dict[str, int]:
         "transcript_char_count": len(str(transcript or "")),
         "judge_prompt_char_count": len(str(judge_prompt or "")),
     }
-
-
-def _call_gemini_judge(
-    prompt: str,
-    api_key: str,
-    *,
-    judge_metrics: dict[str, int] | None = None,
-    pass_label: str = "judge",
-    timeout_s: int = JUDGE_TIMEOUT_S,
-    retries: int = GEMINI_JUDGE_RETRIES,
-) -> tuple[str, dict[str, Any]]:
-    last_error: JudgeError | None = None
-    metrics = dict(judge_metrics or {})
-    for attempt in range(1, retries + 2):
-        response, payload = _call_gemini_generate_content(
-            prompt,
-            api_key,
-            temperature=0.15,
-            max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
-            timeout_s=timeout_s,
-        )
-        payload_char_count = len(json.dumps(payload, ensure_ascii=False))
-        data = response.get("data") if isinstance(response.get("data"), dict) else {}
-        finish_reason = _gemini_finish_reason(data)
-        debug = {
-            "model": GEMINI_MODEL,
-            "attempt": attempt,
-            "retry_count": max(0, attempt - 1),
-            "pass_label": pass_label,
-            "judge_payload_char_count": payload_char_count,
-            "status_code": response.get("status_code"),
-            "latency_ms": response.get("latency_ms"),
-            "raw_body": response.get("raw_body", ""),
-            "model_version": (data or {}).get("modelVersion", ""),
-            "finish_reason": finish_reason,
-            "provider_error": "",
-            "request_variant": "contents_with_generation_config",
-            "request_has_response_mime": False,
-            "request_url": _gemini_generate_content_url(),
-            "request_body_shape": "contents+generationConfig",
-            "request_has_generation_config": True,
-            **metrics,
-        }
-        if not response.get("ok"):
-            reason = _classify_provider_reason(
-                str(response.get("error_kind") or "") + ":" + str(response.get("exception_message") or "") + ":" + str(response.get("raw_body") or "")
-            )
-            debug.update(
-                {
-                    "exception_message": response.get("exception_message", ""),
-                    "error_kind": response.get("error_kind", ""),
-                    "provider_error": str(response.get("exception_message") or response.get("error_kind") or reason),
-                }
-            )
-            last_error = JudgeError(reason, str(response.get("exception_message") or response.get("error_kind") or reason), debug=debug)
-            if reason == "timeout" and attempt < retries + 1:
-                continue
-            raise last_error
-        text = _extract_gemini_text(data or {})
-        debug["raw_text"] = text
-        if not text.strip():
-            raise JudgeError("empty_response", "gemini returned empty text", debug=debug)
-        return text, debug
-    if last_error:
-        raise last_error
-    raise JudgeError("unknown", "gemini judge call failed")
 
 
 def _call_gemini_generate_content(
