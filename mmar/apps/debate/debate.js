@@ -426,6 +426,23 @@ function formatProviderToken(label, providerKey, providerStatuses) {
 }
 
 function normalizeSavedOutputMeta(savedOutputMeta) {
+  if (savedOutputMeta && typeof savedOutputMeta === "object") {
+    const judgeMode = String(savedOutputMeta.judge_mode || "").trim();
+    const judgeReason = String(savedOutputMeta.judge_reason || "").trim();
+    const judgeStage = String(savedOutputMeta.judge_stage || "").trim();
+    const judgeProvider = String(savedOutputMeta.judge_provider || "gemini").trim();
+    const judgeRaw = savedOutputMeta.judge_raw_received === true ? "raw:yes" : "raw:no";
+    const judgeParse = savedOutputMeta.judge_parse_success === true ? "parse:yes" : "parse:no";
+    const tokens = [
+      judgeProvider && `judge ${judgeProvider}`,
+      judgeMode,
+      judgeReason,
+      judgeStage && `@ ${judgeStage}`,
+      judgeRaw,
+      judgeParse,
+    ].filter(Boolean);
+    return tokens.join(" · ");
+  }
   const text = String(savedOutputMeta || "").trim();
   if (!text) return "";
   if (!text.includes("/")) return text;

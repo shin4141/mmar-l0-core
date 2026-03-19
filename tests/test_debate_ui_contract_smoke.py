@@ -140,6 +140,9 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert 'normalizeApiError("ask_match", response.status, data)' in js
     assert 'normalizeApiError("debate", response.status, data)' in js
     assert 'return `${endpointLabel} endpoint unavailable`;' in js
+    assert 'savedOutputMeta && typeof savedOutputMeta === "object"' in js
+    assert 'judgeRaw = savedOutputMeta.judge_raw_received === true ? "raw:yes" : "raw:no"' in js
+    assert 'judgeParse = savedOutputMeta.judge_parse_success === true ? "parse:yes" : "parse:no"' in js
     assert "status === 405" in js
     assert "status === 501" in js
     assert "判定理由が短く返っていません" not in js
