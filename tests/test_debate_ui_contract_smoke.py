@@ -120,6 +120,8 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "raw.quote_excerpt" in js
     assert "summary?.fatal_phrase" in js
     assert "summary?.turning_point" in js
+    assert "function stringifyTurningPointValue(value)" in js
+    assert "function fatalPhraseTextCandidate(value)" in js
     assert "summary?.gemini_takeaway" in js
     assert "summary?.gemini_quote" in js
     assert "summary?.contradiction_exposed" in js
@@ -135,10 +137,13 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "function toggleArchive(open)" in js
     assert "function filteredArchiveRecords(records, query, modeFilter)" in js
     assert "function buildOutputMeta(providerStatuses, turnCount, mode, savedOutputMeta = \"\", options = {})" in js
+    assert "function hasCompletedJudgePipeline(summary)" in js
+    assert "function providerStatusesForDisplay(providerStatuses, summary)" in js
     assert "const { preferSaved = false } = options;" in js
     assert "if (preferSaved && normalizedSavedOutputMeta) return normalizedSavedOutputMeta;" in js
+    assert "const providerStatuses = providerStatusesForDisplay(currentResult.provider_statuses || {}, debate.summary || {});" in js
     assert "currentLoadedRecord ? currentResult.output_meta || \"\" : \"\"" in js
-    assert "{ preferSaved: Boolean(currentLoadedRecord) }" in js
+    assert "{ preferSaved: Boolean(currentLoadedRecord) && !hasCompletedJudgePipeline(debate.summary || {}) }" in js
     assert 'endpointUrl("/api/ask_match")' in js
     assert 'return raw || window.location.origin;' in js
     assert 'normalizeApiError("ask_match", response.status, data)' in js
@@ -161,6 +166,7 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "currentJudgePass1" in js
     assert "currentJudgePass2" in js
     assert "currentStoryAlignReport" in js
+    assert "currentStoryAlignReport.ui_normalization" in js
     assert 'debug_constraint_report' in js
     assert 'debug_pass1' in js
     assert 'debug_pass2' in js

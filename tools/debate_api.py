@@ -73,6 +73,7 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
         "judge_request_body_shape": judge_info.get("judge_request_body_shape", ""),
         "judge_request_has_generation_config": bool(judge_info.get("judge_request_has_generation_config", False)),
         "judge_prompt_chars": int(judge_info.get("judge_prompt_chars", 0) or 0),
+        "judge_prompt_preview": str(judge_info.get("judge_prompt_preview", "") or ""),
         "judge_raw_received": bool(judge_info.get("judge_raw_received", False)),
         "judge_parse_success": bool(judge_info.get("judge_parse_success", False)),
     }
@@ -321,6 +322,7 @@ def _judge_summary_data(
             "judge_request_body_shape": "contents+generationConfig",
             "judge_request_has_generation_config": True,
             "judge_prompt_chars": 0,
+            "judge_prompt_preview": "",
             "judge_stage": "provider_select",
             "judge_raw_received": False,
             "judge_parse_success": False,
@@ -362,6 +364,7 @@ def _judge_summary_data(
                     "judge_request_body_shape": judge_debug_pass1.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(judge_debug_pass1.get("request_has_generation_config", True)),
                     "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
+                    "judge_prompt_preview": str(judge_debug_pass1.get("judge_prompt_preview", "") or ""),
                     "judge_stage": "judge_pass1",
                     "judge_raw_received": bool(str(judge_raw_pass1 or "").strip()),
                     "judge_parse_success": True,
@@ -387,6 +390,7 @@ def _judge_summary_data(
                     "judge_request_body_shape": exc.debug.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(exc.debug.get("request_has_generation_config", True)),
                     "judge_prompt_chars": int(exc.debug.get("judge_prompt_char_count", 0) or 0),
+                    "judge_prompt_preview": str(exc.debug.get("judge_prompt_preview", "") or ""),
                     "judge_stage": "judge_pass1",
                     "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
                     "judge_parse_success": False,
@@ -427,6 +431,7 @@ def _judge_summary_data(
                     "judge_request_body_shape": judge_debug_pass2.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(judge_debug_pass2.get("request_has_generation_config", True)),
                     "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
+                    "judge_prompt_preview": str(judge_debug_pass1.get("judge_prompt_preview", "") or ""),
                     "judge_stage": "judge_pass2",
                     "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
                     "judge_parse_success": True,
@@ -452,6 +457,7 @@ def _judge_summary_data(
                     "judge_request_body_shape": exc.debug.get("request_body_shape", "contents+generationConfig"),
                     "judge_request_has_generation_config": bool(exc.debug.get("request_has_generation_config", True)),
                     "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
+                    "judge_prompt_preview": str(judge_debug_pass1.get("judge_prompt_preview", "") or ""),
                     "judge_stage": "judge_pass2",
                     "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
                     "judge_parse_success": False,
@@ -483,6 +489,7 @@ def _judge_summary_data(
                 "judge_request_body_shape": judge_debug_pass2.get("request_body_shape", "contents+generationConfig"),
                 "judge_request_has_generation_config": bool(judge_debug_pass2.get("request_has_generation_config", True)),
                 "judge_prompt_chars": int(judge_debug_pass1.get("judge_prompt_char_count", 0) or 0),
+                "judge_prompt_preview": str(judge_debug_pass1.get("judge_prompt_preview", "") or ""),
                 "judge_stage": "judge_pass2",
                 "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
                 "judge_parse_success": True,
@@ -532,6 +539,7 @@ def _judge_summary_data(
                 "judge_request_body_shape": exc.debug.get("request_body_shape", "contents+generationConfig"),
                 "judge_request_has_generation_config": bool(exc.debug.get("request_has_generation_config", True)),
                 "judge_prompt_chars": int(exc.debug.get("judge_prompt_char_count", 0) or 0),
+                "judge_prompt_preview": str(exc.debug.get("judge_prompt_preview", "") or ""),
                 "judge_stage": str(exc.debug.get("pass_label", "") or provider_statuses["gemini"].get("judge_stage") or "judge_pass1"),
                 "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
                 "judge_parse_success": False,
@@ -563,6 +571,7 @@ def _judge_summary_data(
                 "judge_request_body_shape": "contents+generationConfig",
                 "judge_request_has_generation_config": True,
                 "judge_prompt_chars": int(judge_metrics_pass1.get("judge_prompt_char_count", 0) or 0),
+                "judge_prompt_preview": _prompt_preview(judge_prompt_pass1),
                 "judge_stage": "",
                 "judge_raw_received": False,
                 "judge_parse_success": False,
@@ -790,28 +799,17 @@ def _judge_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcript: st
 
 def _judge_pass1_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcript: str) -> str:
     return (
-        "You are Judge Gemini Pass1.\n"
+        "You are a debate judge.\n\n"
+        "Return JSON:\n"
+        "{"
+        "\"winner\":{\"side\":\"A or B\",\"reason\":\"\"},"
+        "\"confidence\":\"Low|Medium|High\""
+        "}\n\n"
+        "Debate:\n"
         f"Topic: {cfg.topic}\n"
         f"A: {cfg.side_a}\n"
         f"B: {cfg.side_b}\n"
-        "Return fast primary judgment only.\n"
-        "Respond entirely in natural Japanese.\n"
-        "Major rule: the side that stays closer to the original proposition has a strong advantage.\n"
-        "The side that stays closer to the original proposition has a major advantage.\n"
-        "Penalize subject narrowing, timeframe shift, condition swap, and answering a different question.\n"
-        "Replacing 'as before' with 'still possible in some new way' counts as proposition drift.\n"
-        "Proposition fidelity must weigh heavily in winner and momentum.\n"
-        "If one side commits a major proposition violation and the other side exposes it, that usually decides the match.\n"
-        "Return strict JSON only:\n"
-        "{"
-        "\"winner\":{\"side\":\"A|B|Draw\",\"reason\":\"...\"},"
-        "\"reason_one_liner\":\"...\","
-        "\"confidence\":\"Low|Medium|High\","
-        "\"momentum\":{\"a\":40,\"b\":60},"
-        "\"turning_point_turn\":1"
-        "}\n"
-        "Keep winner/reason short. Momentum is pressure, not truth. Return only the turn number.\n"
-        f"Transcript:\n{transcript}\n"
+        f"{transcript}\n"
     )
 
 
@@ -938,6 +936,11 @@ def _format_saved_transcript(turns: list[Any]) -> str:
         lines.append(f"Turn {turn_no} A: {_clean_text(turn.get('a') or '')}")
         lines.append(f"Turn {turn_no} B: {_clean_text(turn.get('b') or '')}")
     return "\n".join(lines).strip() or "(no transcript)"
+
+
+def _prompt_preview(prompt: str, limit: int = 200) -> str:
+    text = str(prompt or "").strip().replace("\n", "\\n")
+    return text[:limit]
 
 
 def _gemini_generate_content_url() -> str:

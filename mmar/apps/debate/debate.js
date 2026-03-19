@@ -171,31 +171,63 @@ function normalizeArrayValue(value) {
   return String(value ?? "未生成");
 }
 
+function stringifyTurningPointValue(value) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const candidates = [
+    value.text,
+    value.summary,
+    value.explanation,
+    value.reason,
+    value.why,
+    value.value,
+  ].filter(Boolean).map((item) => String(item).trim()).filter(Boolean);
+  return candidates[0] || "";
+}
+
+function fatalPhraseTextCandidate(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  return [
+    value.text,
+    value.quote_excerpt,
+    value.quote,
+    value.excerpt,
+    value.raw_text,
+    value.reason,
+  ].filter(Boolean).map((item) => String(item).trim()).find(Boolean) || "";
+}
+
 function normalizeFatalPhrase(summary) {
   const value = summary?.fatal_phrase;
-  const winnerSide = normalizeWinner(summary).side;
   const turning = normalizeTurningPoint(summary);
   if (!value) {
     return {
       turn: extractTurnNumber(turning.turn) || 3,
-      speaker: winnerSide === "Draw" ? "A/B" : "?",
-      quote: winnerSide === "Draw" ? "「単独の決定打はなかったが、この応酬が最も勝負を動かした。」" : "「この場面で相手の穴が最もはっきり見えた。」",
-      why: winnerSide === "Draw" ? "流れは動いたが、どちらもここから決め切れなかった。" : "この場面で勝敗の傾きが固まった。",
+      speaker: "?",
+      quote: "",
+      why: "",
+      _debug_source: "blank",
+      _debug_template_applied: false,
     };
   }
   if (typeof value === "string") {
     return {
       turn: extractTurnNumber(turning.turn) || 3,
-      speaker: winnerSide === "Draw" ? "A/B" : "?",
+      speaker: "?",
       quote: `「${value}」`,
-      why: winnerSide === "Draw" ? "この応酬が最も流れを動かした。" : "この一文が勝敗の傾きを決めた。",
+      why: "",
+      _debug_source: "string",
+      _debug_template_applied: false,
     };
   }
+  const text = fatalPhraseTextCandidate(value);
   return {
     turn: Number(value.turn) || extractTurnNumber(turning.turn) || 3,
-    speaker: value.speaker || (winnerSide === "Draw" ? "A/B" : "?"),
-    quote: value.text ? `「${value.text}」` : (winnerSide === "Draw" ? "「単独の決定打はなかったが、この応酬が最も勝負を動かした。」" : "「この場面で相手の穴が最もはっきり見えた。」"),
-    why: value.reason || (winnerSide === "Draw" ? "流れは動いたが、どちらもここから決め切れなかった。" : "この一文が勝敗の傾きを決めた。"),
+    speaker: value.speaker || "?",
+    quote: text ? `「${text.replace(/^「|」$/g, "")}」` : "",
+    why: String(value.reason || value.explanation || value.summary || "").trim(),
+    _debug_source: text ? (value.text ? "text" : "backfilled") : "blank",
+    _debug_template_applied: false,
   };
 }
 
@@ -273,10 +305,12 @@ function normalizeWeakSpot(summary) {
 function normalizeTurningPoint(value) {
   const raw = typeof value === "object" && !Array.isArray(value) && value?.turning_point ? value.turning_point : value;
   const winnerSide = typeof value === "object" && !Array.isArray(value) ? normalizeWinner(value).side : "Draw";
-  const turn = extractTurnNumber(raw);
+  const summary = stringifyTurningPointValue(raw);
+  const turn = extractTurnNumber(summary || raw);
   return {
     turn: turn ? `Turn ${turn}` : "Turn ?",
-    summary: raw ? normalizeArrayValue(raw) : (winnerSide === "Draw" ? "流れは動いたが、どちらも決定打を最後まで押し切れなかった。" : "流れが変わった場所は見えている。"),
+    summary: summary || (typeof raw === "string" ? normalizeArrayValue(raw) : "") || (winnerSide === "Draw" ? "流れは動いたが、どちらも決定打を最後まで押し切れなかった。" : "流れが変わった場所は見えている。"),
+    _debug_source: summary ? "object" : (typeof raw === "string" && raw ? "string" : "template"),
   };
 }
 
@@ -401,6 +435,27 @@ function providerBadgeLabel(providerStatuses) {
   const bMode = providerModeForSide(providers, currentFighters.b);
   const jMode = providerModeForSide(providers, currentFighters.judge);
   return `A:${aMode} B:${bMode} J:${jMode}`;
+}
+
+function hasCompletedJudgePipeline(summary) {
+  return Boolean(summary?.debug_pass1 && summary?.debug_pass2 && summary?.debug_story_align_report);
+}
+
+function providerStatusesForDisplay(providerStatuses, summary) {
+  const next = {
+    ...(providerStatuses || {}),
+    openai: { ...(providerStatuses?.openai || {}) },
+    anthropic: { ...(providerStatuses?.anthropic || {}) },
+    gemini: { ...(providerStatuses?.gemini || {}) },
+  };
+  if (hasCompletedJudgePipeline(summary)) {
+    next.gemini = {
+      ...(next.gemini || {}),
+      mode: "live",
+      reason: "",
+    };
+  }
+  return next;
 }
 
 function classifyProviderIssue(mode, reason) {
@@ -1314,6 +1369,13 @@ function renderSummary(summary) {
   const flipCondition = composeFlipCondition(winner, weakSpot, why);
   const takeaway = normalizeGeminiTakeaway(summary, topic);
   const geminiQuote = normalizeGeminiQuote(summary);
+  if (currentStoryAlignReport) {
+    currentStoryAlignReport.ui_normalization = {
+      turning_point_source: turning._debug_source || "",
+      fatal_phrase_source: fatal._debug_source || "",
+      fatal_phrase_template_applied: Boolean(fatal._debug_template_applied),
+    };
+  }
   const keyDisagreements = normalizeDetailList(summary?.key_disagreement_top3);
   const unresolvedResidue = normalizeDetailList(summary?.unresolved_residue);
   const fullRationale = summary?.full_rationale || summary?.provisional_judgment || "";
@@ -1602,7 +1664,7 @@ function refreshOutput() {
   const debate = currentResult.debate || {};
   const turns = Array.isArray(debate.turns) ? debate.turns : [];
   const mode = currentResult.mode || "unknown";
-  const providerStatuses = currentResult.provider_statuses || {};
+  const providerStatuses = providerStatusesForDisplay(currentResult.provider_statuses || {}, debate.summary || {});
   topicDisplayEl.textContent = debate.topic || "Topic";
   setRunMeta(analysisHidden ? "Generating..." : "Judging...", false);
   outputMetaEl.textContent = buildOutputMeta(
@@ -1610,7 +1672,7 @@ function refreshOutput() {
     turns.length,
     mode,
     currentLoadedRecord ? currentResult.output_meta || "" : "",
-    { preferSaved: Boolean(currentLoadedRecord) },
+    { preferSaved: Boolean(currentLoadedRecord) && !hasCompletedJudgePipeline(debate.summary || {}) },
   );
   renderTurns(turns, debate.summary || {}, !analysisHidden);
 

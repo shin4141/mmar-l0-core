@@ -29,6 +29,7 @@ def test_run_debate_mock_minimum_shape():
     assert result["judge_meta"]["judge_request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
     assert result["judge_meta"]["judge_raw_received"] is False
     assert result["judge_meta"]["judge_parse_success"] is False
+    assert result["judge_meta"]["judge_prompt_preview"] == ""
     assert result["output_meta"] == result["judge_meta"]
 
     debate = result["debate"]
@@ -132,6 +133,7 @@ def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
     assert result["judge_meta"]["judge_raw_received"] is True
     assert result["judge_meta"]["judge_parse_success"] is False
     assert result["judge_meta"]["judge_prompt_chars"] == 24
+    assert result["judge_meta"]["judge_prompt_preview"] == ""
 
 
 def test_turn1_b_prompt_does_not_read_turn1_a(monkeypatch):
@@ -187,7 +189,7 @@ def test_debate_prompts_require_japanese():
     judge = _judge_prompt(Cfg, debate["turns"], "Turn 1 A: ...")
 
     assert "Respond entirely in natural Japanese." in speaker
-    assert "Respond entirely in natural Japanese." in judge
+    assert "You are a debate judge." in judge
     assert "Never describe your debate strategy." in speaker
     assert "Do not explain how you will attack. Just attack." in speaker
 
@@ -203,8 +205,8 @@ def test_judge_two_pass_prompts_split_fast_verdict_and_structure():
     pass1 = _judge_pass1_prompt(Cfg, [], transcript)
     pass2 = _judge_pass2_prompt(Cfg, [], transcript, {"winner": {"side": "B"}, "reason_one_liner": "Bが押した。", "momentum": {"a": 40, "b": 60}, "turning_point_turn": 4})
 
-    assert "fast primary judgment" in pass1
-    assert "\"turning_point_turn\":1" in pass1
+    assert "You are a debate judge." in pass1
+    assert "\"confidence\":\"Low|Medium|High\"" in pass1
     assert "\"fatal_phrase\"" not in pass1
     assert "Use the primary judgment below as the fixed baseline." in pass2
     assert "\"fatal_phrase\"" in pass2
@@ -214,15 +216,8 @@ def test_judge_two_pass_prompts_split_fast_verdict_and_structure():
     assert "\"gemini_quote\"" in pass2
     assert "maximum 12 Japanese words" in pass2
     assert "The quote should sound like something a spectator remembers." in pass2
-    assert "The side that stays closer to the original proposition has a major advantage." in pass1
-    assert "Replacing 'as before' with 'still possible in some new way' counts as proposition drift." in pass1
-    assert "Proposition fidelity must weigh heavily in winner and momentum" in pass1
-    assert "If one side commits a major proposition violation and the other side exposes it, that usually decides the match." in pass1
     assert "Also use proposition-constraint labels when needed: 命題逸脱, 主語の縮小, 時間軸ずらし, 条件すり替え, 問いの再発明." in pass2
     assert "If one side changes 'humans' into exceptional humans, 'short-term' into long-term" in pass2
-    assert "The side that stays closer to the original proposition has a major advantage." in pass1
-    assert "Replacing 'as before' with 'still possible in some new way' counts as proposition drift." in pass1
-    assert "Proposition fidelity must weigh heavily in winner and momentum" in pass1
     assert "Also use proposition-constraint labels when needed: 命題逸脱, 主語の縮小, 時間軸ずらし, 条件すり替え, 問いの再発明." in pass2
     assert "If one side changes 'humans' into exceptional humans, 'short-term' into long-term" in pass2
 
