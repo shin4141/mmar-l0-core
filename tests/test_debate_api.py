@@ -1,4 +1,4 @@
-from tools.debate_api import _ask_match_prompt, _call_gemini_match_chat, _call_gemini_judge, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
+from tools.debate_api import _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _call_gemini_judge, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
 from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 
 
@@ -540,6 +540,51 @@ def test_call_gemini_judge_uses_same_shape_as_ask_payload(monkeypatch):
     assert debug["request_has_generation_config"] is True
     assert debug["request_has_response_mime"] is False
     assert debug["request_url"].endswith("/v1beta/models/gemini-1.5-flash:generateContent")
+
+
+def test_ask_and_judge_share_same_gemini_generate_content_helper(monkeypatch):
+    calls = []
+
+    def fake_generate(prompt, api_key, *, temperature, max_output_tokens, timeout_s):
+        calls.append(
+            {
+                "prompt": prompt,
+                "temperature": temperature,
+                "max_output_tokens": max_output_tokens,
+                "timeout_s": timeout_s,
+            }
+        )
+        return (
+            {
+                "ok": True,
+                "status_code": 200,
+                "latency_ms": 12,
+                "raw_body": "",
+                "data": {
+                    "candidates": [
+                        {
+                            "finishReason": "STOP",
+                            "content": {"parts": [{"text": '{"winner":{"side":"B","reason":"Bが押した。"},"reasonOneLiner":"Bが押した。","turningPointTurn":4}'}]},
+                        }
+                    ]
+                },
+            },
+            {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": temperature, "maxOutputTokens": max_output_tokens},
+            },
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_generate_content", fake_generate)
+
+    _call_gemini_match_chat("ask prompt", "gm-test")
+    _call_gemini_judge("judge prompt", "gm-test", pass_label="judge_pass1", retries=0)
+
+    assert len(calls) == 2
+    assert calls[0]["temperature"] == 0.15
+    assert calls[1]["temperature"] == 0.15
+    assert calls[0]["max_output_tokens"] == 2048
+    assert calls[1]["max_output_tokens"] == 4096
 
 
 def test_parse_judge_pass1_response_extracts_fast_judgment():

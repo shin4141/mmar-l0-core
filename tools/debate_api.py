@@ -1006,19 +1006,16 @@ def _call_gemini(prompt: str, api_key: str) -> str:
 
 
 def _call_gemini_match_chat(prompt: str, api_key: str) -> tuple[str, dict[str, Any]]:
-    query = parse.urlencode({"key": api_key})
-    url = f"{_gemini_generate_content_url()}?{query}"
     last_error: RuntimeError | None = None
     max_output_tokens = GEMINI_ASK_MAX_OUTPUT_TOKENS
     for attempt in range(1, GEMINI_ASK_RETRIES + 2):
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.15,
-                "maxOutputTokens": max_output_tokens,
-            },
-        }
-        response = _post_json_verbose(url, payload, headers={}, timeout_s=ASK_TIMEOUT_S)
+        response, payload = _call_gemini_generate_content(
+            prompt,
+            api_key,
+            temperature=0.15,
+            max_output_tokens=max_output_tokens,
+            timeout_s=ASK_TIMEOUT_S,
+        )
         if not response.get("ok"):
             kind = str(response.get("error_kind") or "provider_error")
             status_code = response.get("status_code")
@@ -1046,6 +1043,8 @@ def _call_gemini_match_chat(prompt: str, api_key: str) -> tuple[str, dict[str, A
             "attempt": attempt,
             "request_url": _gemini_generate_content_url(),
             "request_variant": "contents_with_generation_config",
+            "request_body_shape": "contents+generationConfig",
+            "request_has_generation_config": True,
             "model": GEMINI_MODEL,
         }
         if finish_reason == "MAX_TOKENS" and attempt < GEMINI_ASK_RETRIES + 1:
@@ -1074,20 +1073,17 @@ def _call_gemini_judge(
     timeout_s: int = JUDGE_TIMEOUT_S,
     retries: int = GEMINI_JUDGE_RETRIES,
 ) -> tuple[str, dict[str, Any]]:
-    query = parse.urlencode({"key": api_key})
-    url = f"{_gemini_generate_content_url()}?{query}"
     last_error: JudgeError | None = None
     metrics = dict(judge_metrics or {})
     for attempt in range(1, retries + 2):
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.15,
-                "maxOutputTokens": GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
-            },
-        }
+        response, payload = _call_gemini_generate_content(
+            prompt,
+            api_key,
+            temperature=0.15,
+            max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+            timeout_s=timeout_s,
+        )
         payload_char_count = len(json.dumps(payload, ensure_ascii=False))
-        response = _post_json_verbose(url, payload, headers={}, timeout_s=timeout_s)
         data = response.get("data") if isinstance(response.get("data"), dict) else {}
         finish_reason = _gemini_finish_reason(data)
         debug = {
@@ -1132,6 +1128,27 @@ def _call_gemini_judge(
     if last_error:
         raise last_error
     raise JudgeError("unknown", "gemini judge call failed")
+
+
+def _call_gemini_generate_content(
+    prompt: str,
+    api_key: str,
+    *,
+    temperature: float,
+    max_output_tokens: int,
+    timeout_s: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    query = parse.urlencode({"key": api_key})
+    url = f"{_gemini_generate_content_url()}?{query}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_output_tokens,
+        },
+    }
+    response = _post_json_verbose(url, payload, headers={}, timeout_s=timeout_s)
+    return response, payload
 
 
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
