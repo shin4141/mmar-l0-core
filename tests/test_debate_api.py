@@ -18,8 +18,13 @@ def test_run_debate_mock_minimum_shape():
     assert result["provider_statuses"]["openai"]["mode"] == "mock"
     assert result["provider_statuses"]["anthropic"]["mode"] == "mock"
     assert result["provider_statuses"]["gemini"]["mode"] == "mock"
-    assert result["judge_meta"]["mode"] == "mock"
-    assert result["judge_meta"]["reason"] == "api key missing"
+    assert result["judge_meta"]["judge_mode"] == "mock"
+    assert result["judge_meta"]["judge_reason"] == "api key missing"
+    assert result["judge_meta"]["judge_stage"] == "provider_select"
+    assert result["judge_meta"]["judge_provider"] == "gemini"
+    assert result["judge_meta"]["judge_raw_received"] is False
+    assert result["judge_meta"]["judge_parse_success"] is False
+    assert result["output_meta"] == result["judge_meta"]
 
     debate = result["debate"]
     assert debate["turn_count"] == 3
@@ -63,7 +68,8 @@ def test_run_debate_allows_single_provider_live(monkeypatch):
     assert result["provider_statuses"]["openai"]["mode"] == "live"
     assert result["provider_statuses"]["anthropic"]["mode"] == "mock"
     assert result["provider_statuses"]["gemini"]["mode"] == "mock"
-    assert result["judge_meta"]["mode"] == "mock"
+    assert result["judge_meta"]["judge_mode"] == "mock"
+    assert result["judge_meta"]["judge_reason"] == "api key missing"
     assert result["debate"]["turns"][0]["a"] == "OpenAI live turn"
 
 
@@ -108,8 +114,12 @@ def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
     assert "[judge-pass2-fail]" in out
     assert "[judge-fallback]" in out
     assert result["provider_statuses"]["gemini"]["mode"] == "mock-fallback"
-    assert result["judge_meta"]["mode"] == "mock-fallback"
-    assert result["judge_meta"]["reason"] == "schema_mismatch"
+    assert result["judge_meta"]["judge_mode"] == "mock-fallback"
+    assert result["judge_meta"]["judge_reason"] == "schema_mismatch"
+    assert result["judge_meta"]["judge_stage"] == "judge_pass2"
+    assert result["judge_meta"]["judge_provider"] == "gemini"
+    assert result["judge_meta"]["judge_raw_received"] is True
+    assert result["judge_meta"]["judge_parse_success"] is False
 
 
 def test_turn1_b_prompt_does_not_read_turn1_a(monkeypatch):
@@ -476,6 +486,55 @@ def test_call_gemini_judge_reports_payload_and_retry_metadata(monkeypatch):
     assert debug["transcript_char_count"] == 12
     assert debug["judge_prompt_char_count"] == 24
     assert calls[0]["generationConfig"]["maxOutputTokens"] < calls[1]["generationConfig"]["maxOutputTokens"]
+
+
+def test_call_gemini_judge_retries_without_response_mime_on_bad_request(monkeypatch):
+    responses = [
+        {
+            "ok": False,
+            "error_kind": "http_error",
+            "status_code": 400,
+            "latency_ms": 111,
+            "raw_body": '{"error":{"message":"Invalid JSON mode"}}',
+            "exception_message": "HTTP Error 400: Bad Request",
+        },
+        {
+            "ok": True,
+            "latency_ms": 222,
+            "status_code": 200,
+            "raw_body": "",
+            "data": {
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": '{"winner":{"side":"B","reason":"Bが押した。"},"reasonOneLiner":"Bが押した。","turningPointTurn":4}'}]},
+                    }
+                ]
+            },
+        },
+    ]
+    calls = []
+
+    def fake_post(url, payload, headers, *, timeout_s):
+        calls.append(payload)
+        return responses.pop(0)
+
+    monkeypatch.setattr("tools.debate_api._post_json_verbose", fake_post)
+
+    text, debug = _call_gemini_judge(
+        "judge prompt",
+        "gm-test",
+        judge_metrics={"transcript_char_count": 12, "judge_prompt_char_count": 24},
+        pass_label="judge_pass1",
+        timeout_s=60,
+        retries=0,
+    )
+
+    assert '"winner"' in text
+    assert calls[0]["generationConfig"]["responseMimeType"] == "application/json"
+    assert "responseMimeType" not in calls[1]["generationConfig"]
+    assert debug["request_variant"] == "plain_text_retry"
+    assert debug["request_has_response_mime"] is False
 
 
 def test_parse_judge_pass1_response_extracts_fast_judgment():

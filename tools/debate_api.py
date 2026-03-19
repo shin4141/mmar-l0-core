@@ -62,14 +62,20 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
     debate, provider_statuses = _run_debate_with_provider_fallbacks(cfg)
     warning = _build_warning(provider_statuses)
     judge_info = provider_statuses.get("gemini", {})
+    judge_meta = {
+        "judge_mode": judge_info.get("mode", ""),
+        "judge_reason": judge_info.get("reason", ""),
+        "judge_stage": judge_info.get("judge_stage", ""),
+        "judge_provider": judge_info.get("judge_provider", "gemini"),
+        "judge_raw_received": bool(judge_info.get("judge_raw_received", False)),
+        "judge_parse_success": bool(judge_info.get("judge_parse_success", False)),
+    }
     return {
         "ok": True,
         "mode": _derive_mode(provider_statuses),
         "warning": warning,
-        "judge_meta": {
-            "mode": judge_info.get("mode", ""),
-            "reason": judge_info.get("reason", ""),
-        },
+        "judge_meta": judge_meta,
+        "output_meta": judge_meta,
         "provider_statuses": provider_statuses,
         "debate": debate,
     }
@@ -225,7 +231,13 @@ def _initial_provider_statuses(cfg: DebateConfig) -> dict[str, dict[str, str]]:
     return {
         "openai": _provider_entry("live-ready" if cfg.openai_key else "mock", "api key missing" if not cfg.openai_key else ""),
         "anthropic": _provider_entry("live-ready" if cfg.anthropic_key else "mock", "api key missing" if not cfg.anthropic_key else ""),
-        "gemini": _provider_entry("live-ready" if cfg.gemini_key else "mock", "api key missing" if not cfg.gemini_key else ""),
+        "gemini": {
+            **_provider_entry("live-ready" if cfg.gemini_key else "mock", "api key missing" if not cfg.gemini_key else ""),
+            "judge_provider": "gemini",
+            "judge_stage": "provider_select",
+            "judge_raw_received": False,
+            "judge_parse_success": False,
+        },
     }
 
 
@@ -293,7 +305,13 @@ def _judge_summary_data(
         },
     )
     if not cfg.gemini_key:
-        provider_statuses["gemini"] = _provider_entry("mock", "api key missing")
+        provider_statuses["gemini"] = {
+            **_provider_entry("mock", "api key missing"),
+            "judge_provider": "gemini",
+            "judge_stage": "provider_select",
+            "judge_raw_received": False,
+            "judge_parse_success": False,
+        }
         _log_judge_stage("judge-fallback", {"reason": "api key missing", "stage": "provider_select"})
         return fallback
     judge_prompt_pass1 = _judge_pass1_prompt(cfg, turns, transcript)
@@ -318,6 +336,14 @@ def _judge_summary_data(
                     "finish_reason": judge_debug_pass1.get("finish_reason", ""),
                 },
             )
+            provider_statuses["gemini"].update(
+                {
+                    "judge_provider": "gemini",
+                    "judge_stage": "judge_pass1",
+                    "judge_raw_received": bool(str(judge_raw_pass1 or "").strip()),
+                    "judge_parse_success": True,
+                }
+            )
         except JudgeError as exc:
             _log_judge_stage(
                 "judge-pass1-fail",
@@ -328,6 +354,14 @@ def _judge_summary_data(
                     "reason": exc.reason,
                     "provider_error": exc.debug.get("provider_error", ""),
                 },
+            )
+            provider_statuses["gemini"].update(
+                {
+                    "judge_provider": "gemini",
+                    "judge_stage": "judge_pass1",
+                    "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
+                    "judge_parse_success": False,
+                }
             )
             raise
         judge_prompt_pass2 = _judge_pass2_prompt(cfg, turns, transcript, pass1)
@@ -351,6 +385,14 @@ def _judge_summary_data(
                     "finish_reason": judge_debug_pass2.get("finish_reason", ""),
                 },
             )
+            provider_statuses["gemini"].update(
+                {
+                    "judge_provider": "gemini",
+                    "judge_stage": "judge_pass2",
+                    "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
+                    "judge_parse_success": True,
+                }
+            )
         except JudgeError as exc:
             _log_judge_stage(
                 "judge-pass2-fail",
@@ -361,6 +403,14 @@ def _judge_summary_data(
                     "reason": exc.reason,
                     "provider_error": exc.debug.get("provider_error", ""),
                 },
+            )
+            provider_statuses["gemini"].update(
+                {
+                    "judge_provider": "gemini",
+                    "judge_stage": "judge_pass2",
+                    "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
+                    "judge_parse_success": False,
+                }
             )
             raise
         summary = _normalize_summary(
@@ -378,7 +428,15 @@ def _judge_summary_data(
                 "key_disagreement_top3": fallback.get("key_disagreement_top3") or ["未生成"],
             }
         )
-        provider_statuses["gemini"] = _provider_entry("live", "")
+        provider_statuses["gemini"].update(
+            {
+                **_provider_entry("live", ""),
+                "judge_provider": "gemini",
+                "judge_stage": "judge_pass2",
+                "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
+                "judge_parse_success": True,
+            }
+        )
         _record_gemini_judge_debug(
             {
                 "status": "live",
@@ -413,7 +471,15 @@ def _judge_summary_data(
         _log_gemini_judge_event("judge_pass2", judge_debug_pass2)
         return summary
     except JudgeError as exc:
-        provider_statuses["gemini"] = _provider_entry("mock-fallback", exc.reason)
+        provider_statuses["gemini"].update(
+            {
+                **_provider_entry("mock-fallback", exc.reason),
+                "judge_provider": "gemini",
+                "judge_stage": str(exc.debug.get("pass_label", "") or provider_statuses["gemini"].get("judge_stage") or "judge_pass1"),
+                "judge_raw_received": bool(str(exc.debug.get("raw_text") or "").strip()),
+                "judge_parse_success": False,
+            }
+        )
         debug = {
             "status": "mock-fallback",
             "reason": exc.reason,
@@ -430,7 +496,15 @@ def _judge_summary_data(
         return fallback
     except Exception as exc:
         reason = _classify_provider_reason(str(exc))
-        provider_statuses["gemini"] = _provider_entry("mock-fallback", reason)
+        provider_statuses["gemini"].update(
+            {
+                **_provider_entry("mock-fallback", reason),
+                "judge_provider": "gemini",
+                "judge_stage": "",
+                "judge_raw_received": False,
+                "judge_parse_success": False,
+            }
+        )
         debug = {
             "status": "mock-fallback",
             "reason": reason,
@@ -953,56 +1027,63 @@ def _call_gemini_judge(
     max_output_tokens = GEMINI_JUDGE_MAX_OUTPUT_TOKENS
     metrics = dict(judge_metrics or {})
     for attempt in range(1, retries + 2):
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
+        for variant in ("json_mime", "plain_text_retry"):
+            generation_config = {
                 "temperature": 0.1,
-                "responseMimeType": "application/json",
                 "maxOutputTokens": max_output_tokens,
-            },
-        }
-        payload_char_count = len(json.dumps(payload, ensure_ascii=False))
-        response = _post_json_verbose(url, payload, headers={}, timeout_s=timeout_s)
-        data = response.get("data") if isinstance(response.get("data"), dict) else {}
-        finish_reason = _gemini_finish_reason(data)
-        debug = {
-            "model": GEMINI_MODEL,
-            "attempt": attempt,
-            "retry_count": max(0, attempt - 1),
-            "pass_label": pass_label,
-            "max_output_tokens": max_output_tokens,
-            "judge_payload_char_count": payload_char_count,
-            "status_code": response.get("status_code"),
-            "latency_ms": response.get("latency_ms"),
-            "raw_body": response.get("raw_body", ""),
-            "model_version": (data or {}).get("modelVersion", ""),
-            "finish_reason": finish_reason,
-            "provider_error": "",
-            **metrics,
-        }
-        if not response.get("ok"):
-            reason = _classify_provider_reason(
-                str(response.get("error_kind") or "") + ":" + str(response.get("exception_message") or "")
-            )
-            debug.update(
-                {
-                    "exception_message": response.get("exception_message", ""),
-                    "error_kind": response.get("error_kind", ""),
-                    "provider_error": str(response.get("exception_message") or response.get("error_kind") or reason),
-                }
-            )
-            last_error = JudgeError(reason, str(response.get("exception_message") or response.get("error_kind") or reason), debug=debug)
-            if reason == "timeout" and attempt < retries + 1:
-                continue
-            raise last_error
-        text = _extract_gemini_text(data or {})
-        debug["raw_text"] = text
-        if finish_reason == "MAX_TOKENS" and attempt < retries + 1:
-            max_output_tokens *= 2
-            continue
-        if not text.strip():
-            raise JudgeError("empty_response", "gemini returned empty text", debug=debug)
-        return text, debug
+            }
+            if variant == "json_mime":
+                generation_config["responseMimeType"] = "application/json"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": generation_config,
+            }
+            payload_char_count = len(json.dumps(payload, ensure_ascii=False))
+            response = _post_json_verbose(url, payload, headers={}, timeout_s=timeout_s)
+            data = response.get("data") if isinstance(response.get("data"), dict) else {}
+            finish_reason = _gemini_finish_reason(data)
+            debug = {
+                "model": GEMINI_MODEL,
+                "attempt": attempt,
+                "retry_count": max(0, attempt - 1),
+                "pass_label": pass_label,
+                "max_output_tokens": max_output_tokens,
+                "judge_payload_char_count": payload_char_count,
+                "status_code": response.get("status_code"),
+                "latency_ms": response.get("latency_ms"),
+                "raw_body": response.get("raw_body", ""),
+                "model_version": (data or {}).get("modelVersion", ""),
+                "finish_reason": finish_reason,
+                "provider_error": "",
+                "request_variant": variant,
+                "request_has_response_mime": variant == "json_mime",
+                **metrics,
+            }
+            if not response.get("ok"):
+                reason = _classify_provider_reason(
+                    str(response.get("error_kind") or "") + ":" + str(response.get("exception_message") or "") + ":" + str(response.get("raw_body") or "")
+                )
+                debug.update(
+                    {
+                        "exception_message": response.get("exception_message", ""),
+                        "error_kind": response.get("error_kind", ""),
+                        "provider_error": str(response.get("exception_message") or response.get("error_kind") or reason),
+                    }
+                )
+                last_error = JudgeError(reason, str(response.get("exception_message") or response.get("error_kind") or reason), debug=debug)
+                if reason == "bad_request" and variant == "json_mime":
+                    continue
+                if reason == "timeout" and attempt < retries + 1:
+                    break
+                raise last_error
+            text = _extract_gemini_text(data or {})
+            debug["raw_text"] = text
+            if finish_reason == "MAX_TOKENS" and attempt < retries + 1:
+                max_output_tokens *= 2
+                break
+            if not text.strip():
+                raise JudgeError("empty_response", "gemini returned empty text", debug=debug)
+            return text, debug
     if last_error:
         raise last_error
     raise JudgeError("unknown", "gemini judge call failed")
