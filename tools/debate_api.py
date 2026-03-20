@@ -17,6 +17,7 @@ GEMINI_MODEL = os.getenv("MMAR_DEBATE_GEMINI_MODEL", "gemini-1.5-flash")
 REQUEST_TIMEOUT_S = 45
 JUDGE_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_JUDGE_TIMEOUT_S", "120"))
 GEMINI_JUDGE_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_GEMINI_MAX_OUTPUT_TOKENS", "4096"))
+GEMINI_JUDGE_PASS1_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_GEMINI_PASS1_MAX_OUTPUT_TOKENS", "512"))
 GEMINI_JUDGE_RETRIES = int(os.getenv("MMAR_DEBATE_GEMINI_RETRIES", "1"))
 JUDGE_PASS1_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_JUDGE_PASS1_TIMEOUT_S", "60"))
 JUDGE_PASS2_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_JUDGE_PASS2_TIMEOUT_S", "90"))
@@ -333,12 +334,13 @@ def _judge_summary_data(
     judge_metrics_pass1 = _judge_metrics(transcript, judge_prompt_pass1)
     try:
         try:
+            print("[DEBUG] entering judge_pass1")
             judge_raw_pass1, judge_debug_pass1 = _call_gemini_match_chat(
                 judge_prompt_pass1,
                 cfg.gemini_key,
                 timeout_s=JUDGE_PASS1_TIMEOUT_S,
                 retries=GEMINI_JUDGE_PASS1_RETRIES,
-                max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+                max_output_tokens=GEMINI_JUDGE_PASS1_MAX_OUTPUT_TOKENS,
                 debug_context={**judge_metrics_pass1, "pass_label": "judge_pass1"},
                 error_cls=JudgeError,
             )
@@ -806,9 +808,6 @@ def _judge_pass1_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcri
         "\"confidence\":\"Low|Medium|High\""
         "}\n\n"
         "Debate:\n"
-        f"Topic: {cfg.topic}\n"
-        f"A: {cfg.side_a}\n"
-        f"B: {cfg.side_b}\n"
         f"{transcript}\n"
     )
 
@@ -1024,6 +1023,8 @@ def _call_gemini_match_chat(
     debug_context: dict[str, Any] | None = None,
     error_cls: type[Exception] = RuntimeError,
 ) -> tuple[str, dict[str, Any]]:
+    print("[DEBUG] using _call_gemini_match_chat")
+    print("[DEBUG] prompt_chars:", len(prompt))
     last_error: Exception | None = None
     current_max_output_tokens = max_output_tokens
     context = dict(debug_context or {})
@@ -1368,6 +1369,7 @@ def _normalize_summary(summary: dict[str, Any]) -> dict[str, Any]:
     turning_point = _normalize_turning_point(summary, winner)
     weak_spot = _normalize_weak_spot(summary, winner, turning_point, fatal)
     fatal_phrase = _normalize_fatal_phrase(summary, fatal, winner, turning_point, weak_spot)
+    debug_flags = _judge_specificity_debug(summary, turning_point, fatal_phrase, weak_spot)
     winner = _apply_major_violation_penalty(summary, winner, reason_one_liner, turning_point, weak_spot, fatal_phrase)
     reason_one_liner = _normalize_reason_one_liner(summary, winner)
     weak_spot = _normalize_weak_spot(summary, winner, turning_point, fatal)
@@ -1395,6 +1397,9 @@ def _normalize_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "gemini_takeaway": gemini_takeaway,
         "gemini_quote": gemini_quote,
         "key_disagreement_top3": disagreements,
+        "reused_template_flags": debug_flags["reused_template_flags"],
+        "direct_quote_found": debug_flags["direct_quote_found"],
+        "turning_point_quote_found": debug_flags["turning_point_quote_found"],
     }
 
 
@@ -1636,17 +1641,23 @@ def _detect_violation_exposer(
 
 
 def _normalize_turning_point(summary: dict[str, Any], winner: dict[str, str]) -> str:
-    value = _clean_text(summary.get("turning_point") or "")
+    value = _stringify_turning_point(summary.get("turning_point"))
     if value and value != "未生成":
         return value
     fatal = summary.get("fatal_phrase") if isinstance(summary.get("fatal_phrase"), dict) else {}
+    weak_spot = summary.get("weak_spot") if isinstance(summary.get("weak_spot"), dict) else {}
     turn = fatal.get("turn") or 3
     try:
         turn_no = max(1, int(turn))
     except Exception:
         turn_no = 3
+    issue = _clean_text(weak_spot.get("quote_excerpt") or weak_spot.get("label") or fatal.get("text") or "")
     if (winner.get("side") or "Draw") == "Draw":
+        if issue:
+            return f"Turn {turn_no}で「{issue}」が争点として浮いたが、どちらも決め切れなかった。"
         return f"Turn {turn_no}で流れは動いたが、どちらも決定打を最後まで押し切れなかった。"
+    if issue:
+        return f"Turn {turn_no}で「{issue}」が勝敗を分ける論点として前に出た。"
     return f"Turn {turn_no}で流れが大きく傾き、その後の押し返しが勝敗を分けた。"
 
 
@@ -1658,7 +1669,7 @@ def _normalize_fatal_phrase(
     weak_spot: dict[str, str],
 ) -> dict[str, Any]:
     speaker = _clean_text(fatal.get("speaker") or "")
-    text = _clean_text(fatal.get("text") or "")
+    text = _extract_fatal_text(fatal)
     reason = _clean_text(fatal.get("reason") or "")
     turn = fatal.get("turn") or extract_turn_number_from_text(turning_point) or 3
     try:
@@ -1677,7 +1688,7 @@ def _normalize_fatal_phrase(
             return {
                 "turn": turn_no,
                 "speaker": winning_speaker,
-                "text": "この場面で相手の押し返しを止め、勝ち筋を守り切った。",
+                "text": _fatal_backfill_excerpt(weak_spot),
                 "reason": f"{speaker}が流れを動かしても、最終的には{winning_speaker}が主導権を取り戻した。",
             }
         return {
@@ -1690,13 +1701,13 @@ def _normalize_fatal_phrase(
         return {
             "turn": turn_no,
             "speaker": speaker or "A/B",
-            "text": "単独の決定打はなかったが、この応酬が最も勝負を動かした。",
+            "text": _fatal_backfill_excerpt(weak_spot),
             "reason": _first_sentence(reason or weak_spot.get("why_one_sentence") or "流れは動いたが、どちらもここから決め切れなかった。"),
         }
     return {
         "turn": turn_no,
         "speaker": winning_speaker,
-        "text": "この場面で相手の穴が最もはっきり見えた。",
+        "text": _fatal_backfill_excerpt(weak_spot),
         "reason": _first_sentence(
             reason
             or weak_spot.get("why_one_sentence")
@@ -1863,6 +1874,57 @@ def _normalize_gemini_takeaway(
         "structural_explanation": _first_sentence(structural),
         "debate_dynamic": _first_sentence(dynamic),
         "quote": _clip_takeaway_quote(quote),
+    }
+
+
+def _extract_fatal_text(fatal: dict[str, Any]) -> str:
+    return _clean_text(
+        fatal.get("text")
+        or fatal.get("quote_excerpt")
+        or fatal.get("quote")
+        or fatal.get("excerpt")
+        or fatal.get("raw_text")
+        or ""
+    )
+
+
+def _fatal_backfill_excerpt(weak_spot: dict[str, Any]) -> str:
+    excerpt = _clean_text(weak_spot.get("quote_excerpt") or "")
+    if excerpt and excerpt != "相手に最も刺された弱点がここで露出した。":
+        return excerpt
+    return ""
+
+
+def _stringify_turning_point(value: Any) -> str:
+    if isinstance(value, str):
+        return _clean_text(value)
+    if isinstance(value, dict):
+        for key in ("text", "summary", "explanation", "reason", "why", "value"):
+            text = _clean_text(value.get(key) or "")
+            if text:
+                return text
+    return ""
+
+
+def _judge_specificity_debug(
+    summary: dict[str, Any],
+    turning_point: str,
+    fatal_phrase: dict[str, Any],
+    weak_spot: dict[str, Any],
+) -> dict[str, Any]:
+    flags: list[str] = []
+    direct_quote_found = bool(_clean_text(fatal_phrase.get("text") or ""))
+    turning_point_quote_found = bool(_stringify_turning_point(summary.get("turning_point")))
+    if not direct_quote_found:
+        flags.append("fatal_phrase_missing_direct_quote")
+    if not turning_point_quote_found:
+        flags.append("turning_point_template")
+    if not _clean_text(weak_spot.get("quote_excerpt") or ""):
+        flags.append("weak_spot_missing_quote_excerpt")
+    return {
+        "reused_template_flags": flags,
+        "direct_quote_found": direct_quote_found,
+        "turning_point_quote_found": turning_point_quote_found,
     }
 
 

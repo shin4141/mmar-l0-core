@@ -97,6 +97,7 @@ def test_html_starts_without_structure_result_panel():
     assert 'hidden disabled' in html or 'disabled hidden' in html
     assert 'id="turn-log"' in html
     assert 'placeholder="空欄なら same-origin"' in html
+    assert 'id="demo-mode-badge"' in html
     assert 'id="debug-pipeline-panel"' in html
     assert 'id="debug-constraint-report"' in html
     assert 'id="debug-judge-pass1"' in html
@@ -156,17 +157,26 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "status === 501" in js
     assert "判定理由が短く返っていません" not in js
     assert 'const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";' in js
+    assert 'const READ_ONLY_DEMO = /(^|\\\\.)onrender\\\\.com$/i.test(window.location.hostname);' in js
     assert 'const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";' in js
     assert "function renderViewerList()" in js
     assert "function loadViewerArchive()" in js
     assert "function loadRecordIntoView(record, options = {})" in js
     assert "function setupViewerMode()" in js
+    assert "function applyReadOnlyDemoMode()" in js
     assert "function renderDebugPipeline()" in js
     assert "currentConstraintReport" in js
     assert "currentJudgePass1" in js
     assert "currentJudgePass2" in js
     assert "currentStoryAlignReport" in js
     assert "currentStoryAlignReport.ui_normalization" in js
+    assert "currentConstraintReport = currentResult?.debate?.summary?.debug_constraint_report || null;" in js
+    assert "currentJudgePass1 = currentResult?.debate?.summary?.debug_pass1 || null;" in js
+    assert "currentJudgePass2 = currentResult?.debate?.summary?.debug_pass2 || null;" in js
+    assert "currentStoryAlignReport = currentResult?.debate?.summary?.debug_story_align_report || null;" in js
+    assert 'setStatus("warn", "Demo mode / read-only");' in js
+    assert "runButton.hidden = true;" in js
+    assert "saveButton.hidden = true;" in js
     assert 'debug_constraint_report' in js
     assert 'debug_pass1' in js
     assert 'debug_pass2' in js
@@ -338,7 +348,9 @@ def test_js_supports_save_history_and_load_flow():
     assert "historyFetchInFlight = true;" in js
     assert "historyRecordsHydrated = true;" in js
     assert "履歴を読み込み中です。" in js
-    assert 'saveButton.addEventListener("click", saveCurrentMatch);' in js
+    assert 'saveButton.addEventListener("click", () => {' in js
+    assert 'if (READ_ONLY_DEMO) return;' in js
+    assert 'saveCurrentMatch();' in js
     assert 'outputPanelEl.addEventListener("click", (event) => {' in js
     assert 'event.target.closest("#ask-match-button")' in js
     assert 'historyButton.addEventListener("click", () => toggleHistory(true));' in js

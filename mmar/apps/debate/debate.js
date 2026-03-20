@@ -52,6 +52,7 @@ const askFormEl = document.querySelector("#ask-form");
 const askInputEl = document.querySelector("#ask-input");
 const askStatusEl = document.querySelector("#ask-status");
 const askSendButton = document.querySelector("#ask-send-button");
+const demoModeBadgeEl = document.querySelector("#demo-mode-badge");
 const debugPipelinePanelEl = document.querySelector("#debug-pipeline-panel");
 const debugConstraintReportEl = document.querySelector("#debug-constraint-report");
 const debugJudgePass1El = document.querySelector("#debug-judge-pass1");
@@ -90,6 +91,7 @@ let currentStoryAlignReport = null;
 
 const queryParams = new URLSearchParams(window.location.search);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
+const READ_ONLY_DEMO = /(^|\\.)onrender\\.com$/i.test(window.location.hostname);
 
 const HISTORY_STORAGE_KEY = "mmar.debate.history.v1";
 const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";
@@ -134,8 +136,8 @@ function setRevealState(hidden) {
   if (hidden) {
     setHint("");
   }
-  saveButton.hidden = hidden;
-  saveButton.disabled = hidden || !currentResult;
+  saveButton.hidden = hidden || READ_ONLY_DEMO;
+  saveButton.disabled = hidden || !currentResult || READ_ONLY_DEMO;
   if (hidden) {
     toggleAskPanel(false);
     destroyVerdictStrip();
@@ -823,6 +825,12 @@ function shouldShowAskHint() {
 }
 
 function syncSaveButton() {
+  if (READ_ONLY_DEMO) {
+    saveButton.hidden = true;
+    saveButton.disabled = true;
+    saveButton.textContent = "Save Match";
+    return;
+  }
   if (analysisHidden || !currentResult) {
     saveButton.hidden = true;
     saveButton.disabled = true;
@@ -1694,10 +1702,10 @@ function renderResult(result) {
   if (currentResult?.debate?.summary && !currentResult.debate.raw_summary) {
     currentResult.debate.raw_summary = JSON.parse(JSON.stringify(currentResult.debate.summary));
   }
-  currentConstraintReport = null;
-  currentJudgePass1 = null;
-  currentJudgePass2 = null;
-  currentStoryAlignReport = null;
+  currentConstraintReport = currentResult?.debate?.summary?.debug_constraint_report || null;
+  currentJudgePass1 = currentResult?.debate?.summary?.debug_pass1 || null;
+  currentJudgePass2 = currentResult?.debate?.summary?.debug_pass2 || null;
+  currentStoryAlignReport = currentResult?.debate?.summary?.debug_story_align_report || null;
   currentRecordId = null;
   currentLoadedRecord = null;
   resetAskThreadForCurrentMatch();
@@ -1797,6 +1805,10 @@ async function parseResponse(response) {
 
 async function runDebate(event) {
   event.preventDefault();
+  if (READ_ONLY_DEMO) {
+    setStatus("warn", "Demo mode / read-only");
+    return;
+  }
   const payload = collectPayload();
   currentPayload = payload;
   currentFighters = {
@@ -1969,9 +1981,22 @@ function scheduleHealthCheck() {
   }, 250);
 }
 
+function applyReadOnlyDemoMode() {
+  if (!READ_ONLY_DEMO) return;
+  if (demoModeBadgeEl) demoModeBadgeEl.hidden = false;
+  document.body.classList.add("demo-read-only");
+  runButton.hidden = true;
+  runButton.disabled = true;
+  saveButton.hidden = true;
+  saveButton.disabled = true;
+}
+
 form.addEventListener("submit", runDebate);
 judgeButton.addEventListener("click", judgeDebate);
-saveButton.addEventListener("click", saveCurrentMatch);
+saveButton.addEventListener("click", () => {
+  if (READ_ONLY_DEMO) return;
+  saveCurrentMatch();
+});
 historyButton.addEventListener("click", () => toggleHistory(true));
 historyCloseButton.addEventListener("click", () => toggleHistory(false));
 historyBackdrop.addEventListener("click", () => toggleHistory(false));
@@ -2068,3 +2093,4 @@ void refreshHistoryRecords();
 renderAskThread();
 renderDebugPipeline();
 setupViewerMode();
+applyReadOnlyDemoMode();

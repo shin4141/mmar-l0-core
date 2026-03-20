@@ -207,6 +207,9 @@ def test_judge_two_pass_prompts_split_fast_verdict_and_structure():
 
     assert "You are a debate judge." in pass1
     assert "\"confidence\":\"Low|Medium|High\"" in pass1
+    assert "Topic:" not in pass1
+    assert "A: Yes" not in pass1
+    assert "B: No" not in pass1
     assert "\"fatal_phrase\"" not in pass1
     assert "Use the primary judgment below as the fixed baseline." in pass2
     assert "\"fatal_phrase\"" in pass2
@@ -737,6 +740,9 @@ def test_normalize_summary_fills_draw_cards_without_placeholders():
     assert summary["weak_spot"]["quote_excerpt"] != "未生成"
     assert "決定打" in summary["weak_spot"]["why_one_sentence"] or "決着" in summary["weak_spot"]["why_one_sentence"]
     assert summary["weak_spot"]["how_to_fix"] != "未生成"
+    assert "reused_template_flags" in summary
+    assert "direct_quote_found" in summary
+    assert "turning_point_quote_found" in summary
 
 
 def test_normalize_summary_prefers_a_or_b_when_reason_shows_edge():
@@ -759,6 +765,37 @@ def test_normalize_summary_prefers_a_or_b_when_reason_shows_edge():
     assert summary["weak_spot"]["quote_excerpt"] == "論点を広げすぎた。"
     assert summary["weak_spot"]["why_one_sentence"] == "Aが論点をずらした。"
     assert summary["weak_spot"]["how_to_fix"] == "元の問いに先に答えるべきだった。"
+
+
+def test_normalize_summary_stringifies_object_turning_point():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bが押した。",
+            "turning_point": {"turn": 3, "summary": "Turn 3で『検証不能』が前に出た。"},
+            "fatal_phrase": {"turn": 3, "speaker": "B", "text": "それは検証不能だ。"},
+            "weak_spot": {"side": "A", "turn": 3, "speaker": "A", "label": "論拠不足", "quote_excerpt": "検証不能", "why_one_sentence": "根拠が薄い。", "how_to_fix": "指標を出すべきだった。"},
+        }
+    )
+
+    assert summary["turning_point"] == "Turn 3で『検証不能』が前に出た。"
+    assert summary["turning_point_quote_found"] is True
+
+
+def test_normalize_summary_leaves_fatal_phrase_blank_when_no_quote_found():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bが押した。",
+            "turning_point": "",
+            "fatal_phrase": {"turn": 4, "speaker": "B", "text": ""},
+            "weak_spot": {"side": "A", "turn": 4, "speaker": "A", "label": "論拠不足", "quote_excerpt": "", "why_one_sentence": "根拠が足りない。", "how_to_fix": "具体例を出すべきだった。"},
+        }
+    )
+
+    assert summary["fatal_phrase"]["text"] == ""
+    assert summary["direct_quote_found"] is False
+    assert "fatal_phrase_missing_direct_quote" in summary["reused_template_flags"]
 
 
 def test_normalize_summary_keeps_true_draw_at_fifty_fifty():
