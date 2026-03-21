@@ -161,6 +161,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "invalid_payload"})
                 return
             if path == "/api/debate":
+                if os.getenv("READ_ONLY_DEMO", "").lower() == "true":
+                    self._send_json(403, {"ok": False, "error": "read-only demo"})
+                    return
                 result = run_debate(payload)
                 print(
                     "[dev_api] result "

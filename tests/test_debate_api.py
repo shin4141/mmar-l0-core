@@ -1,5 +1,6 @@
 from tools.debate_api import JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
 from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
+from tools import dev_api
 
 
 def test_run_debate_mock_minimum_shape():
@@ -49,6 +50,28 @@ def test_run_debate_mock_minimum_shape():
     assert summary["rule_capture"]
     assert summary["contradiction"]
     assert len(summary["key_disagreement_top3"]) == 3
+
+
+def test_dev_api_blocks_debate_when_read_only_demo(monkeypatch):
+    monkeypatch.setenv("READ_ONLY_DEMO", "true")
+
+    class Handler:
+        path = "/api/debate"
+        headers = {"Content-Length": "2"}
+
+        def __init__(self):
+            import io
+
+            self.rfile = io.BytesIO(b"{}")
+            self.sent = None
+
+        def _send_json(self, code, payload):
+            self.sent = (code, payload)
+
+    handler = Handler()
+    dev_api.Handler.do_POST(handler)
+
+    assert handler.sent == (403, {"ok": False, "error": "read-only demo"})
 
 
 def test_run_debate_allows_single_provider_live(monkeypatch):
