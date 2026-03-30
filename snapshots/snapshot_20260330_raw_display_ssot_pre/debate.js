@@ -1270,18 +1270,11 @@ function normalizeSavedRecordForPreview(record) {
   const momentum = normalizeMomentum(summary, winner, confidence);
   const weakSpot = normalizeWeakSpot(summary);
   const topic = record.topic || "";
-  const transcriptJson = Array.isArray(record.transcript_json) ? record.transcript_json : [];
-  const rawTurns = Array.isArray(record.raw_turns) && record.raw_turns.length ? record.raw_turns : transcriptJson;
-  const displayTurns = Array.isArray(record.display_turns) && record.display_turns.length ? record.display_turns : transcriptJson;
   return {
     ...record,
     run_id: record.run_id || "",
     topic_hash: record.topic_hash || "",
     keyword: normalizeKeyword(record.keyword || ""),
-    raw_turns: rawTurns,
-    display_turns: displayTurns,
-    transcript_json: transcriptJson,
-    transcript_role: record.transcript_role || "display",
     provider_statuses: record.provider_statuses || {},
     output_meta: normalizeSavedOutputMeta(record.output_meta || ""),
     elapsed_seconds: Number.isFinite(Number(record.elapsed_seconds)) ? Math.max(0, Math.round(Number(record.elapsed_seconds))) : null,
@@ -1302,22 +1295,6 @@ function normalizeSavedRecordForPreview(record) {
       gemini_quote: summary?.gemini_quote || { text: normalizeGeminiQuote(summary) },
     },
   };
-}
-
-function getRawTurns(recordOrDebate) {
-  if (!recordOrDebate || typeof recordOrDebate !== "object") return [];
-  if (Array.isArray(recordOrDebate.raw_turns) && recordOrDebate.raw_turns.length) return recordOrDebate.raw_turns;
-  if (Array.isArray(recordOrDebate.transcript_json) && recordOrDebate.transcript_json.length) return recordOrDebate.transcript_json;
-  if (Array.isArray(recordOrDebate.turns) && recordOrDebate.turns.length) return recordOrDebate.turns;
-  return [];
-}
-
-function getDisplayTurns(recordOrDebate) {
-  if (!recordOrDebate || typeof recordOrDebate !== "object") return [];
-  if (Array.isArray(recordOrDebate.display_turns) && recordOrDebate.display_turns.length) return recordOrDebate.display_turns;
-  if (Array.isArray(recordOrDebate.transcript_json) && recordOrDebate.transcript_json.length) return recordOrDebate.transcript_json;
-  if (Array.isArray(recordOrDebate.turns) && recordOrDebate.turns.length) return recordOrDebate.turns;
-  return [];
 }
 
 async function incrementHistoryMetric(recordId, metric) {
@@ -1363,8 +1340,6 @@ function buildBattleRecord(result, payload) {
   const why = summary?.reason_one_liner || winner.reason;
   const confidence = summary?.confidence || "Medium";
   const providerStatuses = result?.provider_statuses || {};
-  const rawTurns = getRawTurns(debate);
-  const displayTurns = getDisplayTurns(debate);
   const record = {
     id: currentRecordId || `match_${Date.now()}`,
     run_id: result?.run_id || debate?.run_id || "",
@@ -1381,10 +1356,9 @@ function buildBattleRecord(result, payload) {
     fighter_a_model: modelLabelForProvider(currentFighters.a),
     fighter_b_model: modelLabelForProvider(currentFighters.b),
     judge_model: modelLabelForProvider(currentFighters.judge),
-    transcript_json: displayTurns,
-    transcript_role: "display",
-    raw_turns: rawTurns,
-    display_turns: displayTurns,
+    transcript_json: debate.turns || [],
+    raw_turns: debate.raw_turns || debate.turns || [],
+    display_turns: debate.display_turns || debate.turns || [],
     judge_json: {
       ...summary,
       verdict_headline: composeVerdictHeadline(debate.topic || payload?.topic || "", winner),
@@ -1397,7 +1371,7 @@ function buildBattleRecord(result, payload) {
     created_at: new Date().toISOString(),
     source_mode: result?.mode || "mock",
     provider_statuses: JSON.parse(JSON.stringify(providerStatuses)),
-    output_meta: buildOutputMeta(providerStatuses, displayTurns.length, result?.mode || "mock"),
+    output_meta: buildOutputMeta(providerStatuses, (debate.turns || []).length, result?.mode || "mock"),
     elapsed_seconds: Number.isFinite(Number(result?.elapsed_seconds))
       ? Math.max(0, Math.round(Number(result.elapsed_seconds)))
       : (Number.isFinite(Number(currentElapsedSeconds)) ? Math.max(0, Math.round(Number(currentElapsedSeconds))) : null),
@@ -1811,9 +1785,7 @@ function buildResultFromRecord(record) {
         b: preview.fighter_b_model,
         judge: preview.judge_model,
       },
-      turns: preview.display_turns,
-      raw_turns: preview.raw_turns,
-      display_turns: preview.display_turns,
+      turns: preview.transcript_json,
       summary: preview.judge_json,
     },
   };
@@ -2644,7 +2616,7 @@ function describePhase(turnNumber, stageLabel, totalTurns) {
 function refreshOutput() {
   if (!currentResult) return;
   const debate = currentResult.debate || {};
-  const turns = getDisplayTurns(debate);
+  const turns = Array.isArray(debate.turns) ? debate.turns : [];
   const mode = currentResult.mode || "unknown";
   const providerStatuses = providerStatusesForDisplay(currentResult.provider_statuses || {}, debate.summary || {});
   topicDisplayEl.textContent = formatTopicDisplay(
@@ -3070,7 +3042,7 @@ async function performJudgeDebate(prediction = {}) {
   try {
     await new Promise((resolve) => window.setTimeout(resolve, 150));
     const debate = currentResult.debate || {};
-    const turns = getRawTurns(debate);
+    const turns = Array.isArray(debate.turns) ? debate.turns : [];
     const transcript = buildCanonicalTranscript(turns);
     const payload = {
       topic: debate.topic || currentPayload?.topic || "",

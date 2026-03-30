@@ -132,8 +132,6 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
     )
     debate["raw_turns"] = json.loads(json.dumps(debate.get("turns") or [], ensure_ascii=False))
     debate["display_turns"] = display_turns
-    debate["turns_canonical_field"] = "raw_turns"
-    debate["turns_display_field"] = "display_turns"
     debate["display_compression"] = compression_meta
     debate["turns"] = display_turns
     session.append_elapsed_phase("judge_summary", judge_started_at)
@@ -3060,9 +3058,7 @@ def _ask_match_prompt(match: dict[str, Any], question: str) -> str:
     topic = _clean_text(match.get("topic") or "")
     stance_a = _clean_text(match.get("stance_a") or match.get("side_a") or "")
     stance_b = _clean_text(match.get("stance_b") or match.get("side_b") or "")
-    turns = match.get("raw_turns") if isinstance(match.get("raw_turns"), list) and match.get("raw_turns") else []
-    if not turns:
-        turns = match.get("transcript_json") if isinstance(match.get("transcript_json"), list) else []
+    turns = match.get("transcript_json") if isinstance(match.get("transcript_json"), list) else []
     judge = match.get("judge_json") if isinstance(match.get("judge_json"), dict) else {}
     winner = judge.get("winner") if isinstance(judge.get("winner"), dict) else {}
     fatal = judge.get("fatal_phrase") if isinstance(judge.get("fatal_phrase"), dict) else {}
