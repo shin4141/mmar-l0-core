@@ -128,7 +128,7 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
     display_turns, compression_meta = _compress_turns_for_display(
         cfg,
         debate.get("turns") or [],
-        _derive_display_compression_mode(session.phase_entries, session.provider_statuses),
+        _derive_mode(session.provider_statuses),
     )
     debate["raw_turns"] = json.loads(json.dumps(debate.get("turns") or [], ensure_ascii=False))
     debate["display_turns"] = display_turns
@@ -232,24 +232,6 @@ def _compress_turns_for_display(
         return copied_turns, {"applied": False, "reason": str(exc)[:240], "provider": "openai", "model": OPENAI_MODEL}
     finally:
         globals()["REQUEST_TIMEOUT_S"] = timeout_prev
-
-
-def _derive_display_compression_mode(
-    phase_entries: list[dict[str, Any]],
-    provider_statuses: dict[str, dict[str, str]],
-) -> str:
-    fighter_modes = [
-        str(entry.get("provider_mode") or "")
-        for entry in (phase_entries or [])
-        if entry.get("name") == "provider_call" and entry.get("speaker") in {"A", "B"}
-    ]
-    if any(mode == "live" for mode in fighter_modes):
-        return "live"
-    if any(mode == "mock-fallback" for mode in fighter_modes):
-        return "mock-fallback"
-    if any(mode == "mock" for mode in fighter_modes):
-        return "mock"
-    return _derive_mode(provider_statuses)
 
 
 def _compression_prompt_from_turns(turns: list[dict[str, Any]]) -> str:
