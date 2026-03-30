@@ -10,7 +10,6 @@ const judgeSkipButton = document.querySelector("#judge-skip-button");
 const judgeSubmitButton = document.querySelector("#judge-submit-button");
 const historyButton = document.querySelector("#history-button");
 const archiveButton = document.querySelector("#archive-button");
-const detailLikeButton = document.querySelector("#detail-like-button");
 const historyCloseButton = document.querySelector("#history-close-button");
 const historyBackdrop = document.querySelector("#history-backdrop");
 const archiveCloseButton = document.querySelector("#archive-close-button");
@@ -604,7 +603,6 @@ function clearCurrentResultView() {
   topicDisplayEl.textContent = document.querySelector("#topic")?.value.trim() || "Topic";
   syncSaveButton();
   syncAskButton();
-  syncDetailLikeButton();
 }
 
 function clearPublicSummary() {
@@ -1334,11 +1332,9 @@ async function incrementHistoryMetric(recordId, metric) {
   const existingIndex = historyRecordsCache.findIndex((item) => item.id === record.id);
   if (existingIndex >= 0) historyRecordsCache[existingIndex] = record;
   else historyRecordsCache.unshift(record);
-  if (currentRecordId === record.id) currentLoadedRecord = record;
   persistHistoryRecords(historyRecordsCache);
   renderHistoryList();
   renderArchiveList();
-  syncDetailLikeButton();
   return record;
 }
 
@@ -1564,23 +1560,6 @@ function syncAskButton() {
   return;
 }
 
-function syncDetailLikeButton() {
-  if (!detailLikeButton) return;
-  if (!currentRecordId) {
-    detailLikeButton.hidden = true;
-    detailLikeButton.disabled = true;
-    detailLikeButton.textContent = "Like (0)";
-    delete detailLikeButton.dataset.likeRecordId;
-    return;
-  }
-  const saved = historyRecordsCache.find((item) => item.id === currentRecordId) || currentLoadedRecord;
-  const likes = Number(saved?.likes || 0);
-  detailLikeButton.hidden = false;
-  detailLikeButton.disabled = false;
-  detailLikeButton.dataset.likeRecordId = currentRecordId;
-  detailLikeButton.textContent = `Like (${likes})`;
-}
-
 function formatCreatedAt(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value || "";
@@ -1611,6 +1590,7 @@ function buildHistoryItemMarkup(record) {
       </button>
       <div class="history-actions">
         <span class="history-stats">${escapeHtml(`Views ${preview.views || 0} · Likes ${preview.likes || 0}`)}</span>
+        <button type="button" class="chip-button history-like-button" data-like-record-id="${escapeHtml(preview.id)}">Like</button>
       </div>
     </div>
   `;
@@ -1712,12 +1692,20 @@ function renderViewerList() {
 }
 
 function toggleHistory(open) {
-  historyShellEl.hidden = true;
-  toggleArchive(open);
+  if (open) {
+    toggleArchive(false);
+    toggleAskPanel(false);
+  }
+  historyShellEl.hidden = !open;
+  if (open) {
+    void refreshHistoryRecords();
+    historyListEl.scrollTop = 0;
+  }
 }
 
 function toggleArchive(open) {
   if (open) {
+    toggleHistory(false);
     toggleAskPanel(false);
   }
   archiveShellEl.hidden = !open;
@@ -1877,7 +1865,6 @@ function loadRecordIntoView(record, options = {}) {
   setRevealState(false);
   resetAskThreadForCurrentMatch();
   refreshOutput();
-  syncDetailLikeButton();
   renderDebugPipeline();
   syncViewerReadOnlyControls();
   renderViewerList();
@@ -1942,12 +1929,10 @@ async function saveCurrentMatch() {
   const record = buildBattleRecord(currentResult, currentPayload);
   const saved = await saveHistoryRecordToServer(record);
   currentRecordId = saved.id;
-  currentLoadedRecord = saved;
   renderHistoryList();
   renderArchiveList();
   syncSaveButton();
   syncAskButton();
-  syncDetailLikeButton();
 }
 
 function composeVerdictHeadline(topic, winner) {
@@ -2677,7 +2662,6 @@ function refreshOutput() {
   outputMetaEl.style.display = "";
   renderRuntimeFingerprint();
   renderTurns(turns, debate.summary || {}, !analysisHidden);
-  syncDetailLikeButton();
 
   if (analysisHidden) {
     if (judgePredictionPanelEl) judgePredictionPanelEl.hidden = true;
@@ -3225,16 +3209,18 @@ saveButton.addEventListener("click", () => {
   saveCurrentMatch();
 });
 historyButton.addEventListener("click", () => toggleHistory(true));
+historyCloseButton.addEventListener("click", () => toggleHistory(false));
+historyBackdrop.addEventListener("click", () => toggleHistory(false));
 archiveButton.addEventListener("click", () => toggleArchive(true));
 archiveCloseButton.addEventListener("click", () => toggleArchive(false));
 archiveBackdrop.addEventListener("click", () => toggleArchive(false));
-detailLikeButton?.addEventListener("click", () => {
-  const recordId = detailLikeButton?.dataset.likeRecordId;
-  if (!recordId) return;
-  void incrementHistoryMetric(recordId, "like");
-});
 askCloseButton?.addEventListener("click", () => toggleAskPanel(false));
 historyListEl?.addEventListener("click", (event) => {
+  const likeTrigger = event.target.closest("[data-like-record-id]");
+  if (likeTrigger) {
+    void incrementHistoryMetric(likeTrigger.dataset.likeRecordId, "like");
+    return;
+  }
   const trigger = event.target.closest("[data-record-id]");
   if (!trigger) return;
   void loadSavedMatch(trigger.dataset.recordId);
@@ -3256,6 +3242,11 @@ viewerListEl?.addEventListener("click", (event) => {
   loadRecordIntoView(record, { saved: false });
 });
 archivePanelEl?.addEventListener("click", (event) => {
+  const likeTrigger = event.target.closest("[data-like-record-id]");
+  if (likeTrigger) {
+    void incrementHistoryMetric(likeTrigger.dataset.likeRecordId, "like");
+    return;
+  }
   const filterTrigger = event.target.closest("[data-mode-filter]");
   if (filterTrigger) {
     archiveModeFilter = filterTrigger.dataset.modeFilter || "all";
