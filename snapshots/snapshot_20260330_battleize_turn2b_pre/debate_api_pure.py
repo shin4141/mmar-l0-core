@@ -6626,16 +6626,16 @@ def _turn2_own_reinforcement(cfg: DebateConfig, speaker: str, own_previous: str 
     own_position = _clean_text(cfg.side_a if speaker == "A" else cfg.side_b)
     if "宇宙人" in topic and "銀河" in topic:
         if "存在しない" in own_position or "いない" in own_position:
-            return "証拠が出ないままなら、存在主張だけが先に浮く。"
-        return "探索が薄いままなら、不在断定の方が無理に走っている。"
+            return "観測の裏づけがない以上、存在主張はまだ浮いている。"
+        return "探索が薄い以上、不在断定の方が先走っている。"
     if "AI" in topic and "意思決定" in topic:
         if "できない" in own_position or "人間" in own_position:
-            return "良い判断を分けるのは、精度より先に価値判断の筋だ。"
-        return "同じ条件でぶれない判断なら、AIの方が一歩前に出る。"
+            return "良い意思決定には、精度より先に価値判断の筋が要る。"
+        return "同じ条件でぶれない判断なら、AIの方が前に出る。"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
         if "有効ではない" in own_position or "無効" in own_position:
-            return "抑止と言うなら、その場で減ったと言える数字まで要る。"
-        return "その場の犯罪を実際に減らせるなら、それだけで抑止の実益になる。"
+            return "抑止と言うなら、減ったと言える数字まで要る。"
+        return "その場の犯罪を減らせるだけで、抑止としては十分意味がある。"
     support = ""
     own_match = re.search(r"因果:\s*([^。]{10,80})", own_text)
     if own_match:
@@ -6687,12 +6687,12 @@ def _turn3_latest_response(cfg: DebateConfig, speaker: str, latest_opponent: str
     own_position = _clean_text(cfg.side_a if speaker == "A" else cfg.side_b)
     if "宇宙人" in topic and "銀河" in topic:
         if "存在しない" in own_position or "いない" in own_position:
-            return "探索不足を言っても、証拠の空白は消えない"
+            return "探索不足を言っても、証拠の空白は埋まらない"
         return "観測空白を出しても、不在の証明にはならない"
     if "AI" in topic and "意思決定" in topic:
         if "できない" in own_position or "人間" in own_position:
             return "精度を積んでも、価値判断の穴は埋まらない"
-        return "人間らしさを出しても、判断のぶれは残る"
+        return "人間らしさを出しても、判断のぶれは消えない"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
         if "有効ではない" in own_position or "無効" in own_position:
             return "設置効果を出しても、犯罪の移動は消えない"
@@ -6708,16 +6708,16 @@ def _turn3_gap(cfg: DebateConfig, speaker: str) -> str:
     own_position = _clean_text(cfg.side_a if speaker == "A" else cfg.side_b)
     if "宇宙人" in topic and "銀河" in topic:
         if "存在しない" in own_position or "いない" in own_position:
-            return "存在を押し切る観測はまだ一つもない"
-        return "不在を言い切るには、探索がまだ薄すぎる"
+            return "存在を押し切る観測はまだない"
+        return "不在を断言できる探索にはまだ遠い"
     if "AI" in topic and "意思決定" in topic:
         if "できない" in own_position or "人間" in own_position:
-            return "良し悪しの基準は、まだ人間抜きで立たない"
-        return "安定した判断力の差は、まだこちらに残る"
+            return "良し悪しの基準はまだ人間抜きで立たない"
+        return "安定した判断力の差はまだ残る"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
         if "有効ではない" in own_position or "無効" in own_position:
-            return "減る場所より、残る犯罪の重さが消えない"
-        return "減る犯罪がある事実は、まだ消せない"
+            return "減る場所より残る犯罪の方が重い"
+        return "減る犯罪がある事実はまだ消せない"
     return "決め手までは埋まっていない"
 
 
