@@ -125,15 +125,6 @@ def run_debate(payload: dict[str, Any]) -> dict[str, Any]:
         active_providers={"judge": cfg.judge_provider},
     )
     debate["summary"] = _session_inline_judge_summary(cfg, debate.get("turns") or [], transcript, session.provider_statuses)
-    display_turns, compression_meta = _compress_turns_for_display(
-        cfg,
-        debate.get("turns") or [],
-        _derive_mode(session.provider_statuses),
-    )
-    debate["raw_turns"] = json.loads(json.dumps(debate.get("turns") or [], ensure_ascii=False))
-    debate["display_turns"] = display_turns
-    debate["display_compression"] = compression_meta
-    debate["turns"] = display_turns
     session.append_elapsed_phase("judge_summary", judge_started_at)
     session.append_elapsed_phase("run_debate_total", session.phase_entries[0]["at"], completed_turns=len(debate.get("turns") or []))
     session.progress(
@@ -198,80 +189,6 @@ def _pure_turn_fallback(cfg: DebateConfig, speaker: str, turn_no: int, latest_op
     return _sanitize_fighter_speech(
         f"{response}。 それでも、{gap}。 {_turn1_direct_claim(cfg.topic, position)}"
     )
-
-
-def _compress_turns_for_display(
-    cfg: DebateConfig,
-    raw_turns: list[dict[str, Any]],
-    provider_mode: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    copied_turns = json.loads(json.dumps(raw_turns or [], ensure_ascii=False))
-    if provider_mode != "live":
-        return copied_turns, {"applied": False, "reason": "non-live"}
-    if len(copied_turns) != 3:
-        return copied_turns, {"applied": False, "reason": "unsupported-turn-count"}
-    if not _clean_text(cfg.openai_key):
-        return copied_turns, {"applied": False, "reason": "missing-openai-key"}
-    prompt = _compression_prompt_from_turns(copied_turns)
-    timeout_prev = REQUEST_TIMEOUT_S
-    try:
-        globals()["REQUEST_TIMEOUT_S"] = 20
-        raw = _call_openai(prompt, cfg.openai_key, model_name=OPENAI_MODEL)
-        parsed = _parse_display_turns_json(raw)
-        display_turns = _apply_display_turns(copied_turns, parsed)
-        return display_turns, {"applied": True, "reason": "", "provider": "openai", "model": OPENAI_MODEL}
-    except Exception as exc:
-        return copied_turns, {"applied": False, "reason": str(exc)[:240], "provider": "openai", "model": OPENAI_MODEL}
-    finally:
-        globals()["REQUEST_TIMEOUT_S"] = timeout_prev
-
-
-def _compression_prompt_from_turns(turns: list[dict[str, Any]]) -> str:
-    payload = {
-        "A1": _clean_text((turns[0] or {}).get("a") or ""),
-        "B1": _clean_text((turns[0] or {}).get("b") or ""),
-        "A2": _clean_text((turns[1] or {}).get("a") or ""),
-        "B2": _clean_text((turns[1] or {}).get("b") or ""),
-        "A3": _clean_text((turns[2] or {}).get("a") or ""),
-        "B3": _clean_text((turns[2] or {}).get("b") or ""),
-    }
-    return (
-        "以下の討論rawをUI表示用に圧縮せよ。\n"
-        "目的は「説明を削り、勝負だけを残す」こと。\n"
-        "各発話は120〜160字、最大200字。\n"
-        "意味を足すな。立場を変えるな。新証拠を入れるな。\n"
-        "削る基準: 説明、再証明、補足、前置き、transition語。\n"
-        "残す基準:\n"
-        "- Turn1 = 結論 + 理由\n"
-        "- Turn2 = 相手への一撃 + 自説の強化\n"
-        "- Turn3 = 相手の最後の押しが足りない理由 + 自分の結論固定\n"
-        "出力は JSON only:\n"
-        "{\"A1\":\"...\",\"B1\":\"...\",\"A2\":\"...\",\"B2\":\"...\",\"A3\":\"...\",\"B3\":\"...\"}\n\n"
-        f"raw:\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n"
-    )
-
-
-def _parse_display_turns_json(raw: str) -> dict[str, str]:
-    cleaned = _clean_text(raw)
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if not match:
-        raise ValueError("compression invalid json")
-    parsed = json.loads(match.group(0))
-    required = ["A1", "B1", "A2", "B2", "A3", "B3"]
-    if not all(_clean_text(parsed.get(key) or "") for key in required):
-        raise ValueError("compression missing turn")
-    return {key: _sanitize_fighter_speech(_clean_text(parsed.get(key) or "")) for key in required}
-
-
-def _apply_display_turns(turns: list[dict[str, Any]], compressed: dict[str, str]) -> list[dict[str, Any]]:
-    out = json.loads(json.dumps(turns, ensure_ascii=False))
-    keys = [("A1", 0, "a"), ("B1", 0, "b"), ("A2", 1, "a"), ("B2", 1, "b"), ("A3", 2, "a"), ("B3", 2, "b")]
-    for key, idx, speaker_key in keys:
-        text = _clean_text(compressed.get(key) or "")
-        if not text or len(text) > 200:
-            raise ValueError(f"compression invalid length: {key}")
-        out[idx][speaker_key] = _sanitize_fighter_speech(text)
-    return out
 
 
 def _pure_turn_min_chars(turn_no: int) -> int:

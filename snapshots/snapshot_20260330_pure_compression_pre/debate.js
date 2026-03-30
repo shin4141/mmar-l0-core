@@ -1357,8 +1357,6 @@ function buildBattleRecord(result, payload) {
     fighter_b_model: modelLabelForProvider(currentFighters.b),
     judge_model: modelLabelForProvider(currentFighters.judge),
     transcript_json: debate.turns || [],
-    raw_turns: debate.raw_turns || debate.turns || [],
-    display_turns: debate.display_turns || debate.turns || [],
     judge_json: {
       ...summary,
       verdict_headline: composeVerdictHeadline(debate.topic || payload?.topic || "", winner),
