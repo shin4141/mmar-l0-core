@@ -162,12 +162,9 @@ def _pure_turn_prompt(
             f"Your earlier claim:\n{own_previous}\n\n"
             f"Opponent:\n{opponent_last}\n\n"
             "Respond directly to the opponent.\n"
-            "Open with one sharp hit sentence.\n"
             "Break one core point in the opponent's argument.\n"
             "Then use that break to make your own position stronger.\n"
-            "Make the break instantly readable.\n"
             "Keep it natural, direct, and focused on the same issue.\n"
-            "Do not start with a recap.\n"
             "Do not use labels.\n"
             "Write only natural Japanese.\n"
             "Return strict JSON only.\n"
@@ -176,9 +173,6 @@ def _pure_turn_prompt(
     return (
         f"Full discussion:\n{transcript or '(none)'}\n\n"
         "Answer the opponent's latest push and state your final position.\n"
-        "Say first why the opponent's last push still falls short.\n"
-        "Then lock your own conclusion.\n"
-        "Do not re-explain the whole debate.\n"
         "Write only natural Japanese.\n"
         "Return strict JSON only.\n"
         "Schema: {\"speech\":\"...\",\"move\":\"rally|finish\",\"meta\":{\"phase\":\"rally\",\"finish_intent\":\"finish\",\"end_match\":\"yes|no\"}}\n"
@@ -249,7 +243,6 @@ def _compression_prompt_from_turns(turns: list[dict[str, Any]]) -> str:
         "各発話は120〜160字、最大200字。\n"
         "意味を足すな。立場を変えるな。新証拠を入れるな。\n"
         "削る基準: 説明、再証明、補足、前置き、transition語。\n"
-        "先頭は短い決定打から始めろ。\n"
         "残す基準:\n"
         "- Turn1 = 結論 + 理由\n"
         "- Turn2 = 相手への一撃 + 自説の強化\n"
@@ -6591,17 +6584,17 @@ def _turn2_attack_line(cfg: DebateConfig, speaker: str, latest_opponent: str, co
     first = _first_sentence(opponent)
     if "宇宙人" in topic and "銀河" in topic:
         if "存在しない" in first or "いない" in first:
-            return "見つからないことを、そのまま不在の証明にしている。"
+            return "未検出をそのまま不在の証明にしているのが弱い。"
         if "存在する" in first or "いる" in first:
-            return "星が多いだけで、宇宙人がいることにはならない。"
+            return "候補の多さから実在まで一気に飛んでいるのが弱い。"
     if "AI" in topic and "意思決定" in topic:
         if "できる" in opponent:
-            return "精度が高いだけで、良い判断とは言えない。"
-        return "人間らしさを守っても、判断のぶれは消えない。"
+            return "その「AIの方が良い判断ができる」という押し方では、何を優先するかという判断が抜けている。"
+        return "その「人間の方が良い判断ができる」という押し方では、感情や疲労でぶれる現実が抜けている。"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
         if "有効だ" in opponent:
-            return "見張っているだけで、犯罪が消えるわけではない。"
-        return "場所がずれる話だけで、その場で減る効果は消せない。"
+            return "その「見られていれば減る」という前提では、場所を変える犯罪を止め切れない。"
+        return "その「結局は移るだけ」という押し方では、機会犯が減る効果を消せない。"
     if core:
         return f"{core}だけでは、そこから結論までは届かない。"
     return "その押し方だけでは、そこから結論までは届かない。"
@@ -6612,16 +6605,16 @@ def _turn2_own_reinforcement(cfg: DebateConfig, speaker: str, own_previous: str 
     own_text = _clean_text(own_previous or "")
     if "宇宙人" in topic and "銀河" in topic:
         if speaker == "A":
-            return "観測の裏づけがない以上、存在主張はまだ浮いている。"
-        return "探索が薄い以上、不在断定の方が先走っている。"
+            return "この論題で要るのは母数ではなく、観測の裏づけだ。"
+        return "この論題で重いのは未検出より、探索の不足だ。"
     if "AI" in topic and "意思決定" in topic:
         if speaker == "A":
-            return "良い意思決定には、精度より先に価値判断の筋が要る。"
-        return "同じ条件でぶれない判断なら、AIの方が前に出る。"
+            return "良い意思決定には正確さだけでなく、妥当な価値判断が要る。"
+        return "同じ条件でぶれずに判断できる点では、AIの方が前に出られる。"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
         if speaker == "A":
-            return "抑止と言うなら、減ったと言える数字まで要る。"
-        return "その場の犯罪を減らせるだけで、抑止としては十分意味がある。"
+            return "抑止を言うなら、見えることより実際に減ることを示す必要がある。"
+        return "少なくともその場で起きる犯罪を減らせるなら、抑止として意味がある。"
     support = ""
     own_match = re.search(r"因果:\s*([^。]{10,80})", own_text)
     if own_match:
@@ -6671,25 +6664,25 @@ def _turn3_latest_response(cfg: DebateConfig, speaker: str, latest_opponent: str
     topic = _clean_text(cfg.topic or "")
     opponent = _clean_text(latest_opponent or "")
     if "宇宙人" in topic and "銀河" in topic:
-        return "探索不足を言っても、証拠の空白は埋まらない" if speaker == "A" else "観測空白を出しても、不在の証明にはならない"
+        return "相手は探索不足を押す" if speaker == "A" else "相手は観測空白を押す"
     if "AI" in topic and "意思決定" in topic:
-        return "精度を積んでも、価値判断の穴は埋まらない" if speaker == "A" else "人間らしさを出しても、判断のぶれは消えない"
+        return "相手は最後まで人間の判断を押す" if speaker == "B" else "相手は最後までAIの精度を押す"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
-        return "設置効果を出しても、犯罪の移動は消えない" if speaker == "A" else "移動犯罪を出しても、その場で減る効果は消えない"
+        return "相手は設置効果を押す" if speaker == "A" else "相手は移動犯罪を押す"
     clause = _turn2_opponent_short_clause(opponent)
     if clause:
-        return f"相手は「{clause}」で押すが、それだけでは足りない"
+        return f"相手は「{clause}」を押す"
     return "相手はその主張を押す"
 
 
 def _turn3_gap(cfg: DebateConfig, speaker: str) -> str:
     topic = _clean_text(cfg.topic or "")
     if "宇宙人" in topic and "銀河" in topic:
-        return "存在を押し切る観測はまだない" if speaker == "A" else "不在を断言できる探索にはまだ遠い"
+        return "実在を決める証拠までは出ていない" if speaker == "A" else "不在を言い切るほど探索は進んでいない"
     if "AI" in topic and "意思決定" in topic:
-        return "良し悪しの基準はまだ人間抜きで立たない" if speaker == "A" else "安定した判断力の差はまだ残る"
+        return "価値判断の根拠は埋まっていない" if speaker == "A" else "人間のぶれは消えていない"
     if "監視カメラ" in topic and "犯罪抑止" in topic:
-        return "減る場所より残る犯罪の方が重い" if speaker == "A" else "減る犯罪がある事実はまだ消せない"
+        return "抑止の実数までは閉じていない" if speaker == "A" else "減る犯罪の部分は残る"
     return "決め手までは埋まっていない"
 
 
