@@ -461,7 +461,6 @@ class Handler(BaseHTTPRequestHandler):
                 request_payload = {
                     **payload,
                     "api_keys": safe_api_keys,
-                    "_force_mock": path == "/api/debate_pure",
                     "_disable_live_judge": True,
                     "_artifact_meta": {
                         **common,
@@ -596,11 +595,7 @@ class Handler(BaseHTTPRequestHandler):
                     "artifact_created_at": common["created_at"],
                 }
                 response_status = 200
-                if (
-                    path != "/api/debate_pure"
-                    and not bool(request_payload.get("_allow_mock_fallback"))
-                    and _public_live_debate_failed(request_payload, response_payload)
-                ):
+                if not bool(request_payload.get("_allow_mock_fallback")) and _public_live_debate_failed(request_payload, response_payload):
                     response_payload = _public_live_failure_payload(request_payload, response_payload)
                     response_status = 502
                 server_phase_entries.append(
