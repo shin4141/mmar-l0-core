@@ -7556,13 +7556,6 @@ def _three_turn_repair_speech(
         and turn_no == 2
         and _needs_short_stance_boost(cfg, "B")
     ):
-        topic_text = _clean_text(topic or "")
-        if "SORA" in topic_text and "動画サービス" in topic_text:
-            return _turn2_latest_only_strike(
-                latest_opponent,
-                "SORA一件で、参入判断まで失敗にするのは飛びすぎだ。",
-                "失敗の範囲をそこまで広げる根拠が薄い以上、まだ手を出すべきだった側が残る。",
-            )
         opponent_line = _clean_text(latest_opponent or "")
         opponent_terms = [term for term in _extract_focus_terms(opponent_line) if term not in JP_STOPWORDS]
         concrete_terms: list[str] = []
