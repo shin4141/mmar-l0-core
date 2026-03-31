@@ -6577,13 +6577,6 @@ def _three_turn_grounded_surface(
                 f" だから{own_line}"
             )
         if short_stance:
-            if "SORA" in topic and "動画サービス" in topic:
-                return _sanitize_fighter_speech(
-                    "最後に残るのは、SORA撤退で露出した負担を誰が引き受けるかという点だ。"
-                    " SORA撤退で実際に何が良くなるかまで並べても相手は決め手を作れていない。"
-                    f" {short_metaphor}。"
-                    f" だから{own_line}"
-                )
             return _sanitize_fighter_speech(
                 f"最後に残るのは{issue_secondary}だ。"
                 f" {short_hook}まで並べても相手は決め手を作れていない。"
