@@ -153,6 +153,7 @@ def run_debate_v2(payload: dict[str, Any]) -> dict[str, Any]:
         a2, a_status = _call_live(_turn2_prompt(topic, side_a, b1), api_key)
         provider_statuses["openai_a"] = a_status
         b2, b_status = _call_live(_turn2_prompt(topic, side_b, a1), api_key)
+        b2 = _v2_turn2_b_override(topic, side_b, b2)
         provider_statuses["openai_b"] = b_status
         turns.append({"turn": 2, "a": a2, "b": b2})
         _append(transcript, "A", 2, a2)
