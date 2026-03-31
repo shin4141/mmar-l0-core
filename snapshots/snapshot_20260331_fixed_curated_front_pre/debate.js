@@ -123,7 +123,6 @@ let currentRunToken = 0;
 
 const queryParams = new URLSearchParams(window.location.search);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
-const BETA_MODE = queryParams.get("beta") === "1";
 const READ_ONLY_DEMO = /(^|\\.)onrender\\.com$/i.test(window.location.hostname);
 const PUBLIC_LIMITED_DEMO = false;
 const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";
@@ -146,7 +145,7 @@ const MODEL_LABELS = {
 const PUBLIC_ASK_DISABLED = true;
 
 function shouldUsePublicFixedDemo() {
-  return !VIEWER_MODE && !BETA_MODE;
+  return false;
 }
 
 function isMobileLayout() {
@@ -156,7 +155,6 @@ function isMobileLayout() {
 function currentModeLabel() {
   if (READ_ONLY_DEMO) return "read-only";
   if (VIEWER_MODE) return "viewer";
-  if (BETA_MODE) return "beta";
   if (shouldUsePublicFixedDemo()) return "public-fixed";
   return "live";
 }
@@ -355,10 +353,6 @@ async function runPublicFixedDemo() {
 }
 
 function applyPublicFixedDemoDefaults() {
-  const betaEntryLinkEl = document.querySelector("#beta-entry-link");
-  const fixedEntryLinkEl = document.querySelector("#fixed-entry-link");
-  if (betaEntryLinkEl) betaEntryLinkEl.hidden = !shouldUsePublicFixedDemo();
-  if (fixedEntryLinkEl) fixedEntryLinkEl.hidden = !BETA_MODE;
   if (!shouldUsePublicFixedDemo()) return;
   publicFixedDemoLog("public_fixed_demo_enabled");
   document.body.classList.add("public-fixed-demo");
@@ -1176,9 +1170,6 @@ function loadHistoryRecordsFromLocalStorage() {
 }
 
 function updateHistoryButton(count = loadHistoryRecords().length) {
-  if (count === loadHistoryRecords().length && curatedViewerRecords.length) {
-    count += curatedViewerRecords.length;
-  }
   historyButton.textContent = `History (${count})`;
   historyCountEl.textContent = `${count} match${count === 1 ? "" : "es"}`;
 }
@@ -1660,9 +1651,6 @@ function renderHistoryList() {
 }
 
 function updateArchiveButton(count = loadHistoryRecords().length) {
-  if (count === loadHistoryRecords().length && curatedViewerRecords.length) {
-    count += curatedViewerRecords.length;
-  }
   archiveButton.textContent = `⚙️`;
   archiveButton.setAttribute("aria-label", `Open archive (${count} matches)`);
   archiveCountEl.textContent = `${count} match${count === 1 ? "" : "es"}`;
@@ -1679,15 +1667,11 @@ function filteredArchiveRecords(records, query, modeFilter) {
 }
 
 function renderArchiveList() {
-  const curated = filteredArchiveRecords(
-    curatedViewerRecords.map(normalizeSavedRecordForPreview),
-    archiveSearchEl.value,
-    archiveModeFilter,
-  );
   const records = [...historyRecordsCache].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const filtered = filteredArchiveRecords(records, archiveSearchEl.value, archiveModeFilter);
-  updateArchiveButton(records.length + curated.length);
-  archiveRecentCountEl.textContent = `${curated.length}`;
+  const recent = filtered.slice(0, 3);
+  updateArchiveButton(records.length);
+  archiveRecentCountEl.textContent = `${recent.length}`;
   archiveSavedCountEl.textContent = `${filtered.length}`;
 
   if (historyFetchInFlight && !historyRecordsHydrated) {
@@ -1698,12 +1682,12 @@ function renderArchiveList() {
     return;
   }
 
-  if (!curated.length) {
+  if (!recent.length) {
     archiveRecentListEl.classList.add("empty");
-    archiveRecentListEl.innerHTML = '<div class="empty-state">公開用の試合はまだありません。</div>';
+    archiveRecentListEl.innerHTML = '<div class="empty-state">保存した試合はまだありません。</div>';
   } else {
     archiveRecentListEl.classList.remove("empty");
-    archiveRecentListEl.innerHTML = curated.map(buildHistoryItemMarkup).join("");
+    archiveRecentListEl.innerHTML = recent.map(buildHistoryItemMarkup).join("");
   }
 
   if (!filtered.length) {
@@ -3052,24 +3036,18 @@ async function runDebate(event) {
 }
 
 async function loadViewerArchive() {
-  if (!VIEWER_MODE && !shouldUsePublicFixedDemo()) return;
+  if (!VIEWER_MODE) return;
   try {
     const response = await fetch(VIEWER_ARCHIVE_URL, { cache: "no-store" });
     const data = await response.json();
     curatedViewerRecords = Array.isArray(data) ? data : [];
     renderViewerList();
-    renderArchiveList();
-    updateHistoryButton();
-    updateArchiveButton();
     if (curatedViewerRecords.length) {
-      if (VIEWER_MODE) {
-        loadRecordIntoView(curatedViewerRecords[0], { saved: false });
-      }
+      loadRecordIntoView(curatedViewerRecords[0], { saved: false });
     }
   } catch {
     curatedViewerRecords = [];
     renderViewerList();
-    renderArchiveList();
   }
 }
 
@@ -3289,11 +3267,6 @@ archivePanelEl?.addEventListener("click", (event) => {
   }
   const recordTrigger = event.target.closest("[data-record-id]");
   if (!recordTrigger) return;
-  const curated = curatedViewerRecords.find((item) => item.id === recordTrigger.dataset.recordId);
-  if (curated) {
-    loadRecordIntoView(curated, { saved: false });
-    return;
-  }
   void loadSavedMatch(recordTrigger.dataset.recordId);
 });
 archiveSearchEl?.addEventListener("input", () => {
@@ -3360,7 +3333,3 @@ renderAskThread();
 renderDebugPipeline();
 setupViewerMode();
 applyReadOnlyDemoMode();
-if (shouldUsePublicFixedDemo()) {
-  void loadViewerArchive();
-  void runPublicFixedDemo();
-}

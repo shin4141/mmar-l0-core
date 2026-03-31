@@ -303,17 +303,6 @@ button {
   color: var(--accent-strong);
 }
 
-.front-mode-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.front-mode-link {
-  text-decoration: none;
-}
-
 body.public-fixed-demo .field textarea,
 body.public-fixed-demo .field input,
 body.public-fixed-demo .field select {
