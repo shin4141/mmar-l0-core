@@ -87,13 +87,6 @@ def _turn2_prompt(topic: str, side: str, opponent_last: str) -> str:
 
 
 def _turn3_prompt(topic: str, side: str, opponent_last: str, transcript: str) -> str:
-    extra = ""
-    if "SORA" in topic and "動画サービス" in topic and "手を出すべきだった" in side:
-        extra = (
-            "- Shrink the opponent's final断定 instead of adding new upside.\n"
-            "- Say there is still room left, then close on your side.\n"
-            "- Do not add future value, long-term potential, or new success scenarios.\n"
-        )
     return (
         f"Topic: {topic}\n"
         f"Your position: {side}\n"
@@ -103,7 +96,6 @@ def _turn3_prompt(topic: str, side: str, opponent_last: str, transcript: str) ->
         "- 2 to 4 sentences.\n"
         "- First say what still fails in the opponent's latest push.\n"
         "- Then lock your conclusion.\n"
-        f"{extra}"
         "- No labels, no judge voice, no generic summary.\n"
     )
 
