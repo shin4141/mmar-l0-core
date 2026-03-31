@@ -104,15 +104,6 @@ def _append(transcript: list[str], speaker: str, turn_no: int, text: str) -> Non
     transcript.append(f"Turn {turn_no} {speaker}: {text}")
 
 
-def _v2_turn2_b_override(topic: str, side_b: str, text: str) -> str:
-    if "SORA" not in topic or "動画サービス" not in topic:
-        return text
-    return _sanitize(
-        "SORAの撤退をそのまま参入失敗まで広げるのは飛躍だ。"
-        f" そこまで言い切る根拠はまだ足りない以上、{side_b}"
-    )
-
-
 def run_debate_v2(payload: dict[str, Any]) -> dict[str, Any]:
     topic = _clean_text(payload.get("topic"))
     side_a = _clean_text(payload.get("side_a") or payload.get("sideA"))
@@ -142,7 +133,6 @@ def run_debate_v2(payload: dict[str, Any]) -> dict[str, Any]:
         a2, a_status = _call_live(_turn2_prompt(topic, side_a, b1), api_key)
         provider_statuses["openai_a"] = a_status
         b2, b_status = _call_live(_turn2_prompt(topic, side_b, a1), api_key)
-        b2 = _v2_turn2_b_override(topic, side_b, b2)
         provider_statuses["openai_b"] = b_status
         turns.append({"turn": 2, "a": a2, "b": b2})
         _append(transcript, "A", 2, a2)
