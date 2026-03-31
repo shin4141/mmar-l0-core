@@ -1046,22 +1046,6 @@ def _run_debate_with_provider_fallbacks(cfg: DebateConfig, session: _SessionRunt
                 a_debug_trace["repair_text"] = a_text
                 a_debug_trace["repair_validation"] = dict(a_validation)
                 a_debug_trace["adopted_stage"] = "repair"
-        if (
-            cfg.turn_count == 3
-            and turn_no == 3
-            and "SORA" in _clean_text(cfg.topic or "")
-            and "動画サービス" in _clean_text(cfg.topic or "")
-        ):
-            a_text = _sanitize_fighter_speech(
-                "最後に残るのは、SORA撤退が単発ではなく事業の重さを露出したという点だ。"
-                " 相手はまだ参入余地を言うが、運営負担と収益化の壁を越える筋を出せていない。"
-                f" だから{_clean_text(cfg.side_a) or 'こちらの立場は残る。'}"
-            )
-            a_validation = _three_turn_validation_report("A", cfg, turns, turn_no, a_text, a_latest_opponent)
-            a_debug_trace["repair_triggered"] = True
-            a_debug_trace["repair_text"] = a_text
-            a_debug_trace["repair_validation"] = dict(a_validation)
-            a_debug_trace["adopted_stage"] = "topic-closing-override"
         a_meta_started_at = time.time()
         a_meta = _normalize_turn_meta(a_data.get("meta"), "A", cfg, turns, a_text, a_latest_opponent)
         session.append_phase(
