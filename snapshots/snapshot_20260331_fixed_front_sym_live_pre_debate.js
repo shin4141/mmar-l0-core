@@ -258,32 +258,6 @@ function publicFixedDemoLog(eventName, detail = undefined) {
   console.info(eventName, detail);
 }
 
-function isSymmetricLiveFixedResult(result) {
-  const fighterA = String(result?.fighter_a_provider || "").trim().toLowerCase();
-  const fighterB = String(result?.fighter_b_provider || "").trim().toLowerCase();
-  if (fighterA !== "openai" || fighterB !== "openai") {
-    return {
-      ok: false,
-      reason: `expected openai/openai, got ${fighterA || "?"}/${fighterB || "?"}`,
-    };
-  }
-  const turns = Array.isArray(result?.debate?.turns) ? result.debate.turns : [];
-  if (!turns.length) {
-    return { ok: false, reason: "missing turn data" };
-  }
-  for (const turn of turns) {
-    const aMode = String(turn?.meta?.a?.provider_mode || "").trim().toLowerCase();
-    const bMode = String(turn?.meta?.b?.provider_mode || "").trim().toLowerCase();
-    if (aMode !== "live" || bMode !== "live") {
-      return {
-        ok: false,
-        reason: `symmetric live unavailable (${aMode || "?"}/${bMode || "?"})`,
-      };
-    }
-  }
-  return { ok: true, reason: "" };
-}
-
 function normalizePublicFixedDemoResult(data) {
   return {
     ...data,
@@ -408,10 +382,6 @@ async function runPublicFixedDemo() {
     }
     if (String(data?.mode || "").toLowerCase() !== "live") {
       throw new Error(String(data?.error || "Live unavailable"));
-    }
-    const symmetricLive = isSymmetricLiveFixedResult(data);
-    if (!symmetricLive.ok) {
-      throw new Error(`Blocked: symmetric live unavailable (${symmetricLive.reason})`);
     }
     data.elapsed_seconds = finishDebateTimer("completed");
     setRunMetaForResult("Completed in", data.elapsed_seconds, data.mode, data.provider_statuses || {});
