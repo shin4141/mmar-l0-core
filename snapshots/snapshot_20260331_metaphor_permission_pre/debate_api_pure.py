@@ -2451,7 +2451,6 @@ def _speaker_prompt(
         "- Only read the opponent's last statement.\n"
         "- Do not refer to your own previous argument.\n"
         "- Identify the opponent's core in one line, attack one weakness directly, and keep your own push minimal.\n"
-        "- If an analogy makes the point land harder, use it. One sharp image beats three logical sentences.\n"
         "- Do not balance, hedge, or summarize.\n"
         "- At most one analogy is allowed, only if it sharpens the attack.\n"
         "- If you use one, make it one short sentence from a different everyday domain such as food, tools, traffic, or games.\n"
