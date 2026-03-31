@@ -6715,8 +6715,8 @@ def _turn3_latest_response(cfg: DebateConfig, speaker: str, latest_opponent: str
     own_position = _clean_text(cfg.side_a if speaker == "A" else cfg.side_b)
     if "宇宙人" in topic and "銀河" in topic:
         if "存在しない" in own_position or "いない" in own_position:
-            return "最後に残るのは、探しても証拠が出ていないという事実だ"
-        return "締めで残るのは、未検出だけで不在までは言えないという一点だ"
+            return "探索不足を言っても、証拠の空白は消えない"
+        return "観測空白を出しても、不在の証明にはならない"
     if "AI" in topic and "意思決定" in topic:
         if "できない" in own_position or "人間" in own_position:
             return "精度を積んでも、価値判断の穴は埋まらない"
