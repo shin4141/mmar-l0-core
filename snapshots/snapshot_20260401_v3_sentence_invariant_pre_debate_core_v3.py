@@ -45,8 +45,6 @@ def _side_card() -> dict[str, str]:
         "side_b_role": "proposition を反対する",
         "side_a_thesis": SIDE_A,
         "side_b_thesis": SIDE_B,
-        "side_a_anti_thesis": SIDE_B,
-        "side_b_anti_thesis": SIDE_A,
     }
 
 
@@ -74,62 +72,57 @@ def _call_live(prompt: str, api_key: str) -> tuple[str, dict[str, str]]:
     return _sanitize(raw), _provider_entry("live", "")
 
 
-def _turn1_prompt(topic: str, role: str, thesis: str, anti_thesis: str) -> str:
+def _turn1_prompt(topic: str, role: str, thesis: str) -> str:
     return (
         f"Topic: {topic}\n"
         f"Role: {role}\n"
         f"Thesis: {thesis}\n\n"
-        f"Anti-thesis: {anti_thesis}\n\n"
         "Write turn 1 of a hard 3-turn debate in natural Japanese.\n"
-        "- Exactly 3 sentences.\n"
-        "- Sentence 1 = Thesis sentence.\n"
-        "- Sentence 2 = Support sentence.\n"
-        "- Sentence 3 = Evidence sentence.\n"
-        "- Every sentence must support the thesis.\n"
-        "- Do not support or strengthen the anti-thesis anywhere.\n"
+        "- 2 or 3 sentences only.\n"
+        "- Sentence 1 must be a blunt conclusion.\n"
+        "- Sentence 1 must state the thesis itself, not the opposite side.\n"
         "- Do not start with 「私は」「結論から言うと」 or any throat-clearing phrase.\n"
+        "- Sentence 2 must give the single strongest reason.\n"
+        "- Sentence 3 is optional and may give one concrete example.\n"
+        "- Keep the claim narrow and sharp.\n"
         "- No labels, no meta commentary, no safety hedging.\n"
     )
 
 
-def _turn2_prompt(topic: str, role: str, thesis: str, anti_thesis: str, opponent_last: str) -> str:
+def _turn2_prompt(topic: str, role: str, thesis: str, opponent_last: str) -> str:
     return (
         f"Topic: {topic}\n"
         f"Role: {role}\n"
         f"Thesis: {thesis}\n"
-        f"Anti-thesis: {anti_thesis}\n"
         f"Opponent turn 1: {opponent_last}\n\n"
         "Write turn 2 of a hard 3-turn debate in natural Japanese.\n"
-        "- Exactly 3 sentences.\n"
-        "- Sentence 1 = Fatal flaw sentence.\n"
-        "- Sentence 2 = Metaphor sentence.\n"
-        "- Sentence 3 = Thesis reinforcement sentence.\n"
-        "- Every sentence must support the thesis.\n"
-        "- Include exactly one concrete image or analogy in sentence 2.\n"
+        "- 2 or 3 sentences only.\n"
+        "- Sentence 1 must name the opponent's fatal flaw.\n"
+        "- Include exactly one concrete image or analogy somewhere in the turn.\n"
+        "- Sentence 2 must show why your side still stands.\n"
+        "- Keep the same thesis polarity as your side.\n"
         "- Do not concede.\n"
-        "- Do not support or strengthen the anti-thesis anywhere.\n"
+        "- Do not just restate your opening.\n"
         "- Do not explain broadly or add a new scenario.\n"
         "- No labels, no meta commentary, no judge voice.\n"
     )
 
 
-def _turn3_prompt(topic: str, role: str, thesis: str, anti_thesis: str, opponent_last: str, transcript: str) -> str:
+def _turn3_prompt(topic: str, role: str, thesis: str, opponent_last: str, transcript: str) -> str:
     return (
         f"Topic: {topic}\n"
         f"Role: {role}\n"
         f"Thesis: {thesis}\n"
-        f"Anti-thesis: {anti_thesis}\n"
         f"Opponent turn 2: {opponent_last}\n"
         f"Transcript so far:\n{transcript}\n\n"
         "Write turn 3 of a hard 3-turn debate in natural Japanese.\n"
-        "- Exactly 3 sentences.\n"
-        "- Sentence 1 = Unproven sentence.\n"
-        "- Sentence 2 = Surviving reason sentence.\n"
-        "- Sentence 3 = Closing thesis sentence.\n"
-        "- Every sentence must support the thesis.\n"
-        f"- Sentence 3 must close directly on this thesis: {thesis}\n"
-        "- Sentence 3 must keep the same polarity as the thesis.\n"
-        "- Do not support or strengthen the anti-thesis anywhere.\n"
+        "- 2 or 3 sentences only.\n"
+        "- Close the match.\n"
+        "- Sentence 1 must say what the opponent still has not proved.\n"
+        "- Sentence 2 must keep only the one thing that remains for your side.\n"
+        "- Final sentence must be a short finishing line.\n"
+        "- Final sentence must keep the same polarity as your thesis.\n"
+        f"- Final sentence must directly close on this thesis: {thesis}\n"
         "- No judge voice.\n"
         "- No meta phrases like 「私の側は」「残るのは」「以上」「説得力に欠ける」.\n"
         "- No new upside, no new evidence, no new dream scenario.\n"
@@ -138,11 +131,6 @@ def _turn3_prompt(topic: str, role: str, thesis: str, anti_thesis: str, opponent
 
 def _append(transcript: list[str], speaker: str, turn_no: int, text: str) -> None:
     transcript.append(f"Turn {turn_no} {speaker}: {text}")
-
-
-def _sentences(text: str) -> list[str]:
-    parts = [part.strip() for part in text.replace("。", "。\n").splitlines() if part.strip()]
-    return parts
 
 
 def _same_polarity(thesis: str, text: str) -> bool:
@@ -157,34 +145,14 @@ def _same_polarity(thesis: str, text: str) -> bool:
     return thesis in text
 
 
-def _supports_anti_thesis(text: str, anti_thesis: str) -> bool:
-    return _same_polarity(anti_thesis, text)
-
-
-def _has_adversative_pivot(text: str) -> bool:
-    markers = ["だが", "しかし", "ただし", "一方で"]
-    return any(marker in text for marker in markers)
-
-
-def _sentence_invariant_ok(text: str, thesis: str, anti_thesis: str) -> bool:
+def _invariant_ok(text: str, thesis: str, *, closing: bool = False) -> bool:
     if not _same_polarity(thesis, text):
         return False
-    if _supports_anti_thesis(text, anti_thesis):
-        return False
-    if _has_adversative_pivot(text):
-        return False
-    return True
-
-
-def _turn_invariant_ok(text: str, thesis: str, anti_thesis: str, *, closing: bool = False) -> bool:
-    sentences = _sentences(text)
-    if len(sentences) != 3:
-        return False
-    if not all(_sentence_invariant_ok(sentence, thesis, anti_thesis) for sentence in sentences):
-        return False
-    if closing and not _same_polarity(thesis, sentences[-1]):
-        return False
-    return True
+    if not closing:
+        return True
+    sentences = [s.strip() for s in text.replace("。", "。\n").splitlines() if s.strip()]
+    last = sentences[-1] if sentences else text
+    return _same_polarity(thesis, last)
 
 
 def run_debate_v3(payload: dict[str, Any]) -> dict[str, Any]:
@@ -203,69 +171,31 @@ def run_debate_v3(payload: dict[str, Any]) -> dict[str, Any]:
     started_at = time.time()
 
     try:
-        a1, a_status = _call_live(
-            _turn1_prompt(SORA_TOPIC, card["side_a_role"], card["side_a_thesis"], card["side_a_anti_thesis"]),
-            api_key,
-        )
+        a1, a_status = _call_live(_turn1_prompt(SORA_TOPIC, card["side_a_role"], card["side_a_thesis"]), api_key)
         provider_statuses["openai_a"] = a_status
-        b1, b_status = _call_live(
-            _turn1_prompt(SORA_TOPIC, card["side_b_role"], card["side_b_thesis"], card["side_b_anti_thesis"]),
-            api_key,
-        )
+        b1, b_status = _call_live(_turn1_prompt(SORA_TOPIC, card["side_b_role"], card["side_b_thesis"]), api_key)
         provider_statuses["openai_b"] = b_status
-        if not _turn_invariant_ok(a1, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_invariant_ok(
-            b1, card["side_b_thesis"], card["side_b_anti_thesis"]
-        ):
+        if not _invariant_ok(a1, card["side_a_thesis"]) or not _invariant_ok(b1, card["side_b_thesis"]):
             return _blocked("side invariant failed", "turn1")
         turns.append({"turn": 1, "a": a1, "b": b1})
         _append(transcript, "A", 1, a1)
         _append(transcript, "B", 1, b1)
 
-        a2, a_status = _call_live(
-            _turn2_prompt(SORA_TOPIC, card["side_a_role"], card["side_a_thesis"], card["side_a_anti_thesis"], b1),
-            api_key,
-        )
+        a2, a_status = _call_live(_turn2_prompt(SORA_TOPIC, card["side_a_role"], card["side_a_thesis"], b1), api_key)
         provider_statuses["openai_a"] = a_status
-        b2, b_status = _call_live(
-            _turn2_prompt(SORA_TOPIC, card["side_b_role"], card["side_b_thesis"], card["side_b_anti_thesis"], a1),
-            api_key,
-        )
+        b2, b_status = _call_live(_turn2_prompt(SORA_TOPIC, card["side_b_role"], card["side_b_thesis"], a1), api_key)
         provider_statuses["openai_b"] = b_status
-        if not _turn_invariant_ok(a2, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_invariant_ok(
-            b2, card["side_b_thesis"], card["side_b_anti_thesis"]
-        ):
+        if not _invariant_ok(a2, card["side_a_thesis"]) or not _invariant_ok(b2, card["side_b_thesis"]):
             return _blocked("side invariant failed", "turn2")
         turns.append({"turn": 2, "a": a2, "b": b2})
         _append(transcript, "A", 2, a2)
         _append(transcript, "B", 2, b2)
 
-        a3, a_status = _call_live(
-            _turn3_prompt(
-                SORA_TOPIC,
-                card["side_a_role"],
-                card["side_a_thesis"],
-                card["side_a_anti_thesis"],
-                b2,
-                "\n".join(transcript),
-            ),
-            api_key,
-        )
+        a3, a_status = _call_live(_turn3_prompt(SORA_TOPIC, card["side_a_role"], card["side_a_thesis"], b2, "\n".join(transcript)), api_key)
         provider_statuses["openai_a"] = a_status
-        b3, b_status = _call_live(
-            _turn3_prompt(
-                SORA_TOPIC,
-                card["side_b_role"],
-                card["side_b_thesis"],
-                card["side_b_anti_thesis"],
-                a2,
-                "\n".join(transcript),
-            ),
-            api_key,
-        )
+        b3, b_status = _call_live(_turn3_prompt(SORA_TOPIC, card["side_b_role"], card["side_b_thesis"], a2, "\n".join(transcript)), api_key)
         provider_statuses["openai_b"] = b_status
-        if not _turn_invariant_ok(a3, card["side_a_thesis"], card["side_a_anti_thesis"], closing=True) or not _turn_invariant_ok(
-            b3, card["side_b_thesis"], card["side_b_anti_thesis"], closing=True
-        ):
+        if not _invariant_ok(a3, card["side_a_thesis"], closing=True) or not _invariant_ok(b3, card["side_b_thesis"], closing=True):
             return _blocked("side invariant failed", "turn3")
         turns.append({"turn": 3, "a": a3, "b": b3})
     except Exception as exc:
