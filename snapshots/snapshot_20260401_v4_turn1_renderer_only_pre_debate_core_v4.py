@@ -193,7 +193,9 @@ def _slot_prompt(
         spec = (
             "Return JSON only with keys: thesis, reason, evidence.\n"
             "- thesis must restate the thesis itself in natural Japanese, without final punctuation.\n"
-            "- reason must give one strongest reason only, as a short phrase without 「だ」「です」「ます」 or punctuation.\n"
+            "- thesis must include one concrete pressure point or pain point in the same sentence.\n"
+            "- reason must give one strongest reason only, as a short sharp phrase without 「だ」「です」「ます」 or punctuation.\n"
+            "- reason should not repeat the thesis wording.\n"
             "- evidence must give one concrete fact or observation only, without 「例えば」 or punctuation.\n"
         )
     elif turn_name == "turn2":
@@ -222,7 +224,7 @@ def _slot_prompt(
 
 
 def _render_turn1(slots: dict[str, str]) -> str:
-    return f"{slots['thesis']}。 痛点は{slots['reason']}。 現に、{slots['evidence']}。"
+    return f"{slots['thesis']}。 核は{slots['reason']}。 例えば、{slots['evidence']}。"
 
 
 def _render_turn2(slots: dict[str, str]) -> str:
