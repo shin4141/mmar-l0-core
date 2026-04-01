@@ -99,20 +99,6 @@ def _forbidden_slot_text(text: str) -> bool:
     return any(token in text for token in banned)
 
 
-def _slot_forbidden_patterns(key: str) -> list[str]:
-    common = ["。", "例えば", "だから", "相手は"]
-    specific = {
-        "thesis": [],
-        "reason": ["だ", "です", "ます"],
-        "evidence": ["例えば"],
-        "fatal_flaw": ["致命傷は", "致命的欠陥は"],
-        "metaphor": ["に近い"],
-        "unproven": ["相手は", "を示せていない"],
-        "surviving_reason": ["それでも残るのは", "だ", "です", "ます"],
-    }
-    return common + specific.get(key, [])
-
-
 def _load_json_object(raw: str) -> dict[str, str]:
     text = _clean_text(raw)
     start = text.find("{")
@@ -151,23 +137,23 @@ def _slot_prompt(
     if turn_name == "turn1":
         spec = (
             "Return JSON only with keys: thesis, reason, evidence.\n"
-            "- thesis must restate the thesis itself in natural Japanese, without final punctuation.\n"
-            "- reason must give one strongest reason only, as a short phrase without 「だ」「です」「ます」 or punctuation.\n"
-            "- evidence must give one concrete fact or observation only, without 「例えば」 or punctuation.\n"
+            "- thesis must restate the thesis itself in natural Japanese.\n"
+            "- reason must give one strongest reason only.\n"
+            "- evidence must give one concrete fact or observation only.\n"
         )
     elif turn_name == "turn2":
         spec = (
             "Return JSON only with keys: thesis, fatal_flaw, metaphor.\n"
-            "- fatal_flaw must name one fatal flaw only, without 「致命傷は」 or punctuation.\n"
-            "- metaphor must be one concrete image only, without 「に近い」 or punctuation.\n"
-            "- thesis must restate your own thesis in natural Japanese, without final punctuation.\n"
+            "- fatal_flaw must name one fatal flaw in the opponent.\n"
+            "- metaphor must be one concrete image.\n"
+            "- thesis must restate your own thesis in natural Japanese.\n"
         )
     else:
         spec = (
             "Return JSON only with keys: thesis, unproven, surviving_reason.\n"
-            "- unproven must say one thing the opponent still has not shown, without 「相手は」「を示せていない」 or punctuation.\n"
-            "- surviving_reason must say one reason your thesis still stands, as a short phrase without 「それでも残るのは」「だ」「です」「ます」 or punctuation.\n"
-            "- thesis must restate your own thesis in natural Japanese, without final punctuation.\n"
+            "- unproven must say one thing the opponent still has not shown.\n"
+            "- surviving_reason must say one reason your thesis still stands.\n"
+            "- thesis must restate your own thesis in natural Japanese.\n"
         )
     return (
         shared
@@ -181,44 +167,15 @@ def _slot_prompt(
 
 
 def _render_turn1(slots: dict[str, str]) -> str:
-    return f"{slots['thesis']}。 核は{slots['reason']}。 例えば、{slots['evidence']}。"
+    return f"{slots['thesis']}。 核は{slots['reason']}だ。 例えば{slots['evidence']}。"
 
 
 def _render_turn2(slots: dict[str, str]) -> str:
-    return f"相手の致命傷は{slots['fatal_flaw']}。 これは{slots['metaphor']}に近い。 だから、{slots['thesis']}。"
+    return f"相手の致命傷は{slots['fatal_flaw']}だ。 これは{slots['metaphor']}に近い。 だから{slots['thesis']}。"
 
 
 def _render_turn3(slots: dict[str, str]) -> str:
-    return f"相手は{slots['unproven']}を示せていない。 それでも残るのは{slots['surviving_reason']}。 だから、{slots['thesis']}。"
-
-
-def _slot_format_ok(key: str, value: str) -> bool:
-    text = _sanitize(value)
-    if not text:
-        return False
-    return not any(token in text for token in _slot_forbidden_patterns(key))
-
-
-def _slots_format_ok(turn_name: str, slots: dict[str, str]) -> bool:
-    required = {
-        "turn1": ["thesis", "reason", "evidence"],
-        "turn2": ["thesis", "fatal_flaw", "metaphor"],
-        "turn3": ["thesis", "unproven", "surviving_reason"],
-    }[turn_name]
-    return all(_slot_format_ok(key, slots.get(key, "")) for key in required)
-
-
-def _get_slots_with_retry(turn_name: str, prompt: str, api_key: str) -> tuple[dict[str, str], dict[str, str]]:
-    last_slots: dict[str, str] | None = None
-    status: dict[str, str] = _provider_entry("live", "")
-    for _ in range(2):
-        slots, status = _call_slot_json(prompt, api_key)
-        last_slots = slots
-        if _slots_format_ok(turn_name, slots):
-            return slots, status
-    if last_slots is None:
-        raise ValueError("slot generation missing")
-    raise ValueError(f"slot format failed: {turn_name}")
+    return f"相手は{slots['unproven']}を示せていない。 それでも残るのは{slots['surviving_reason']}だ。 だから{slots['thesis']}。"
 
 
 def _turn_ok(turn_name: str, slots: dict[str, str], thesis: str, anti_thesis: str) -> bool:
@@ -232,8 +189,6 @@ def _turn_ok(turn_name: str, slots: dict[str, str], thesis: str, anti_thesis: st
         if not value:
             return False
         if _forbidden_slot_text(value):
-            return False
-        if not _slot_format_ok(key, value):
             return False
         if _supports_anti(value, anti_thesis):
             return False
@@ -260,8 +215,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
     try:
-        a1_slots, a_status = _get_slots_with_retry(
-            "turn1",
+        a1_slots, a_status = _call_slot_json(
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
@@ -272,8 +226,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             api_key,
         )
         provider_statuses["openai_a"] = a_status
-        b1_slots, b_status = _get_slots_with_retry(
-            "turn1",
+        b1_slots, b_status = _call_slot_json(
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
@@ -294,8 +247,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
         _append(transcript, "A", 1, a1)
         _append(transcript, "B", 1, b1)
 
-        a2_slots, a_status = _get_slots_with_retry(
-            "turn2",
+        a2_slots, a_status = _call_slot_json(
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
@@ -308,8 +260,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             api_key,
         )
         provider_statuses["openai_a"] = a_status
-        b2_slots, b_status = _get_slots_with_retry(
-            "turn2",
+        b2_slots, b_status = _call_slot_json(
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
@@ -332,8 +283,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
         _append(transcript, "A", 2, a2)
         _append(transcript, "B", 2, b2)
 
-        a3_slots, a_status = _get_slots_with_retry(
-            "turn3",
+        a3_slots, a_status = _call_slot_json(
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
@@ -346,8 +296,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             api_key,
         )
         provider_statuses["openai_a"] = a_status
-        b3_slots, b_status = _get_slots_with_retry(
-            "turn3",
+        b3_slots, b_status = _call_slot_json(
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
