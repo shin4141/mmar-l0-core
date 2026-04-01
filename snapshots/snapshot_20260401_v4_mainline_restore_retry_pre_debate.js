@@ -271,26 +271,6 @@ function isSymmetricLiveFixedResult(result) {
   if (!turns.length) {
     return { ok: false, reason: "missing turn data" };
   }
-  const topLevelStatuses = result?.provider_statuses || {};
-  const topLevelAMode = String(
-    topLevelStatuses?.openai_a?.mode || topLevelStatuses?.openai?.mode || "",
-  )
-    .trim()
-    .toLowerCase();
-  const topLevelBMode = String(
-    topLevelStatuses?.openai_b?.mode || topLevelStatuses?.openai?.mode || "",
-  )
-    .trim()
-    .toLowerCase();
-  if (!turns.some((turn) => turn?.meta?.a || turn?.meta?.b)) {
-    if (topLevelAMode !== "live" || topLevelBMode !== "live") {
-      return {
-        ok: false,
-        reason: `symmetric live unavailable (${topLevelAMode || "?"}/${topLevelBMode || "?"})`,
-      };
-    }
-    return { ok: true, reason: "" };
-  }
   for (const turn of turns) {
     const aMode = String(turn?.meta?.a?.provider_mode || "").trim().toLowerCase();
     const bMode = String(turn?.meta?.b?.provider_mode || "").trim().toLowerCase();
@@ -417,7 +397,7 @@ async function runPublicFixedDemo() {
   runButton.disabled = true;
   try {
     publicFixedDemoLog("fixed_live_loader_entered");
-    const response = await fetch(endpointUrl("/api/debate_v4"), {
+    const response = await fetch(endpointUrl("/api/debate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(currentPayload),
