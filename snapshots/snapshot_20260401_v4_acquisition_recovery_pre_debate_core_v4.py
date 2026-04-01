@@ -113,47 +113,6 @@ def _slot_forbidden_patterns(key: str) -> list[str]:
     return common + specific.get(key, [])
 
 
-def _strip_prefixes(text: str, prefixes: list[str]) -> str:
-    value = _sanitize(text)
-    changed = True
-    while changed:
-        changed = False
-        for prefix in prefixes:
-            if value.startswith(prefix):
-                value = _sanitize(value[len(prefix) :])
-                changed = True
-    return value
-
-
-def _strip_suffixes(text: str, suffixes: list[str]) -> str:
-    value = _sanitize(text)
-    changed = True
-    while changed:
-        changed = False
-        for suffix in suffixes:
-            if value.endswith(suffix):
-                value = _sanitize(value[: -len(suffix)])
-                changed = True
-    return value
-
-
-def _normalize_slot(key: str, value: str) -> str:
-    text = _sanitize(value).strip("。")
-    rules: dict[str, tuple[list[str], list[str]]] = {
-        "thesis": ([], ["。"]),
-        "reason": (["核は"], ["だから", "だ", "です", "ます", "。"]),
-        "evidence": (["例えば、", "例えば"], ["。"]),
-        "fatal_flaw": (["相手の致命傷は", "致命傷は", "致命的欠陥は"], ["。"]),
-        "metaphor": ([], ["に近い", "ようなもの", "。"]),
-        "unproven": (["相手は"], ["を示せていない", "。"]),
-        "surviving_reason": (["それでも残るのは"], ["だ", "です", "ます", "。"]),
-    }
-    prefixes, suffixes = rules.get(key, ([], []))
-    text = _strip_prefixes(text, prefixes)
-    text = _strip_suffixes(text, suffixes)
-    return _sanitize(text).strip("。")
-
-
 def _load_json_object(raw: str) -> dict[str, str]:
     text = _clean_text(raw)
     start = text.find("{")
@@ -249,13 +208,17 @@ def _slots_format_ok(turn_name: str, slots: dict[str, str]) -> bool:
     return all(_slot_format_ok(key, slots.get(key, "")) for key in required)
 
 
-def _normalize_slots(turn_name: str, slots: dict[str, str]) -> dict[str, str]:
-    required = {
-        "turn1": ["thesis", "reason", "evidence"],
-        "turn2": ["thesis", "fatal_flaw", "metaphor"],
-        "turn3": ["thesis", "unproven", "surviving_reason"],
-    }[turn_name]
-    return {key: _normalize_slot(key, slots.get(key, "")) for key in required}
+def _get_slots_with_retry(turn_name: str, prompt: str, api_key: str) -> tuple[dict[str, str], dict[str, str]]:
+    last_slots: dict[str, str] | None = None
+    status: dict[str, str] = _provider_entry("live", "")
+    for _ in range(2):
+        slots, status = _call_slot_json(prompt, api_key)
+        last_slots = slots
+        if _slots_format_ok(turn_name, slots):
+            return slots, status
+    if last_slots is None:
+        raise ValueError("slot generation missing")
+    raise ValueError(f"slot format failed: {turn_name}")
 
 
 def _turn_ok(turn_name: str, slots: dict[str, str], thesis: str, anti_thesis: str) -> bool:
@@ -269,6 +232,8 @@ def _turn_ok(turn_name: str, slots: dict[str, str], thesis: str, anti_thesis: st
         if not value:
             return False
         if _forbidden_slot_text(value):
+            return False
+        if not _slot_format_ok(key, value):
             return False
         if _supports_anti(value, anti_thesis):
             return False
@@ -295,7 +260,8 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
     try:
-        a1_slots, a_status = _call_slot_json(
+        a1_slots, a_status = _get_slots_with_retry(
+            "turn1",
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
@@ -305,9 +271,9 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             api_key,
         )
-        a1_slots = _normalize_slots("turn1", a1_slots)
         provider_statuses["openai_a"] = a_status
-        b1_slots, b_status = _call_slot_json(
+        b1_slots, b_status = _get_slots_with_retry(
+            "turn1",
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
@@ -317,7 +283,6 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             api_key,
         )
-        b1_slots = _normalize_slots("turn1", b1_slots)
         provider_statuses["openai_b"] = b_status
         if not _turn_ok("turn1", a1_slots, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_ok(
             "turn1", b1_slots, card["side_b_thesis"], card["side_b_anti_thesis"]
@@ -329,7 +294,8 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
         _append(transcript, "A", 1, a1)
         _append(transcript, "B", 1, b1)
 
-        a2_slots, a_status = _call_slot_json(
+        a2_slots, a_status = _get_slots_with_retry(
+            "turn2",
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
@@ -341,9 +307,9 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             api_key,
         )
-        a2_slots = _normalize_slots("turn2", a2_slots)
         provider_statuses["openai_a"] = a_status
-        b2_slots, b_status = _call_slot_json(
+        b2_slots, b_status = _get_slots_with_retry(
+            "turn2",
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
@@ -355,7 +321,6 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             api_key,
         )
-        b2_slots = _normalize_slots("turn2", b2_slots)
         provider_statuses["openai_b"] = b_status
         if not _turn_ok("turn2", a2_slots, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_ok(
             "turn2", b2_slots, card["side_b_thesis"], card["side_b_anti_thesis"]
@@ -367,7 +332,8 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
         _append(transcript, "A", 2, a2)
         _append(transcript, "B", 2, b2)
 
-        a3_slots, a_status = _call_slot_json(
+        a3_slots, a_status = _get_slots_with_retry(
+            "turn3",
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
@@ -379,9 +345,9 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             api_key,
         )
-        a3_slots = _normalize_slots("turn3", a3_slots)
         provider_statuses["openai_a"] = a_status
-        b3_slots, b_status = _call_slot_json(
+        b3_slots, b_status = _get_slots_with_retry(
+            "turn3",
             _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
@@ -393,7 +359,6 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             api_key,
         )
-        b3_slots = _normalize_slots("turn3", b3_slots)
         provider_statuses["openai_b"] = b_status
         if not _turn_ok("turn3", a3_slots, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_ok(
             "turn3", b3_slots, card["side_b_thesis"], card["side_b_anti_thesis"]
