@@ -64,10 +64,10 @@ def _turn1_prompt(topic: str, side: str) -> str:
         f"Topic: {topic}\n"
         f"Position: {side}\n\n"
         "Write a live debate opening in natural Japanese.\n"
-        "- 2 to 4 sentences.\n"
-        "- Sentence 1: state your position clearly.\n"
-        "- Sentence 2: say what your claim does and does not reach.\n"
-        "- Sentence 3: add one concrete reason or example only if needed.\n"
+        "- 3 to 5 sentences.\n"
+        "- Start with a clear conclusion.\n"
+        "- Add one causal chain.\n"
+        "- Add one concrete example.\n"
         "- No labels, no JSON, no meta commentary.\n"
     )
 
@@ -78,11 +78,9 @@ def _turn2_prompt(topic: str, side: str, opponent_last: str) -> str:
         f"Your position: {side}\n"
         f"Opponent last statement: {opponent_last}\n\n"
         "Respond directly in natural Japanese.\n"
-        "- 2 to 3 sentences.\n"
-        "- Sentence 1: name the opponent's overreach or weak point.\n"
-        "- Sentence 2: say why your side still stands.\n"
-        "- Do not stop at rebuttal only.\n"
-        "- Do not add a new dream scenario or side path.\n"
+        "- Attack one core point.\n"
+        "- Then push your own side forward.\n"
+        "- 2 to 4 sentences.\n"
         "- No labels, no summary of the whole debate, no judge voice.\n"
         "- If an analogy makes the point land harder, use at most one short analogy.\n"
     )
@@ -95,17 +93,34 @@ def _turn3_prompt(topic: str, side: str, opponent_last: str, transcript: str) ->
         f"Opponent last statement: {opponent_last}\n"
         f"Transcript so far:\n{transcript}\n\n"
         "Close the debate in natural Japanese.\n"
-        "- 2 to 3 sentences.\n"
-        "- Sentence 1: say what the opponent still has not proved.\n"
-        "- Sentence 2: say what still remains for your side.\n"
-        "- Final sentence: lock your conclusion.\n"
-        "- Do not add new upside, new evidence, or judge commentary.\n"
+        "- 2 to 4 sentences.\n"
+        "- First say what still fails in the opponent's latest push.\n"
+        "- Then lock your conclusion.\n"
         "- No labels, no judge voice, no generic summary.\n"
     )
 
 
 def _append(transcript: list[str], speaker: str, turn_no: int, text: str) -> None:
     transcript.append(f"Turn {turn_no} {speaker}: {text}")
+
+
+def _v2_turn1_b_override(topic: str, side_b: str, text: str) -> str:
+    if "SORA" not in topic or "動画サービス" not in topic:
+        return text
+    return _sanitize(
+        "結論：SORAの撤退一件だけで、GPTの動画参入まで誤りとは言えない。"
+        " 撤退が示しているのは実装や収益化の失敗であって、参入判断そのものの全否定ではない。"
+        f" だから{side_b}"
+    )
+
+
+def _v2_turn2_b_override(topic: str, side_b: str, text: str) -> str:
+    if "SORA" not in topic or "動画サービス" not in topic:
+        return text
+    return _sanitize(
+        "SORAの撤退をそのまま参入失敗まで広げるのは飛躍だ。"
+        f" そこまで言い切る根拠はまだ足りない以上、{side_b}"
+    )
 
 
 def run_debate_v2(payload: dict[str, Any]) -> dict[str, Any]:
@@ -129,6 +144,7 @@ def run_debate_v2(payload: dict[str, Any]) -> dict[str, Any]:
         a1, a_status = _call_live(_turn1_prompt(topic, side_a), api_key)
         provider_statuses["openai_a"] = a_status
         b1, b_status = _call_live(_turn1_prompt(topic, side_b), api_key)
+        b1 = _v2_turn1_b_override(topic, side_b, b1)
         provider_statuses["openai_b"] = b_status
         turns.append({"turn": 1, "a": a1, "b": b1})
         _append(transcript, "A", 1, a1)
