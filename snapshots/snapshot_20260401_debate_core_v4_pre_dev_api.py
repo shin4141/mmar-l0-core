@@ -17,14 +17,12 @@ try:
     from debate_api import _call_gemini, ask_match_gemini, run_debate, run_live_judge
     from debate_core_v2 import run_debate_v2
     from debate_core_v3 import run_debate_v3
-    from debate_core_v4 import run_debate_v4
     from debate_api_pure import run_debate as run_debate_pure
     from history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 except ModuleNotFoundError:
     from tools.debate_api import _call_gemini, ask_match_gemini, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
-    from tools.debate_core_v4 import run_debate_v4
     from tools.debate_api_pure import run_debate as run_debate_pure
     from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 
@@ -354,7 +352,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4", "/api/ask_match", "/api/history/save", "/api/provider_preflight", "/api/judge"} and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
+        if path not in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/ask_match", "/api/history/save", "/api/provider_preflight", "/api/judge"} and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
 
@@ -450,7 +448,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self._send_json(status, response_payload)
                 return
-            if path in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4"}:
+            if path in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3"}:
                 if os.getenv("READ_ONLY_DEMO", "").lower() == "true":
                     self._send_json(403, {"ok": False, "error": "read-only demo"})
                     return
@@ -491,8 +489,6 @@ class Handler(BaseHTTPRequestHandler):
                         result = run_debate_v2(request_payload)
                     elif path == "/api/debate_v3":
                         result = run_debate_v3(request_payload)
-                    elif path == "/api/debate_v4":
-                        result = run_debate_v4(request_payload)
                     else:
                         result = run_debate(request_payload)
                 except Exception as exc:
@@ -612,7 +608,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 response_status = 200
                 if (
-                    path not in {"/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4"}
+                    path not in {"/api/debate_pure", "/api/debate_v2", "/api/debate_v3"}
                     and not bool(request_payload.get("_allow_mock_fallback"))
                     and _public_live_debate_failed(request_payload, response_payload)
                 ):
