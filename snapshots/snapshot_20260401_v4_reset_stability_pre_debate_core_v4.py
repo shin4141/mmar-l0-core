@@ -57,12 +57,6 @@ def _blocked(reason: str, raw_reason: str = "") -> dict[str, Any]:
     }
 
 
-def _blocked_with_trace(reason: str, raw_reason: str, trace: list[dict[str, Any]]) -> dict[str, Any]:
-    payload = _blocked(reason, raw_reason)
-    payload["trace"] = trace
-    return payload
-
-
 def _side_card() -> dict[str, str]:
     return {
         "proposition": SORA_TOPIC,
@@ -173,46 +167,6 @@ def _load_json_object(raw: str) -> dict[str, str]:
 def _call_slot_json(prompt: str, api_key: str) -> tuple[dict[str, str], dict[str, str]]:
     raw = _call_openai(prompt, api_key, model_name=OPENAI_MODEL)
     return _load_json_object(raw), _provider_entry("live", "")
-
-
-def _attempt_slot_acquisition(
-    *,
-    turn_name: str,
-    prompt: str,
-    api_key: str,
-    thesis: str,
-    anti_thesis: str,
-    trace: list[dict[str, Any]],
-    max_attempts: int = 3,
-) -> tuple[dict[str, str], dict[str, str]]:
-    last_slots: dict[str, str] | None = None
-    last_status = _provider_entry("live", "")
-    for attempt in range(1, max_attempts + 1):
-        slots, status = _call_slot_json(prompt, api_key)
-        normalized = _normalize_slots(turn_name, slots)
-        ok = _turn_ok(turn_name, normalized, thesis, anti_thesis)
-        trace.append(
-            {
-                "turn": turn_name,
-                "attempt": attempt,
-                "ok": ok,
-                "slots": normalized,
-            }
-        )
-        if ok:
-            return normalized, status
-        last_slots = normalized
-        last_status = status
-    if last_slots is not None:
-        trace.append(
-            {
-                "turn": turn_name,
-                "attempt": max_attempts,
-                "ok": False,
-                "final_slots": last_slots,
-            }
-        )
-    raise ValueError(f"semantic slot invariant failed:{turn_name}")
 
 
 def _slot_prompt(
@@ -335,52 +289,48 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
     started_at = time.time()
     transcript: list[str] = []
     turns: list[dict[str, Any]] = []
-    trace: list[dict[str, Any]] = []
     provider_statuses: dict[str, dict[str, str]] = {
         "openai_a": _provider_entry("pending", ""),
         "openai_b": _provider_entry("pending", ""),
     }
 
     try:
-        a1_slots, a_status = _attempt_slot_acquisition(
-            turn_name="turn1",
-            prompt=_slot_prompt(
+        a1_slots, a_status = _call_slot_json(
+            _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
                 thesis=card["side_a_thesis"],
                 anti_thesis=card["side_a_anti_thesis"],
                 turn_name="turn1",
             ),
-            api_key=api_key,
-            thesis=card["side_a_thesis"],
-            anti_thesis=card["side_a_anti_thesis"],
-            trace=trace,
+            api_key,
         )
+        a1_slots = _normalize_slots("turn1", a1_slots)
         provider_statuses["openai_a"] = a_status
-        b1_slots, b_status = _attempt_slot_acquisition(
-            turn_name="turn1",
-            prompt=_slot_prompt(
+        b1_slots, b_status = _call_slot_json(
+            _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
                 thesis=card["side_b_thesis"],
                 anti_thesis=card["side_b_anti_thesis"],
                 turn_name="turn1",
             ),
-            api_key=api_key,
-            thesis=card["side_b_thesis"],
-            anti_thesis=card["side_b_anti_thesis"],
-            trace=trace,
+            api_key,
         )
+        b1_slots = _normalize_slots("turn1", b1_slots)
         provider_statuses["openai_b"] = b_status
+        if not _turn_ok("turn1", a1_slots, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_ok(
+            "turn1", b1_slots, card["side_b_thesis"], card["side_b_anti_thesis"]
+        ):
+            return _blocked("slot invariant failed", "turn1")
         a1 = _render_turn1(a1_slots)
         b1 = _render_turn1(b1_slots)
         turns.append({"turn": 1, "a": a1, "b": b1})
         _append(transcript, "A", 1, a1)
         _append(transcript, "B", 1, b1)
 
-        a2_slots, a_status = _attempt_slot_acquisition(
-            turn_name="turn2",
-            prompt=_slot_prompt(
+        a2_slots, a_status = _call_slot_json(
+            _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
                 thesis=card["side_a_thesis"],
@@ -389,15 +339,12 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
                 opponent_last=b1,
                 transcript="\n".join(transcript),
             ),
-            api_key=api_key,
-            thesis=card["side_a_thesis"],
-            anti_thesis=card["side_a_anti_thesis"],
-            trace=trace,
+            api_key,
         )
+        a2_slots = _normalize_slots("turn2", a2_slots)
         provider_statuses["openai_a"] = a_status
-        b2_slots, b_status = _attempt_slot_acquisition(
-            turn_name="turn2",
-            prompt=_slot_prompt(
+        b2_slots, b_status = _call_slot_json(
+            _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
                 thesis=card["side_b_thesis"],
@@ -406,21 +353,22 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
                 opponent_last=a1,
                 transcript="\n".join(transcript),
             ),
-            api_key=api_key,
-            thesis=card["side_b_thesis"],
-            anti_thesis=card["side_b_anti_thesis"],
-            trace=trace,
+            api_key,
         )
+        b2_slots = _normalize_slots("turn2", b2_slots)
         provider_statuses["openai_b"] = b_status
+        if not _turn_ok("turn2", a2_slots, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_ok(
+            "turn2", b2_slots, card["side_b_thesis"], card["side_b_anti_thesis"]
+        ):
+            return _blocked("slot invariant failed", "turn2")
         a2 = _render_turn2(a2_slots)
         b2 = _render_turn2(b2_slots)
         turns.append({"turn": 2, "a": a2, "b": b2})
         _append(transcript, "A", 2, a2)
         _append(transcript, "B", 2, b2)
 
-        a3_slots, a_status = _attempt_slot_acquisition(
-            turn_name="turn3",
-            prompt=_slot_prompt(
+        a3_slots, a_status = _call_slot_json(
+            _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_a_role"],
                 thesis=card["side_a_thesis"],
@@ -429,15 +377,12 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
                 opponent_last=b2,
                 transcript="\n".join(transcript),
             ),
-            api_key=api_key,
-            thesis=card["side_a_thesis"],
-            anti_thesis=card["side_a_anti_thesis"],
-            trace=trace,
+            api_key,
         )
+        a3_slots = _normalize_slots("turn3", a3_slots)
         provider_statuses["openai_a"] = a_status
-        b3_slots, b_status = _attempt_slot_acquisition(
-            turn_name="turn3",
-            prompt=_slot_prompt(
+        b3_slots, b_status = _call_slot_json(
+            _slot_prompt(
                 topic=SORA_TOPIC,
                 role=card["side_b_role"],
                 thesis=card["side_b_thesis"],
@@ -446,26 +391,20 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
                 opponent_last=a2,
                 transcript="\n".join(transcript),
             ),
-            api_key=api_key,
-            thesis=card["side_b_thesis"],
-            anti_thesis=card["side_b_anti_thesis"],
-            trace=trace,
+            api_key,
         )
+        b3_slots = _normalize_slots("turn3", b3_slots)
         provider_statuses["openai_b"] = b_status
+        if not _turn_ok("turn3", a3_slots, card["side_a_thesis"], card["side_a_anti_thesis"]) or not _turn_ok(
+            "turn3", b3_slots, card["side_b_thesis"], card["side_b_anti_thesis"]
+        ):
+            return _blocked("slot invariant failed", "turn3")
         a3 = _render_turn3(a3_slots)
         b3 = _render_turn3(b3_slots)
         turns.append({"turn": 3, "a": a3, "b": b3})
     except Exception as exc:
-        raw_reason = str(exc)
-        if raw_reason.startswith("semantic slot invariant failed:"):
-            turn_name = raw_reason.split(":", 1)[1]
-            return {
-                **_blocked_with_trace("slot invariant failed", turn_name, trace),
-                "run_id": run_id,
-                "provider_statuses": provider_statuses,
-            }
         return {
-            **_blocked_with_trace("symmetric live unavailable", raw_reason, trace),
+            **_blocked("symmetric live unavailable", str(exc)),
             "run_id": run_id,
             "provider_statuses": provider_statuses,
         }
