@@ -3015,10 +3015,9 @@ def _call_gemini_generate_content(
     response_mime_type: str | None = None,
     thinking_budget: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    query = parse.urlencode({"key": api_key})
-    url = f"{_gemini_generate_content_url(model_name)}?{query}"
+    url = _gemini_generate_content_url(model_name)
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": temperature,
             "maxOutputTokens": max_output_tokens,
@@ -3028,7 +3027,7 @@ def _call_gemini_generate_content(
         payload["generationConfig"]["responseMimeType"] = response_mime_type
     if thinking_budget is not None:
         payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": thinking_budget}
-    response = _post_json_verbose(url, payload, headers={}, timeout_s=timeout_s)
+    response = _post_json_verbose(url, payload, headers={"x-goog-api-key": api_key}, timeout_s=timeout_s)
     return response, payload
 
 
