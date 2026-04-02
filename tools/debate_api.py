@@ -178,24 +178,11 @@ def run_live_judge(payload: dict[str, Any]) -> dict[str, Any]:
     session.progress(stage="completed", extra={"completed_turns": len(turns)})
     judge_info = session.provider_statuses.get("judge", {})
     judge_mode = str(judge_info.get("mode") or "")
-    if judge_mode != "live":
-        raw_reason = str(judge_info.get("raw_reason") or judge_info.get("reason") or "").strip()
-        reason = str(judge_info.get("reason") or "judge failed").strip()
-        error_text = f"Judge live failed: {reason}"
-        if raw_reason and raw_reason != reason:
-            error_text = f"{error_text} ({raw_reason})"
-        return {
-            "ok": False,
-            "error": error_text,
-            "mode": "judge-failed",
-            "provider_statuses": session.provider_statuses,
-            "artifact_phase_entries": session.phase_entries,
-        }
     return {
         "ok": True,
         "session_id": cfg.session_id,
         "route_signature": cfg.route_signature,
-        "mode": "live",
+        "mode": "live" if judge_mode == "live" else judge_mode or "mock-fallback",
         "fighter_a_provider": cfg.fighter_a_provider,
         "fighter_b_provider": cfg.fighter_b_provider,
         "judge_provider": cfg.judge_provider,
@@ -205,6 +192,7 @@ def run_live_judge(payload: dict[str, Any]) -> dict[str, Any]:
         "provider_statuses": session.provider_statuses,
         "summary": summary,
         "artifact_phase_entries": session.phase_entries,
+        "judge_warning": "" if judge_mode == "live" else str(judge_info.get("raw_reason") or judge_info.get("reason") or "").strip(),
     }
 
 
