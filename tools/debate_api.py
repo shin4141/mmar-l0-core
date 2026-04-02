@@ -295,7 +295,7 @@ def _normalize_config(payload: dict[str, Any]) -> DebateConfig:
     fighter_a_model = _resolve_provider_model(fighter_a_provider, openai_key, anthropic_key, gemini_key)
     fighter_b_model = _resolve_provider_model(fighter_b_provider, openai_key, anthropic_key, gemini_key)
     judge_provider = "gemini"
-    judge_model = _resolve_provider_model(judge_provider, openai_key, anthropic_key, gemini_key)
+    judge_model = _resolve_gemini_model_safe(gemini_key) if judge_provider == "gemini" else _resolve_provider_model(judge_provider, openai_key, anthropic_key, gemini_key)
     session_id = str(artifact_meta.get("run_id") or "")
     route_signature = _route_signature(
         topic_hash=str(artifact_meta.get("topic_hash") or ""),
@@ -1453,7 +1453,7 @@ def _session_inline_judge_summary(
     provider_statuses: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     fallback = _mock_summary(cfg, turns)
-    judge_model_name = cfg.judge_model or (_resolve_gemini_model(cfg.gemini_key) if cfg.gemini_key else _default_gemini_model_name())
+    judge_model_name = cfg.judge_model or (_resolve_gemini_model_safe(cfg.gemini_key) if cfg.gemini_key else _default_gemini_model_name())
     if cfg.disable_live_judge:
         provider_statuses["judge"] = {
             **_provider_entry("mock", "judge disabled"),
@@ -1699,7 +1699,7 @@ def _judge_summary_data(
     transcript: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     fallback = _mock_summary(cfg, turns)
-    judge_model_name = cfg.judge_model or (_resolve_gemini_model(cfg.gemini_key) if cfg.gemini_key else _default_gemini_model_name())
+    judge_model_name = cfg.judge_model or (_resolve_gemini_model_safe(cfg.gemini_key) if cfg.gemini_key else _default_gemini_model_name())
     _log_judge_stage(
         "judge-provider",
         {
@@ -2816,6 +2816,13 @@ def _resolve_gemini_model(api_key: str) -> str:
     chosen = models[0] if models else _default_gemini_model_name()
     _GEMINI_MODEL_CACHE[key] = chosen
     return chosen
+
+
+def _resolve_gemini_model_safe(api_key: str) -> str:
+    try:
+        return _resolve_gemini_model(api_key)
+    except Exception:
+        return _default_gemini_model_name()
 
 
 def _gemini_generate_content_url(model_name: str | None = None) -> str:
