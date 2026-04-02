@@ -3019,6 +3019,64 @@ async function parseResponse(response) {
   return { ok: false, error: await response.text() };
 }
 
+function createSyntheticResponse(status, contentType = "application/json") {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get(name) {
+        if (String(name || "").toLowerCase() === "content-type") return contentType;
+        return null;
+      },
+    },
+  };
+}
+
+function postJsonViaXhr(url, payload) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.responseType = "text";
+    xhr.onload = () => {
+      const rawText = typeof xhr.responseText === "string" ? xhr.responseText : "";
+      const contentType = xhr.getResponseHeader("Content-Type") || "application/json";
+      let data = { ok: false, error: rawText };
+      if ((contentType || "").includes("application/json")) {
+        try {
+          data = rawText ? JSON.parse(rawText) : {};
+        } catch {
+          data = { ok: false, error: rawText || "invalid_json" };
+        }
+      }
+      resolve({ response: createSyntheticResponse(xhr.status || 0, contentType), data });
+    };
+    xhr.onerror = () => reject(new Error("NetworkError"));
+    xhr.onabort = () => reject(new Error("NetworkAborted"));
+    xhr.send(JSON.stringify(payload));
+  });
+}
+
+async function postJsonWithBrowserFallback(url, payload) {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    const data = await parseResponse(response);
+    return { response, data };
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (!/Failed to fetch|NetworkError|Load failed/i.test(message)) {
+      throw error;
+    }
+    return postJsonViaXhr(url, payload);
+  }
+}
+
 function isDebateSuccessResponse(response, data) {
   if (!response?.ok) return false;
   const turns = data?.debate?.turns;
@@ -3029,12 +3087,7 @@ function isDebateSuccessResponse(response, data) {
 
 async function runProviderPreflight(payload) {
   const endpoint = endpointUrl("/api/provider_preflight");
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await parseResponse(response);
+  const { response, data } = await postJsonWithBrowserFallback(endpoint, payload);
   if (!response.ok || !data.ok) {
     throw new Error(String(data?.error || "provider preflight failed"));
   }
@@ -3111,12 +3164,7 @@ async function runDebate(event) {
   outputMetaEl.style.display = "";
 
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await parseResponse(response);
+    const { response, data } = await postJsonWithBrowserFallback(endpoint, payload);
     if (!isDebateSuccessResponse(response, data)) {
       throw new Error(normalizeApiError("debate", response.status, data));
     }
@@ -3242,12 +3290,7 @@ async function performJudgeDebate() {
       turns,
       transcript,
     };
-    const response = await fetch(endpointUrl("/api/judge"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await parseResponse(response);
+    const { response, data } = await postJsonWithBrowserFallback(endpointUrl("/api/judge"), payload);
     if (!response.ok || !data.ok) {
       throw new Error(normalizeApiError("judge", response.status, data));
     }
