@@ -611,7 +611,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(status, response_payload)
                 return
             if path in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4"}:
-                if os.getenv("READ_ONLY_DEMO", "").lower() == "true":
+                if path != "/api/debate_v4" and os.getenv("READ_ONLY_DEMO", "").lower() == "true":
                     self._send_json(403, {"ok": False, "error": "read-only demo"})
                     return
                 server_phase_entries = []
