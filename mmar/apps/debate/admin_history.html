@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MMAR Admin History</title>
+  <link rel="stylesheet" href="/admin/admin.css?v=20260402a" />
+</head>
+<body>
+  <main class="admin-shell admin-history-shell">
+    <section class="admin-card admin-list-card">
+      <div class="admin-toolbar">
+        <div>
+          <div class="admin-eyebrow">MMAR Admin</div>
+          <h1>Runs</h1>
+        </div>
+        <div class="admin-toolbar-actions">
+          <button id="admin-refresh" type="button" class="secondary-button">Refresh</button>
+          <button id="admin-logout" type="button" class="secondary-button">Logout</button>
+        </div>
+      </div>
+      <div id="admin-run-list" class="admin-run-list empty">
+        <div class="empty-state">Loading runs...</div>
+      </div>
+    </section>
+    <section class="admin-card admin-detail-card">
+      <div class="admin-detail-head">
+        <h2>Run Detail</h2>
+        <button id="admin-promote" type="button" disabled>Add to History</button>
+      </div>
+      <div id="admin-detail-meta" class="admin-meta">Select a run.</div>
+      <pre id="admin-detail-json" class="admin-json">Select a run.</pre>
+      <div id="admin-history-status" class="admin-status" hidden></div>
+    </section>
+  </main>
+  <script type="module" src="/admin/admin_history.js?v=20260402a"></script>
+</body>
+</html>

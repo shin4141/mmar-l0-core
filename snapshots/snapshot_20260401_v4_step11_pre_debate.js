@@ -5,6 +5,9 @@ const form = document.querySelector("#debate-form");
 const runButton = document.querySelector("#run-button");
 const judgeButton = document.querySelector("#judge-button");
 const saveButton = document.querySelector("#save-button");
+const judgePredictionPanelEl = document.querySelector("#judge-prediction-panel");
+const judgeSkipButton = document.querySelector("#judge-skip-button");
+const judgeSubmitButton = document.querySelector("#judge-submit-button");
 const historyButton = document.querySelector("#history-button");
 const archiveButton = document.querySelector("#archive-button");
 const detailLikeButton = document.querySelector("#detail-like-button");
@@ -27,6 +30,7 @@ const errorHintEl = document.querySelector("#error-hint");
 const topicDisplayEl = document.querySelector("#topic-display");
 const keywordInput = document.querySelector("#keyword");
 const swapSidesButton = document.querySelector("#swap-sides-button");
+const judgeUserReasonInput = document.querySelector("#judge-user-reason");
 const runtimeFingerprintEl = document.querySelector("#runtime-fingerprint");
 const runtimeDiagnosticEl = document.querySelector("#runtime-diagnostic");
 const readerControlsEl = document.querySelector("#reader-controls");
@@ -77,7 +81,7 @@ const debugJudgePass1El = document.querySelector("#debug-judge-pass1");
 const debugJudgePass2El = document.querySelector("#debug-judge-pass2");
 const debugStoryAlignReportEl = document.querySelector("#debug-story-align-report");
 const mobileMedia = window.matchMedia("(max-width: 768px)");
-const DEBATE_API_PATH = "/api/debate_v4";
+const DEBATE_API_PATH = "/api/debate_pure";
 
 let healthCheckTimer = null;
 let currentResult = null;
@@ -142,7 +146,7 @@ const MODEL_LABELS = {
 const PUBLIC_ASK_DISABLED = true;
 
 function shouldUsePublicFixedDemo() {
-  return false;
+  return !VIEWER_MODE && !BETA_MODE;
 }
 
 function isMobileLayout() {
@@ -171,6 +175,33 @@ function formatTopicDisplay(topic, keyword = "") {
   const cleanTopic = String(topic || "").trim() || "Topic";
   const cleanKeyword = normalizeKeyword(keyword);
   return cleanKeyword ? `${cleanTopic} (${cleanKeyword})` : cleanTopic;
+}
+
+function normalizeUserPick(value) {
+  const raw = String(value || "").trim();
+  if (raw === "A" || raw === "B" || raw === "Draw") return raw;
+  return "";
+}
+
+function collectJudgePrediction() {
+  const selected = document.querySelector('input[name="userPick"]:checked');
+  return {
+    user_pick: normalizeUserPick(selected?.value || ""),
+    user_reason: String(judgeUserReasonInput?.value || "").trim().slice(0, 160),
+  };
+}
+
+function resetJudgePredictionPanel() {
+  document.querySelectorAll('input[name="userPick"]').forEach((node) => {
+    node.checked = false;
+  });
+  if (judgeUserReasonInput) judgeUserReasonInput.value = "";
+  if (judgePredictionPanelEl) judgePredictionPanelEl.hidden = true;
+}
+
+function openJudgePredictionPanel() {
+  if (!judgePredictionPanelEl) return;
+  judgePredictionPanelEl.hidden = false;
 }
 
 function topicAnchorTokens(topic) {
@@ -215,17 +246,7 @@ function generatedPositionsFromTopic(topic) {
 }
 
 function applyPublicInteractiveDefaults() {
-  document.body.classList.remove("public-fixed-demo");
-  if (publicFixedDemoNoteEl) publicFixedDemoNoteEl.hidden = true;
-  if (demoModeBadgeEl) demoModeBadgeEl.hidden = true;
-  document.querySelector("#topic").readOnly = false;
-  document.querySelector("#side-a").readOnly = false;
-  document.querySelector("#side-b").readOnly = false;
-  if (keywordInput) keywordInput.readOnly = false;
-  fighterAProviderInput.value = "openai";
-  fighterBProviderInput.value = "openai";
-  fighterAProviderInput.disabled = true;
-  fighterBProviderInput.disabled = true;
+  return;
 }
 
 function publicFixedDemoLog(eventName, detail = undefined) {
@@ -1359,19 +1380,6 @@ async function saveHistoryRecordToServer(record) {
   }
 }
 
-async function saveRunRecordToServer(record) {
-  const response = await fetch(endpointUrl("/api/runs/save"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(record),
-  });
-  const data = await parseResponse(response);
-  if (!response.ok || !data.ok || !data.record) {
-    throw new Error(normalizeApiError("run_save", response.status, data));
-  }
-  return data.record;
-}
-
 function normalizeSavedRecordForPreview(record) {
   if (!record || typeof record !== "object") return record;
   const summary = record.judge_json || {};
@@ -1520,44 +1528,6 @@ function buildBattleRecord(result, payload) {
   return record;
 }
 
-function buildRunRecord(result, payload, status = "debate_complete") {
-  const record = buildBattleRecord(result, payload);
-  return {
-    session_id: record.run_id || result?.session_id || "",
-    run_id: record.run_id || result?.session_id || "",
-    created_at: record.created_at,
-    topic: record.topic,
-    stance_a: record.stance_a,
-    stance_b: record.stance_b,
-    status,
-    debate_result: {
-      topic: record.topic,
-      stance_a: record.stance_a,
-      stance_b: record.stance_b,
-      turn_count: record.turn_count,
-      transcript_json: record.transcript_json,
-      raw_turns: record.raw_turns,
-      display_turns: record.display_turns,
-      provider_statuses: record.provider_statuses,
-      output_meta: record.output_meta,
-      elapsed_seconds: record.elapsed_seconds,
-      source_mode: record.source_mode,
-    },
-    judge_result: status === "judge_complete" ? record.judge_json : {},
-    run_json: record,
-  };
-}
-
-async function autosaveCurrentRun(status = "debate_complete") {
-  if (!currentResult || !currentPayload) return null;
-  try {
-    return await saveRunRecordToServer(buildRunRecord(currentResult, currentPayload, status));
-  } catch (error) {
-    console.warn("autosave failed", error);
-    return null;
-  }
-}
-
 function currentMatchContextKey() {
   if (currentLoadedRecord?.run_id) return `run:${currentLoadedRecord.run_id}`;
   if (currentLoadedRecord?.id && !currentRecordId) return `viewer:${currentLoadedRecord.id}`;
@@ -1688,9 +1658,23 @@ function referenceFromDataset(dataset = {}) {
 }
 
 function syncSaveButton() {
-  saveButton.hidden = true;
-  saveButton.disabled = true;
-  saveButton.textContent = "Save Match";
+  if (READ_ONLY_DEMO) {
+    saveButton.hidden = true;
+    saveButton.disabled = true;
+    saveButton.textContent = "Save Match";
+    return;
+  }
+  if (analysisHidden || !currentResult) {
+    saveButton.hidden = true;
+    saveButton.disabled = true;
+    saveButton.textContent = "Save Match";
+    return;
+  }
+  saveButton.hidden = false;
+  const records = loadHistoryRecords();
+  const saved = records.some((record) => record.id === currentRecordId);
+  saveButton.disabled = saved;
+  saveButton.textContent = saved ? "Saved" : "Save Match";
 }
 
 function syncAskButton() {
@@ -2387,10 +2371,30 @@ function renderSummary(summary) {
   const keyDisagreements = normalizeDetailList(summary?.key_disagreement_top3);
   const unresolvedResidue = normalizeDetailList(summary?.unresolved_residue);
   const fullRationale = summary?.full_rationale || summary?.provisional_judgment || "";
+  const predictionCheck = summary?.prediction_check || null;
+  const predictionFeedback = String(summary?.prediction_feedback || "").trim();
+  const fairnessRewrite = String(summary?.fairness_rewrite || "").trim();
+  const predictionHeadline = predictionCheck
+    ? `You thought ${predictionCheck.user_pick || "?"}. Reality was ${predictionCheck.actual_winner || "?"}.`
+    : "";
   const askHint = shouldShowAskHint()
     ? "この試合について Gemini に質問できます。なぜ負けたか、何を足せば戻るかを聞けます。"
     : "";
-  destroyExpansionIntro();
+
+  expansionIntroEl.innerHTML = (predictionCheck || predictionFeedback || fairnessRewrite) ? `
+    <section class="expansion-layer">
+      ${predictionCheck || predictionFeedback ? `
+      <div class="expansion-block">
+        <div class="expansion-label">You vs Judge</div>
+        ${predictionHeadline ? `<div class="expansion-headline">${escapeHtml(predictionHeadline)}</div>` : ""}
+        ${predictionFeedback ? `<div class="analysis-detail-copy">${escapeHtml(predictionFeedback)}</div>` : ""}
+      </div>` : ""}
+      ${fairnessRewrite ? `
+      <div class="expansion-block expansion-block-next">
+        <div class="expansion-label">Next Round Suggestion</div>
+        <div class="analysis-detail-copy">${escapeHtml(fairnessRewrite)}</div>
+      </div>` : ""}
+    </section>` : "";
 
   verdictStripEl.innerHTML = `
     <article class="verdict-strip-card">
@@ -2800,6 +2804,7 @@ function refreshOutput() {
   syncDetailLikeButton();
 
   if (analysisHidden) {
+    if (judgePredictionPanelEl) judgePredictionPanelEl.hidden = true;
     renderPublicSummary(debate.summary || {});
     judgeButton.hidden = false;
     judgeButton.disabled = false;
@@ -2808,6 +2813,7 @@ function refreshOutput() {
   }
 
   clearPublicSummary();
+  if (judgePredictionPanelEl) judgePredictionPanelEl.hidden = true;
   judgeButton.hidden = false;
   judgeButton.disabled = true;
   renderSummary(debate.summary || {});
@@ -2826,6 +2832,7 @@ function renderResult(result) {
   currentRecordId = null;
   currentLoadedRecord = null;
   resetAskThreadForCurrentMatch();
+  resetJudgePredictionPanel();
   setRevealState(true);
   setReadingMode(true);
   renderRuntimeFingerprint();
@@ -2875,7 +2882,7 @@ function collectPayload() {
     turn_count: turnCount,
     mode,
     fighter_a_provider: fighterAProviderInput?.value || "openai",
-    fighter_b_provider: fighterBProviderInput?.value || "openai",
+    fighter_b_provider: fighterBProviderInput?.value || "anthropic",
     api_keys: {
       openai: document.querySelector("#openai-key").value.trim(),
       anthropic: document.querySelector("#anthropic-key").value.trim(),
@@ -3122,7 +3129,6 @@ async function runDebate(event) {
     data.elapsed_seconds = finishDebateTimer("completed");
     setRunMetaForResult("Completed in", data.elapsed_seconds, data.mode, data.provider_statuses || {});
     renderResult(data);
-    await autosaveCurrentRun("debate_complete");
     setStatus("ok", "Debate complete");
   } catch (error) {
     if (VIEWER_MODE) {
@@ -3199,9 +3205,11 @@ function setupViewerMode() {
   loadViewerArchive();
 }
 
-async function performJudgeDebate() {
+async function performJudgeDebate(prediction = {}) {
   if (!currentResult) return;
   judgeButton.disabled = true;
+  if (judgeSkipButton) judgeSkipButton.disabled = true;
+  if (judgeSubmitButton) judgeSubmitButton.disabled = true;
   setStatus("running", "Running judge");
   setRunMeta("Running judge...", true);
   setHint("");
@@ -3223,6 +3231,8 @@ async function performJudgeDebate() {
         anthropic: document.querySelector("#anthropic-key").value.trim(),
         gemini: document.querySelector("#gemini-key").value.trim(),
       },
+      user_pick: normalizeUserPick(prediction?.user_pick || ""),
+      user_reason: String(prediction?.user_reason || "").trim(),
       turns,
       transcript,
     };
@@ -3241,10 +3251,10 @@ async function performJudgeDebate() {
     currentStoryAlignReport = null;
     currentResult.provider_statuses = data.provider_statuses || currentResult.provider_statuses || {};
     currentResult.debate.summary = data.summary || {};
+    resetJudgePredictionPanel();
     setRevealState(false);
     refreshOutput();
     renderDebugPipeline();
-    await autosaveCurrentRun("judge_complete");
     setStatus("ok", "Judge complete");
     setRunMeta("", false);
   } catch (error) {
@@ -3252,6 +3262,9 @@ async function performJudgeDebate() {
     setHint(String(error?.message || "The judge result could not be generated. Please try again."));
     judgeButton.disabled = false;
     setRunMeta("", false);
+  } finally {
+    if (judgeSkipButton) judgeSkipButton.disabled = false;
+    if (judgeSubmitButton) judgeSubmitButton.disabled = false;
   }
 }
 
@@ -3329,7 +3342,13 @@ runButton.addEventListener("click", (event) => {
 });
 judgeButton.addEventListener("click", () => {
   if (!currentResult) return;
-  void performJudgeDebate();
+  openJudgePredictionPanel();
+});
+judgeSkipButton?.addEventListener("click", () => {
+  void performJudgeDebate({});
+});
+judgeSubmitButton?.addEventListener("click", () => {
+  void performJudgeDebate(collectJudgePrediction());
 });
 saveButton.addEventListener("click", () => {
   if (READ_ONLY_DEMO) return;

@@ -209,6 +209,36 @@
           <button id="judge-button" type="button" class="secondary-button" hidden disabled>Judge Debate</button>
           <button id="save-button" type="button" hidden disabled>Save Match</button>
         </div>
+        <section id="judge-prediction-panel" class="session-box" hidden>
+          <div class="section-title-row">
+            <h3>Before Judge</h3>
+          </div>
+          <div class="settings-grid">
+            <fieldset class="mode-field">
+              <legend>Winner Pick</legend>
+              <label class="mode-option">
+                <input type="radio" name="userPick" value="A" />
+                <span>A</span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="userPick" value="B" />
+                <span>B</span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="userPick" value="Draw" />
+                <span>Draw / Unsure</span>
+              </label>
+            </fieldset>
+            <label class="field compact">
+              <span>Reason (optional)</span>
+              <input id="judge-user-reason" type="text" maxlength="160" autocomplete="off" spellcheck="false" placeholder="例: Aの方が条件を具体で支えていた" />
+            </label>
+          </div>
+          <div class="control-row">
+            <button id="judge-skip-button" type="button" class="chip-button">Skip</button>
+            <button id="judge-submit-button" type="button" class="secondary-button">Submit &amp; Judge</button>
+          </div>
+        </section>
       </section>
 
       <section id="public-summary" class="output-block public-summary-block" hidden style="display:none" aria-hidden="true">

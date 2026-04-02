@@ -52,12 +52,172 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runs (
+          session_id TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          topic TEXT NOT NULL,
+          side_a TEXT NOT NULL,
+          side_b TEXT NOT NULL,
+          status TEXT NOT NULL,
+          debate_result_json TEXT NOT NULL,
+          judge_result_json TEXT NOT NULL,
+          run_json TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS history_items (
+          session_id TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL,
+          promoted_at TEXT NOT NULL,
+          hidden INTEGER NOT NULL DEFAULT 0,
+          views INTEGER NOT NULL DEFAULT 0,
+          likes INTEGER NOT NULL DEFAULT 0,
+          FOREIGN KEY(session_id) REFERENCES runs(session_id)
+        )
+        """
+    )
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(history_records)").fetchall()}
     if "views" not in columns:
         conn.execute("ALTER TABLE history_records ADD COLUMN views INTEGER NOT NULL DEFAULT 0")
     if "likes" not in columns:
         conn.execute("ALTER TABLE history_records ADD COLUMN likes INTEGER NOT NULL DEFAULT 0")
     conn.commit()
+
+
+def _normalize_run_record(record: dict) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    normalized = dict(record or {})
+    session_id = str(normalized.get("session_id") or normalized.get("run_id") or "").strip()
+    if not session_id:
+        session_id = f"run_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    normalized["session_id"] = session_id
+    normalized.setdefault("run_id", session_id)
+    normalized.setdefault("created_at", now)
+    normalized.setdefault("updated_at", now)
+    normalized.setdefault("topic", "")
+    normalized.setdefault("stance_a", normalized.get("side_a", ""))
+    normalized.setdefault("stance_b", normalized.get("side_b", ""))
+    normalized.setdefault("status", "debate_complete")
+    normalized.setdefault("debate_result", {})
+    normalized.setdefault("judge_result", {})
+    return normalized
+
+
+def _run_record_from_row(row: sqlite3.Row) -> dict:
+    raw = row["run_json"]
+    if raw:
+        record = json.loads(raw)
+    else:
+        record = {}
+    record["session_id"] = row["session_id"]
+    record["run_id"] = record.get("run_id") or row["session_id"]
+    record["created_at"] = record.get("created_at") or row["created_at"]
+    record["updated_at"] = row["updated_at"]
+    record["topic"] = record.get("topic") or row["topic"]
+    record["stance_a"] = record.get("stance_a") or row["side_a"]
+    record["stance_b"] = record.get("stance_b") or row["side_b"]
+    record["status"] = row["status"]
+    record["debate_result"] = json.loads(row["debate_result_json"] or "{}")
+    record["judge_result"] = json.loads(row["judge_result_json"] or "{}")
+    return record
+
+
+def save_run_record(record: dict, db_path: Path | None = None) -> dict:
+    normalized = _normalize_run_record(record)
+    now = datetime.now(timezone.utc).isoformat()
+    normalized["updated_at"] = now
+    with _connect(db_path) as conn:
+        existing = conn.execute(
+            "SELECT * FROM runs WHERE session_id = ?",
+            (normalized["session_id"],),
+        ).fetchone()
+        if existing:
+            previous = _run_record_from_row(existing)
+            if not normalized.get("debate_result"):
+                normalized["debate_result"] = previous.get("debate_result") or {}
+            if not normalized.get("judge_result"):
+                normalized["judge_result"] = previous.get("judge_result") or {}
+            if not normalized.get("status"):
+                normalized["status"] = previous.get("status") or "debate_complete"
+            normalized["created_at"] = previous.get("created_at") or normalized["created_at"]
+        payload = dict(normalized)
+        conn.execute(
+            """
+            INSERT INTO runs (
+              session_id, created_at, updated_at, topic, side_a, side_b, status,
+              debate_result_json, judge_result_json, run_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+              updated_at=excluded.updated_at,
+              topic=excluded.topic,
+              side_a=excluded.side_a,
+              side_b=excluded.side_b,
+              status=excluded.status,
+              debate_result_json=excluded.debate_result_json,
+              judge_result_json=excluded.judge_result_json,
+              run_json=excluded.run_json
+            """,
+            (
+                payload["session_id"],
+                payload["created_at"],
+                payload["updated_at"],
+                payload.get("topic", ""),
+                payload.get("stance_a", ""),
+                payload.get("stance_b", ""),
+                payload.get("status", "debate_complete"),
+                json.dumps(payload.get("debate_result", {}), ensure_ascii=False),
+                json.dumps(payload.get("judge_result", {}), ensure_ascii=False),
+                json.dumps(payload, ensure_ascii=False),
+            ),
+        )
+        conn.commit()
+    return {"saved_id": normalized["session_id"], "record": normalized}
+
+
+def list_run_records(db_path: Path | None = None, limit: int = 200) -> list[dict]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM runs ORDER BY datetime(created_at) DESC, rowid DESC LIMIT ?",
+            (max(1, int(limit)),),
+        ).fetchall()
+    return [_run_record_from_row(row) for row in rows]
+
+
+def get_run_record(session_id: str, db_path: Path | None = None) -> dict | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM runs WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    return _run_record_from_row(row) if row else None
+
+
+def promote_run_to_history(session_id: str, db_path: Path | None = None) -> dict | None:
+    with _connect(db_path) as conn:
+        run_row = conn.execute(
+            "SELECT * FROM runs WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if not run_row:
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO history_items (session_id, created_at, promoted_at, hidden, views, likes)
+            VALUES (?, ?, ?, 0, 0, 0)
+            ON CONFLICT(session_id) DO UPDATE SET
+              hidden=0,
+              promoted_at=excluded.promoted_at
+            """,
+            (session_id, run_row["created_at"], now),
+        )
+        conn.commit()
+    return get_history_record(session_id, db_path=db_path)
 
 
 def _normalize_record(record: dict) -> dict:
@@ -182,24 +342,62 @@ def save_history_record(record: dict, db_path: Path | None = None) -> dict:
 
 
 def list_history_records(db_path: Path | None = None, sort: str = "recent") -> list[dict]:
-    if sort == "likes":
-        order_by = "ORDER BY likes DESC, views DESC, datetime(created_at) DESC, rowid DESC"
-    else:
-        order_by = "ORDER BY datetime(created_at) DESC, rowid DESC"
     with _connect(db_path) as conn:
-        rows = conn.execute(
-            f"SELECT * FROM history_records {order_by}"
+        item_rows = conn.execute(
+            """
+            SELECT
+              hi.session_id,
+              hi.created_at AS item_created_at,
+              hi.promoted_at,
+              hi.hidden,
+              hi.views,
+              hi.likes,
+              r.*
+            FROM history_items hi
+            JOIN runs r ON r.session_id = hi.session_id
+            WHERE hi.hidden = 0
+            """
+            + (
+                " ORDER BY hi.likes DESC, hi.views DESC, datetime(hi.promoted_at) DESC, r.rowid DESC"
+                if sort == "likes"
+                else " ORDER BY datetime(hi.promoted_at) DESC, r.rowid DESC"
+            )
         ).fetchall()
-    return [_record_from_row(row) for row in rows]
+    records: list[dict] = []
+    for row in item_rows:
+        run_record = _run_record_from_row(row)
+        run_record["id"] = row["session_id"]
+        run_record["views"] = int(row["views"] or 0)
+        run_record["likes"] = int(row["likes"] or 0)
+        records.append(run_record)
+    return records
 
 
 def get_history_record(record_id: str, db_path: Path | None = None) -> dict | None:
     with _connect(db_path) as conn:
         row = conn.execute(
-            "SELECT * FROM history_records WHERE id = ?",
+            """
+            SELECT
+              hi.session_id,
+              hi.created_at AS item_created_at,
+              hi.promoted_at,
+              hi.hidden,
+              hi.views,
+              hi.likes,
+              r.*
+            FROM history_items hi
+            JOIN runs r ON r.session_id = hi.session_id
+            WHERE hi.session_id = ? AND hi.hidden = 0
+            """,
             (record_id,),
         ).fetchone()
-    return _record_from_row(row) if row else None
+    if not row:
+        return None
+    record = _run_record_from_row(row)
+    record["id"] = row["session_id"]
+    record["views"] = int(row["views"] or 0)
+    record["likes"] = int(row["likes"] or 0)
+    return record
 
 
 def increment_history_metric(record_id: str, metric: str, db_path: Path | None = None) -> dict | None:
@@ -207,12 +405,8 @@ def increment_history_metric(record_id: str, metric: str, db_path: Path | None =
         raise ValueError("invalid metric")
     with _connect(db_path) as conn:
         conn.execute(
-            f"UPDATE history_records SET {metric} = COALESCE({metric}, 0) + 1 WHERE id = ?",
+            f"UPDATE history_items SET {metric} = COALESCE({metric}, 0) + 1 WHERE session_id = ?",
             (record_id,),
         )
         conn.commit()
-        row = conn.execute(
-            "SELECT * FROM history_records WHERE id = ?",
-            (record_id,),
-        ).fetchone()
-    return _record_from_row(row) if row else None
+    return get_history_record(record_id, db_path=db_path)

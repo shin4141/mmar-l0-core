@@ -6,8 +6,10 @@ import mimetypes
 import os
 import subprocess
 import hashlib
+import secrets
 import time
 import uuid
+from http import cookies
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,14 +21,32 @@ try:
     from debate_core_v3 import run_debate_v3
     from debate_core_v4 import run_debate_v4
     from debate_api_pure import run_debate as run_debate_pure
-    from history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
+    from history_store import (
+        get_history_record,
+        get_run_record,
+        increment_history_metric,
+        list_history_records,
+        list_run_records,
+        promote_run_to_history,
+        save_history_record,
+        save_run_record,
+    )
 except ModuleNotFoundError:
     from tools.debate_api import _call_gemini, ask_match_gemini, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
     from tools.debate_core_v4 import run_debate_v4
     from tools.debate_api_pure import run_debate as run_debate_pure
-    from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
+    from tools.history_store import (
+        get_history_record,
+        get_run_record,
+        increment_history_metric,
+        list_history_records,
+        list_run_records,
+        promote_run_to_history,
+        save_history_record,
+        save_run_record,
+    )
 
 
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -63,6 +83,13 @@ def _git_sha_short() -> str:
 
 
 GIT_SHA = _git_sha_short()
+ADMIN_COOKIE_NAME = "mmar_admin_session"
+ADMIN_PASSWORD = str(
+    os.getenv("MMAR_ADMIN_PASSWORD")
+    or os.getenv("ADMIN_PASSWORD")
+    or "shin-admin"
+).strip()
+ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
 
 
 def _topic_hash(topic: str) -> str:
@@ -277,8 +304,38 @@ def _safe_static_path(path: str) -> Path | None:
     return resolved
 
 
+def _admin_page_path(path: str) -> Path | None:
+    mapping = {
+        "/admin/login": REPO / "mmar" / "apps" / "debate" / "admin_login.html",
+        "/admin/history": REPO / "mmar" / "apps" / "debate" / "admin_history.html",
+        "/admin/admin.css": REPO / "mmar" / "apps" / "debate" / "admin.css",
+        "/admin/admin_login.js": REPO / "mmar" / "apps" / "debate" / "admin_login.js",
+        "/admin/admin_history.js": REPO / "mmar" / "apps" / "debate" / "admin_history.js",
+    }
+    candidate = mapping.get(path)
+    if not candidate:
+        return None
+    return candidate if candidate.exists() and candidate.is_file() else None
+
+
+def _parse_cookies(handler: BaseHTTPRequestHandler) -> cookies.SimpleCookie:
+    jar = cookies.SimpleCookie()
+    raw = handler.headers.get("Cookie", "")
+    if raw:
+        jar.load(raw)
+    return jar
+
+
+def _admin_session(handler: BaseHTTPRequestHandler) -> dict[str, str] | None:
+    jar = _parse_cookies(handler)
+    morsel = jar.get(ADMIN_COOKIE_NAME)
+    if not morsel:
+        return None
+    return ADMIN_SESSIONS.get(morsel.value)
+
+
 class Handler(BaseHTTPRequestHandler):
-    def _send_json(self, code: int, payload: dict) -> None:
+    def _send_json(self, code: int, payload: dict, extra_headers: dict[str, str] | None = None) -> None:
         started_at = datetime.now(timezone.utc).isoformat()
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -286,6 +343,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.send_header("X-Build-SHA", GIT_SHA)
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
         _cors_headers(self)
         self.end_headers()
         self.wfile.write(body)
@@ -323,6 +383,10 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/admin/session":
+            session = _admin_session(self)
+            self._send_json(200, {"ok": True, "authenticated": bool(session), "user": session.get("user") if session else ""})
+            return
         if path == "/api/history/list":
             query = parse_qs(parsed_url.query or "")
             sort = str(query.get("sort", ["recent"])[0] or "recent")
@@ -336,6 +400,39 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
             self._send_json(200, {"ok": True, "item": record})
+            return
+        if path == "/api/admin/runs":
+            if not _admin_session(self):
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            query = parse_qs(parsed_url.query or "")
+            limit = int(str(query.get("limit", ["200"])[0] or "200"))
+            items = list_run_records(limit=limit)
+            self._send_json(200, {"ok": True, "items": items})
+            return
+        if path.startswith("/api/admin/runs/"):
+            if not _admin_session(self):
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            session_id = path.removeprefix("/api/admin/runs/").strip()
+            item = get_run_record(session_id)
+            if not item:
+                self._send_json(404, {"ok": False, "error": "not found"})
+                return
+            self._send_json(200, {"ok": True, "item": item})
+            return
+        admin_page = _admin_page_path(path)
+        if admin_page:
+            body = admin_page.read_bytes()
+            content_type, _ = mimetypes.guess_type(str(admin_page))
+            self.send_response(200)
+            self.send_header("Content-Type", f"{content_type or 'application/octet-stream'}")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Build-SHA", GIT_SHA)
+            _cors_headers(self)
+            self.end_headers()
+            self.wfile.write(body)
             return
         static_path = _safe_static_path(path)
         if static_path:
@@ -354,7 +451,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4", "/api/ask_match", "/api/history/save", "/api/provider_preflight", "/api/judge"} and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
+        if path not in {
+            "/api/debate",
+            "/api/debate_pure",
+            "/api/debate_v2",
+            "/api/debate_v3",
+            "/api/debate_v4",
+            "/api/ask_match",
+            "/api/history/save",
+            "/api/provider_preflight",
+            "/api/judge",
+            "/api/runs/save",
+            "/api/admin/login",
+            "/api/admin/logout",
+            "/api/admin/history/add",
+        } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
 
@@ -367,6 +478,55 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/provider_preflight":
                 self._send_json(200, _provider_preflight(payload))
+                return
+            if path == "/api/admin/login":
+                password = str(payload.get("password") or "").strip()
+                if not password or password != ADMIN_PASSWORD:
+                    self._send_json(401, {"ok": False, "error": "invalid_password"})
+                    return
+                session_id = secrets.token_urlsafe(24)
+                ADMIN_SESSIONS[session_id] = {
+                    "user": "Shin",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+                self._send_json(
+                    200,
+                    {"ok": True, "authenticated": True, "user": "Shin"},
+                    extra_headers={
+                        "Set-Cookie": f"{ADMIN_COOKIE_NAME}={session_id}; Path=/; HttpOnly; SameSite=Lax"
+                    },
+                )
+                return
+            if path == "/api/admin/logout":
+                jar = _parse_cookies(self)
+                morsel = jar.get(ADMIN_COOKIE_NAME)
+                if morsel:
+                    ADMIN_SESSIONS.pop(morsel.value, None)
+                self._send_json(
+                    200,
+                    {"ok": True},
+                    extra_headers={
+                        "Set-Cookie": f"{ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+                    },
+                )
+                return
+            if path == "/api/runs/save":
+                saved = save_run_record(payload)
+                self._send_json(200, {"ok": True, **saved})
+                return
+            if path == "/api/admin/history/add":
+                if not _admin_session(self):
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                session_id = str(payload.get("session_id") or "").strip()
+                if not session_id:
+                    self._send_json(400, {"ok": False, "error": "missing_session_id"})
+                    return
+                item = promote_run_to_history(session_id)
+                if not item:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": item})
                 return
             if path == "/api/judge":
                 server_phase_entries = []
@@ -818,9 +978,17 @@ def main() -> int:
     print(f"[dev_api] GET  /api/health")
     print(f"[dev_api] GET  /api/history/list")
     print(f"[dev_api] GET  /api/history/{{id}}")
+    print(f"[dev_api] GET  /api/admin/session")
+    print(f"[dev_api] GET  /api/admin/runs")
+    print(f"[dev_api] GET  /admin/login")
+    print(f"[dev_api] GET  /admin/history")
     print(f"[dev_api] POST /api/debate")
     print(f"[dev_api] POST /api/ask_match")
     print(f"[dev_api] POST /api/history/save")
+    print(f"[dev_api] POST /api/runs/save")
+    print(f"[dev_api] POST /api/admin/login")
+    print(f"[dev_api] POST /api/admin/logout")
+    print(f"[dev_api] POST /api/admin/history/add")
     print(f"[dev_api] POST /api/history/view/{{id}}")
     print(f"[dev_api] POST /api/history/like/{{id}}")
     print(
