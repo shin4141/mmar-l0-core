@@ -3077,6 +3077,26 @@ async function postJsonWithBrowserFallback(url, payload) {
   }
 }
 
+function shouldRetryDebateResponse(response) {
+  const status = Number(response?.status || 0);
+  return status === 502 || status === 503 || status === 504;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function postDebateWithTransientRetry(url, payload) {
+  const firstAttempt = await postJsonWithBrowserFallback(url, payload);
+  if (!shouldRetryDebateResponse(firstAttempt.response)) {
+    return { ...firstAttempt, retried: false };
+  }
+  setStatus("running", "Retrying debate...");
+  await sleep(1200);
+  const secondAttempt = await postJsonWithBrowserFallback(url, payload);
+  return { ...secondAttempt, retried: true };
+}
+
 function isDebateSuccessResponse(response, data) {
   if (!response?.ok) return false;
   const turns = data?.debate?.turns;
@@ -3164,7 +3184,7 @@ async function runDebate(event) {
   outputMetaEl.style.display = "";
 
   try {
-    const { response, data } = await postJsonWithBrowserFallback(endpoint, payload);
+    const { response, data } = await postDebateWithTransientRetry(endpoint, payload);
     if (!isDebateSuccessResponse(response, data)) {
       throw new Error(normalizeApiError("debate", response.status, data));
     }
