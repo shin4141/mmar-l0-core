@@ -132,12 +132,78 @@ button:disabled {
   word-break: break-word;
 }
 
+.admin-detail-body {
+  margin-top: 14px;
+  display: grid;
+  gap: 16px;
+}
+
+.admin-section {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-section-title,
+.admin-turn-head,
+.admin-turn-label {
+  font-weight: 700;
+}
+
+.admin-section-copy,
+.admin-turn-text {
+  line-height: 1.6;
+}
+
+.admin-turn-card,
+.admin-judge-card {
+  border: 1px solid #dfd1bf;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.admin-turn-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.admin-turn-side {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-run-snippet {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #5e513f;
+  line-height: 1.5;
+}
+
+.admin-run-badges {
+  margin-top: 8px;
+}
+
+.admin-badge {
+  display: inline-block;
+  border-radius: 999px;
+  background: #1e1d1a;
+  color: #fffaf2;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
 .empty-state {
   color: #7f725f;
 }
 
 @media (max-width: 920px) {
   .admin-history-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-turn-grid {
     grid-template-columns: 1fr;
   }
 }
