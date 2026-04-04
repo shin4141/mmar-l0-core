@@ -666,7 +666,7 @@ function setReadingMode(active) {
 function renderEmptyTurnLog() {
   turnLogEl.innerHTML = `
     <div class="empty-state">
-      Run を押すと、3ターンまたは5ターンの討論ログと構造サマリーを表示します。
+      Run を押すと、3ターンの討論ログと構造サマリーを表示します。
     </div>
   `;
 }
