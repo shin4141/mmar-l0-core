@@ -126,16 +126,16 @@ body.viewer-mode .input-panel {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0;
+  gap: 4px;
 }
 
 .brand-signoff {
-  display: none;
-  margin-top: 5px;
+  display: block;
   color: rgba(106, 88, 72, 0.8);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 body:not(.viewer-mode) .page-shell.reading-mode .input-panel .lede,

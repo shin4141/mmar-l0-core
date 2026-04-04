@@ -120,7 +120,7 @@ let currentRunToken = 0;
 const queryParams = new URLSearchParams(window.location.search);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
 const BETA_MODE = queryParams.get("beta") === "1";
-const READ_ONLY_DEMO = /(^|\\.)onrender\\.com$/i.test(window.location.hostname);
+const READ_ONLY_DEMO = false;
 const PUBLIC_LIMITED_DEMO = false;
 const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";
 const PUBLIC_FIXED_CASE = {
@@ -2588,7 +2588,7 @@ function ensureAnalysisPanel() {
   analysisPanelEl.className = "output-block";
   analysisPanelEl.innerHTML = `
     <div class="section-title-row">
-      <h3>Structure Detector Result</h3>
+      <h3>Judge Notes</h3>
       <div class="analysis-head-actions">
         <button type="button" id="analysis-toggle-button" class="chip-button analysis-toggle-button" hidden>▼ 分析を見る</button>
         <span class="meta-chip">Judge</span>
@@ -3391,7 +3391,7 @@ function scheduleHealthCheck() {
 
 function applyReadOnlyDemoMode() {
   if (!READ_ONLY_DEMO) return;
-  if (demoModeBadgeEl) demoModeBadgeEl.hidden = false;
+  if (demoModeBadgeEl) demoModeBadgeEl.hidden = true;
   document.body.classList.add("demo-read-only");
   runButton.hidden = true;
   runButton.disabled = true;
