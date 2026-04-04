@@ -220,6 +220,22 @@ def promote_run_to_history(session_id: str, db_path: Path | None = None) -> dict
     return get_history_record(session_id, db_path=db_path)
 
 
+def remove_run_from_history(session_id: str, db_path: Path | None = None) -> dict | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT session_id FROM history_items WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE history_items SET hidden = 1 WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+    return {"session_id": session_id, "removed": True}
+
+
 def _normalize_record(record: dict) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     normalized = dict(record or {})

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MMAR Admin History</title>
-  <link rel="stylesheet" href="/admin/admin.css?v=20260402a" />
+  <link rel="stylesheet" href="/admin/admin.css?v=20260404a" />
 </head>
 <body>
   <main class="admin-shell admin-history-shell">
@@ -26,13 +26,16 @@
     <section class="admin-card admin-detail-card">
       <div class="admin-detail-head">
         <h2>Run Detail</h2>
-        <button id="admin-promote" type="button" disabled>Add to History</button>
+        <div class="admin-toolbar-actions">
+          <button id="admin-promote" type="button" disabled>Add to History</button>
+          <button id="admin-remove" type="button" class="secondary-button" disabled>Remove from History</button>
+        </div>
       </div>
       <div id="admin-detail-meta" class="admin-meta">Select a run.</div>
-      <pre id="admin-detail-json" class="admin-json">Select a run.</pre>
+      <div id="admin-detail-json" class="admin-detail-body">Select a run.</div>
       <div id="admin-history-status" class="admin-status" hidden></div>
     </section>
   </main>
-  <script type="module" src="/admin/admin_history.js?v=20260402a"></script>
+  <script type="module" src="/admin/admin_history.js?v=20260404a"></script>
 </body>
 </html>

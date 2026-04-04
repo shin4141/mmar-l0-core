@@ -1724,6 +1724,7 @@ function buildHistoryItemMarkup(record) {
   const preview = normalizeSavedRecordForPreview(record);
   const winner = preview.judge_json?.winner?.side || "Draw";
   const verdict = preview.judge_json?.verdict_headline || "Saved match";
+  const excerpt = preview.excerpt || preview.tease || verdict;
   const elapsed = formatElapsedSeconds(preview.elapsed_seconds);
   const sourceMode = formatRunModeMeta(preview.source_mode || "", preview.provider_statuses || {}).toLowerCase();
   const topicLabel = formatTopicDisplay(preview.topic, preview.keyword || "");
@@ -1740,7 +1741,7 @@ function buildHistoryItemMarkup(record) {
       <div class="history-topic">${escapeHtml(topicLabel)}</div>
       <div class="history-meta">${escapeHtml(metaParts.join(" / "))}</div>
       <div class="history-submeta">${escapeHtml(`${preview.fighter_a_model} vs ${preview.fighter_b_model} / ${preview.judge_model}`)}</div>
-      <div class="history-verdict">${escapeHtml(verdict)}</div>
+      <div class="history-verdict">${escapeHtml(excerpt)}</div>
       </button>
       <div class="history-actions">
         <span class="history-stats">${escapeHtml(`Views ${preview.views || 0} · Likes ${preview.likes || 0}`)}</span>

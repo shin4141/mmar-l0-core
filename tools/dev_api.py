@@ -28,6 +28,7 @@ try:
         list_history_records,
         list_run_records,
         promote_run_to_history,
+        remove_run_from_history,
         save_history_record,
         save_run_record,
     )
@@ -44,6 +45,7 @@ except ModuleNotFoundError:
         list_history_records,
         list_run_records,
         promote_run_to_history,
+        remove_run_from_history,
         save_history_record,
         save_run_record,
     )
@@ -334,6 +336,69 @@ def _admin_session(handler: BaseHTTPRequestHandler) -> dict[str, str] | None:
     return ADMIN_SESSIONS.get(morsel.value)
 
 
+def _extract_turns(debate_result: dict | None) -> tuple[list, list, list]:
+    debate = debate_result if isinstance(debate_result, dict) else {}
+    raw_turns = debate.get("raw_turns") if isinstance(debate.get("raw_turns"), list) else []
+    display_turns = debate.get("display_turns") if isinstance(debate.get("display_turns"), list) else []
+    transcript = debate.get("transcript_json") if isinstance(debate.get("transcript_json"), list) else []
+    return raw_turns, display_turns, transcript
+
+
+def _record_excerpt(debate_result: dict | None) -> str:
+    raw_turns, display_turns, transcript = _extract_turns(debate_result)
+    turns = display_turns or raw_turns or transcript
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        for key in ("a", "b", "text", "content", "summary"):
+            text = str(turn.get(key) or "").strip()
+            if text:
+                compact = " ".join(text.split())
+                return compact[:180]
+    return ""
+
+
+def _record_turn_count(record: dict, debate_result: dict | None) -> int:
+    debate = debate_result if isinstance(debate_result, dict) else {}
+    explicit = debate.get("turn_count")
+    if isinstance(explicit, int) and explicit > 0:
+        return explicit
+    for turns in _extract_turns(debate):
+        if turns:
+            return len(turns)
+    return int(record.get("turn_count") or 0)
+
+
+def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
+    if not isinstance(record, dict):
+        return {}
+    debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    judge_result = record.get("judge_result") if isinstance(record.get("judge_result"), dict) else {}
+    raw_turns, display_turns, transcript = _extract_turns(debate_result)
+    turn_count = _record_turn_count(record, debate_result)
+    flattened = {
+        **record,
+        "id": str(record.get("id") or record.get("session_id") or ""),
+        "run_id": str(record.get("run_id") or record.get("session_id") or ""),
+        "topic": str(record.get("topic") or debate_result.get("topic") or ""),
+        "stance_a": str(record.get("stance_a") or debate_result.get("stance_a") or ""),
+        "stance_b": str(record.get("stance_b") or debate_result.get("stance_b") or ""),
+        "turn_count": turn_count,
+        "raw_turns": raw_turns,
+        "display_turns": display_turns or raw_turns or transcript,
+        "transcript_json": transcript or display_turns or raw_turns,
+        "provider_statuses": debate_result.get("provider_statuses") or {},
+        "output_meta": debate_result.get("output_meta") or "",
+        "elapsed_seconds": debate_result.get("elapsed_seconds"),
+        "source_mode": debate_result.get("source_mode") or "",
+        "judge_json": judge_result,
+        "excerpt": _record_excerpt(debate_result),
+        "tease": _record_excerpt(debate_result),
+        "curated": bool(curated) if curated is not None else bool(record.get("curated")),
+    }
+    return flattened
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, code: int, payload: dict, extra_headers: dict[str, str] | None = None) -> None:
         started_at = datetime.now(timezone.utc).isoformat()
@@ -390,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/history/list":
             query = parse_qs(parsed_url.query or "")
             sort = str(query.get("sort", ["recent"])[0] or "recent")
-            items = list_history_records(sort=sort)
+            items = [_flatten_saved_record(item, curated=True) for item in list_history_records(sort=sort)]
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/history/"):
@@ -399,7 +464,7 @@ class Handler(BaseHTTPRequestHandler):
             if not record:
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
-            self._send_json(200, {"ok": True, "item": record})
+            self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=True)})
             return
         if path == "/api/admin/runs":
             if not _admin_session(self):
@@ -407,7 +472,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = parse_qs(parsed_url.query or "")
             limit = int(str(query.get("limit", ["200"])[0] or "200"))
-            items = list_run_records(limit=limit)
+            curated_ids = {item.get("session_id") for item in list_history_records()}
+            items = [
+                _flatten_saved_record(item, curated=(item.get("session_id") in curated_ids))
+                for item in list_run_records(limit=limit)
+            ]
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/admin/runs/"):
@@ -419,7 +488,13 @@ class Handler(BaseHTTPRequestHandler):
             if not item:
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
-            self._send_json(200, {"ok": True, "item": item})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "item": _flatten_saved_record(item, curated=bool(get_history_record(session_id))),
+                },
+            )
             return
         admin_page = _admin_page_path(path)
         if admin_page:
@@ -465,6 +540,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/login",
             "/api/admin/logout",
             "/api/admin/history/add",
+            "/api/admin/history/remove",
         } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
@@ -526,7 +602,21 @@ class Handler(BaseHTTPRequestHandler):
                 if not item:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
-                self._send_json(200, {"ok": True, "item": item})
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(item, curated=True)})
+                return
+            if path == "/api/admin/history/remove":
+                if not _admin_session(self):
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                session_id = str(payload.get("session_id") or "").strip()
+                if not session_id:
+                    self._send_json(400, {"ok": False, "error": "missing_session_id"})
+                    return
+                removed = remove_run_from_history(session_id)
+                if not removed:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, **removed})
                 return
             if path == "/api/judge":
                 server_phase_entries = []
