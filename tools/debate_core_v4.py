@@ -382,8 +382,10 @@ def _attempt_paragraph_generation(
                 "attempt": max_attempts,
                 "ok": False,
                 "final_text": last_text,
+                "fallback_used": True,
             }
         )
+        return last_text, _provider_entry("degraded", "paragraph invariant failed", turn_name)
     raise ValueError(f"semantic paragraph invariant failed:{turn_name}")
 
 

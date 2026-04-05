@@ -3,24 +3,24 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MMAR Debate Prototype</title>
-  <link rel="stylesheet" href="./debate.css?v=20260403d" />
+  <title>MMAR Debate</title>
+  <link rel="stylesheet" href="./debate.css?v=20260404b" />
 </head>
 <body>
   <div class="page-shell">
     <aside class="panel input-panel">
       <div class="topline">
         <div class="brand-lockup">
-          <h1>Structure Detector</h1>
-          <div class="brand-signoff" aria-hidden="true">by Decision-OS</div>
+          <h1>MMAR Debate</h1>
+          <div class="brand-signoff" aria-hidden="true">live mainline</div>
         </div>
-        <div id="demo-mode-badge" class="demo-mode-badge" hidden>Demo mode / read-only</div>
+        <div id="demo-mode-badge" class="demo-mode-badge" hidden>Public live</div>
       </div>
       <p class="lede">
-        討論の勝敗ではなく、議論の崩れ方と決め手を見抜く体験型デモ。
+        自由入力の題材で討論を走らせ、本文と判定をそのまま読む本線です。
       </p>
       <div id="public-fixed-demo-note" class="session-note public-fixed-demo-note" hidden>
-        公開版は固定ケース限定デモです。自由入力は無効化されています。
+        この front では固定ケース導線を前面表示しません。
         <div class="front-mode-links">
           <a id="beta-entry-link" class="chip-button front-mode-link" href="./debate.html?beta=1" hidden>Beta / Try current generator</a>
           <a id="fixed-entry-link" class="chip-button front-mode-link" href="./debate.html" hidden>Back to fixed demo</a>
@@ -115,8 +115,8 @@
           <span id="error-hint" class="inline-hint" hidden></span>
         </div>
 
-        <details id="model-setup-box" class="session-box" open>
-          <summary>Model Setup</summary>
+        <details id="model-setup-box" class="session-box" hidden>
+          <summary>Providers</summary>
           <div class="settings-grid">
             <label class="field compact">
               <span>Fighter A</span>
@@ -144,8 +144,8 @@
           </p>
         </details>
 
-        <details id="api-settings-box" class="session-box">
-          <summary>Advanced / API Settings</summary>
+        <details id="api-settings-box" class="session-box" hidden>
+          <summary>Connection</summary>
           <p class="session-note">
             保存せず、`localStorage` にも残しません。送信時だけローカル relay に渡します。
           </p>
@@ -344,6 +344,6 @@
     </aside>
   </div>
 
-  <script type="module" src="./debate.js?v=20260403d"></script>
+  <script type="module" src="./debate.js?v=20260404b"></script>
 </body>
 </html>
