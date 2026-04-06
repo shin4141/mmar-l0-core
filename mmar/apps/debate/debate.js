@@ -524,10 +524,11 @@ function setHint(text) {
   refreshStatusRow();
 }
 
-function setRunMeta(text, visible) {
+function setRunMeta(text, visible, kind = "") {
   runMetaEl.textContent = text;
   runMetaEl.hidden = !visible;
   runMetaEl.style.display = visible ? "" : "none";
+  runMetaEl.className = `meta-chip${kind ? ` ${kind}` : ""}`;
 }
 
 function clearDebateTimer() {
@@ -543,13 +544,18 @@ function elapsedSecondsSince(startedAt = activeDebateStartedAt) {
   return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
 }
 
-function beginDebateTimer() {
+function buildProgressMeta(label, estimate, seconds) {
+  const waitingText = seconds >= 20 ? "応答待ち中" : "進行中";
+  return `${label} · ${estimate} · ${waitingText} (${seconds}s)`;
+}
+
+function beginDebateTimer(label = "3ターンの討論を生成中", estimate = "約60〜120秒") {
   clearDebateTimer();
   currentElapsedSeconds = null;
   activeDebateStartedAt = Date.now();
-  setRunMeta("Running... (0s)", true);
+  setRunMeta(buildProgressMeta(label, estimate, 0), true, "running");
   activeDebateTimerId = window.setInterval(() => {
-    setRunMeta(`Running... (${elapsedSecondsSince()}s)`, true);
+    setRunMeta(buildProgressMeta(label, estimate, elapsedSecondsSince()), true, "running");
   }, 1000);
 }
 
@@ -558,11 +564,11 @@ function finishDebateTimer(state) {
   clearDebateTimer();
   currentElapsedSeconds = seconds;
   if (state === "completed") {
-    setRunMeta(`Completed in ${seconds}s`, true);
+    setRunMeta(`Completed in ${seconds}s`, true, "ok");
     return seconds;
   }
   if (state === "failed") {
-    setRunMeta(`Failed after ${seconds}s`, true);
+    setRunMeta(`Failed after ${seconds}s`, true, "error");
     return seconds;
   }
   setRunMeta("Ready", true);
@@ -591,13 +597,13 @@ function formatRunModeMeta(mode, providerStatuses = {}) {
 
 function setRunMetaForResult(prefix, seconds, mode, providerStatuses = {}) {
   const modeMeta = formatRunModeMeta(mode, providerStatuses);
-  setRunMeta(`${prefix} ${seconds}s${modeMeta ? ` · ${modeMeta}` : ""}`, true);
+  setRunMeta(`${prefix} ${seconds}s${modeMeta ? ` · ${modeMeta}` : ""}`, true, "ok");
 }
 
 function setRunMetaForImmediateFailure(message) {
   clearDebateTimer();
   currentElapsedSeconds = 0;
-  setRunMeta(message, true);
+  setRunMeta(message, true, "error");
 }
 
 function formatElapsedSeconds(value) {
@@ -3150,8 +3156,8 @@ async function runDebate(event) {
   }
 
   try {
-    setStatus("running", "Checking server");
-    setHint("");
+    setStatus("running", "開始準備中");
+    setHint("接続を確認しています。通常は数秒で始まります。");
     await ensureApiHealthBeforeRun();
   } catch (error) {
     setStatus("error", "Connection failed");
@@ -3164,8 +3170,8 @@ async function runDebate(event) {
   }
 
   try {
-    setStatus("running", "Checking models");
-    setHint("");
+    setStatus("running", "モデル確認中");
+    setHint("3ターンの討論を始める前に利用可能なモデルを確認しています。");
     const preflight = await runProviderPreflight(payload);
     if (!preflight.ok) {
       setStatus("error", "Model check failed");
@@ -3188,8 +3194,9 @@ async function runDebate(event) {
   judgeButton.hidden = true;
   judgeButton.disabled = true;
   runButton.disabled = true;
-  setStatus("running", "Running debate");
-  beginDebateTimer();
+  setStatus("running", "3ターンの討論を生成中");
+  setHint("議論を順番に組み立てています。完了まで約60〜120秒かかることがあります。");
+  beginDebateTimer("3ターンの討論を生成中", "約60〜120秒");
   outputMetaEl.textContent = `${payload.turn_count} turns · pending`;
   outputMetaEl.hidden = false;
   outputMetaEl.style.display = "";
@@ -3297,9 +3304,9 @@ function setupViewerMode() {
 async function performJudgeDebate() {
   if (!currentResult) return;
   judgeButton.disabled = true;
-  setStatus("running", "Running judge");
-  setRunMeta("Running judge...", true);
-  setHint("");
+  setStatus("running", "判定を生成中");
+  setRunMeta("判定を生成中 · 約5〜15秒", true, "running");
+  setHint("討論ログを読み直して、勝敗と理由をまとめています。");
   try {
     await new Promise((resolve) => window.setTimeout(resolve, 150));
     const debate = currentResult.debate || {};
