@@ -837,6 +837,18 @@ button:disabled {
   gap: 10px;
 }
 
+.public-summary-block {
+  border: 1px solid rgba(35, 87, 137, 0.16);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.public-summary-note {
+  margin: 0;
+  color: var(--accent-alt);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .session-box {
   border: 1px solid var(--line);
   border-radius: 16px;

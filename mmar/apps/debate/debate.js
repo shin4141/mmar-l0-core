@@ -704,12 +704,22 @@ function clearPublicSummary() {
   if (!publicSummaryEl) return;
   publicSummaryEl.hidden = true;
   publicSummaryEl.style.display = "none";
+  publicSummaryEl.setAttribute("aria-hidden", "true");
+  publicSummaryEl.innerHTML = "";
   if (publicSummaryWinnerEl) publicSummaryWinnerEl.textContent = "-";
   if (publicSummaryReasonEl) publicSummaryReasonEl.textContent = "-";
 }
 
 function renderPublicSummary(summary) {
   clearPublicSummary();
+  if (!publicSummaryEl) return;
+  const noteEl = document.createElement("p");
+  noteEl.className = "public-summary-note";
+  noteEl.textContent = "次は判定を見る";
+  publicSummaryEl.append(noteEl);
+  publicSummaryEl.hidden = false;
+  publicSummaryEl.style.display = "";
+  publicSummaryEl.setAttribute("aria-hidden", "false");
 }
 
 function escapeHtml(value) {
