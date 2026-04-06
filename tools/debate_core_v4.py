@@ -100,6 +100,14 @@ def _blocked_with_trace(reason: str, raw_reason: str, trace: list[dict[str, Any]
     return payload
 
 
+class ParallelGenerationError(RuntimeError):
+    def __init__(self, *, provider: str, stage: str, original_error: str):
+        super().__init__(original_error)
+        self.provider = provider
+        self.stage = stage
+        self.original_error = original_error
+
+
 def _side_card(topic: str, side_a: str, side_b: str) -> dict[str, str]:
     return {
         "proposition": topic,
@@ -715,8 +723,22 @@ def _generate_turn_pair(
             anti_thesis=card["side_b_anti_thesis"],
             trace=b_trace,
         )
-        a_text, a_status = a_future.result()
-        b_text, b_status = b_future.result()
+        try:
+            a_text, a_status = a_future.result()
+        except Exception as exc:
+            raise ParallelGenerationError(
+                provider="openai_a",
+                stage=turn_name,
+                original_error=str(exc),
+            ) from exc
+        try:
+            b_text, b_status = b_future.result()
+        except Exception as exc:
+            raise ParallelGenerationError(
+                provider="openai_b",
+                stage=turn_name,
+                original_error=str(exc),
+            ) from exc
     return a_text, a_status, a_trace, b_text, b_status, b_trace
 
 
@@ -825,10 +847,25 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
                 "run_id": run_id,
                 "provider_statuses": provider_statuses,
             }
+        original_error = raw_reason
+        original_provider = ""
+        original_stage = ""
+        if isinstance(exc, ParallelGenerationError):
+            original_error = exc.original_error
+            original_provider = exc.provider
+            original_stage = exc.stage
+            provider_statuses[original_provider] = _provider_entry(
+                "blocked",
+                "symmetric live unavailable",
+                original_error,
+            )
         return {
-            **_blocked_with_trace("symmetric live unavailable", raw_reason, trace, topic),
+            **_blocked_with_trace("symmetric live unavailable", original_error, trace, topic),
             "run_id": run_id,
             "provider_statuses": provider_statuses,
+            "original_error": original_error,
+            "original_provider": original_provider,
+            "original_stage": original_stage,
         }
 
     elapsed_seconds = round(time.time() - started_at, 3)
