@@ -4,6 +4,7 @@ import json
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 try:
@@ -663,6 +664,62 @@ def _append(transcript: list[str], speaker: str, turn_no: int, text: str) -> Non
     transcript.append(f"Turn {turn_no} {speaker}: {text}")
 
 
+def _generate_turn_pair(
+    *,
+    turn_name: str,
+    topic: str,
+    transcript_text: str,
+    build_prompt,
+    generate_turn,
+    api_key: str,
+    card: dict[str, str],
+    opponent_last_a: str = "",
+    opponent_last_b: str = "",
+) -> tuple[str, dict[str, str], list[dict[str, Any]], str, dict[str, str], list[dict[str, Any]]]:
+    a_prompt = build_prompt(
+        topic=topic,
+        role=card["side_a_role"],
+        thesis=card["side_a_thesis"],
+        anti_thesis=card["side_a_anti_thesis"],
+        turn_name=turn_name,
+        opponent_last=opponent_last_a,
+        transcript=transcript_text,
+    )
+    b_prompt = build_prompt(
+        topic=topic,
+        role=card["side_b_role"],
+        thesis=card["side_b_thesis"],
+        anti_thesis=card["side_b_anti_thesis"],
+        turn_name=turn_name,
+        opponent_last=opponent_last_b,
+        transcript=transcript_text,
+    )
+    a_trace: list[dict[str, Any]] = []
+    b_trace: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        a_future = executor.submit(
+            generate_turn,
+            turn_name=turn_name,
+            prompt=a_prompt,
+            api_key=api_key,
+            thesis=card["side_a_thesis"],
+            anti_thesis=card["side_a_anti_thesis"],
+            trace=a_trace,
+        )
+        b_future = executor.submit(
+            generate_turn,
+            turn_name=turn_name,
+            prompt=b_prompt,
+            api_key=api_key,
+            thesis=card["side_b_thesis"],
+            anti_thesis=card["side_b_anti_thesis"],
+            trace=b_trace,
+        )
+        a_text, a_status = a_future.result()
+        b_text, b_status = b_future.result()
+    return a_text, a_status, a_trace, b_text, b_status, b_trace
+
+
 def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
     api_key = _openai_key(payload)
     topic = _resolve_topic(payload)
@@ -691,112 +748,59 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
         generate_turn = _attempt_paragraph_generation
 
     try:
-        a1, a_status = generate_turn(
+        a1, a_status, a_trace, b1, b_status, b_trace = _generate_turn_pair(
             turn_name="turn1",
-            prompt=build_prompt(
-                topic=topic,
-                role=card["side_a_role"],
-                thesis=card["side_a_thesis"],
-                anti_thesis=card["side_a_anti_thesis"],
-                turn_name="turn1",
-            ),
+            topic=topic,
+            transcript_text="",
+            build_prompt=build_prompt,
+            generate_turn=generate_turn,
             api_key=api_key,
-            thesis=card["side_a_thesis"],
-            anti_thesis=card["side_a_anti_thesis"],
-            trace=trace,
+            card=card,
         )
         provider_statuses["openai_a"] = a_status
-        b1, b_status = generate_turn(
-            turn_name="turn1",
-            prompt=build_prompt(
-                topic=topic,
-                role=card["side_b_role"],
-                thesis=card["side_b_thesis"],
-                anti_thesis=card["side_b_anti_thesis"],
-                turn_name="turn1",
-            ),
-            api_key=api_key,
-            thesis=card["side_b_thesis"],
-            anti_thesis=card["side_b_anti_thesis"],
-            trace=trace,
-        )
         provider_statuses["openai_b"] = b_status
+        trace.extend(a_trace)
+        trace.extend(b_trace)
         turns.append({"turn": 1, "a": a1, "b": b1})
         _append(transcript, "A", 1, a1)
         _append(transcript, "B", 1, b1)
 
-        a2, a_status = generate_turn(
+        transcript_text = "\n".join(transcript)
+        a2, a_status, a_trace, b2, b_status, b_trace = _generate_turn_pair(
             turn_name="turn2",
-            prompt=build_prompt(
-                topic=topic,
-                role=card["side_a_role"],
-                thesis=card["side_a_thesis"],
-                anti_thesis=card["side_a_anti_thesis"],
-                turn_name="turn2",
-                opponent_last=b1,
-                transcript="\n".join(transcript),
-            ),
+            topic=topic,
+            transcript_text=transcript_text,
+            build_prompt=build_prompt,
+            generate_turn=generate_turn,
             api_key=api_key,
-            thesis=card["side_a_thesis"],
-            anti_thesis=card["side_a_anti_thesis"],
-            trace=trace,
+            card=card,
+            opponent_last_a=b1,
+            opponent_last_b=a1,
         )
         provider_statuses["openai_a"] = a_status
-        b2, b_status = generate_turn(
-            turn_name="turn2",
-            prompt=build_prompt(
-                topic=topic,
-                role=card["side_b_role"],
-                thesis=card["side_b_thesis"],
-                anti_thesis=card["side_b_anti_thesis"],
-                turn_name="turn2",
-                opponent_last=a1,
-                transcript="\n".join(transcript),
-            ),
-            api_key=api_key,
-            thesis=card["side_b_thesis"],
-            anti_thesis=card["side_b_anti_thesis"],
-            trace=trace,
-        )
         provider_statuses["openai_b"] = b_status
+        trace.extend(a_trace)
+        trace.extend(b_trace)
         turns.append({"turn": 2, "a": a2, "b": b2})
         _append(transcript, "A", 2, a2)
         _append(transcript, "B", 2, b2)
 
-        a3, a_status = generate_turn(
+        transcript_text = "\n".join(transcript)
+        a3, a_status, a_trace, b3, b_status, b_trace = _generate_turn_pair(
             turn_name="turn3",
-            prompt=build_prompt(
-                topic=topic,
-                role=card["side_a_role"],
-                thesis=card["side_a_thesis"],
-                anti_thesis=card["side_a_anti_thesis"],
-                turn_name="turn3",
-                opponent_last=b2,
-                transcript="\n".join(transcript),
-            ),
+            topic=topic,
+            transcript_text=transcript_text,
+            build_prompt=build_prompt,
+            generate_turn=generate_turn,
             api_key=api_key,
-            thesis=card["side_a_thesis"],
-            anti_thesis=card["side_a_anti_thesis"],
-            trace=trace,
+            card=card,
+            opponent_last_a=b2,
+            opponent_last_b=a2,
         )
         provider_statuses["openai_a"] = a_status
-        b3, b_status = generate_turn(
-            turn_name="turn3",
-            prompt=build_prompt(
-                topic=topic,
-                role=card["side_b_role"],
-                thesis=card["side_b_thesis"],
-                anti_thesis=card["side_b_anti_thesis"],
-                turn_name="turn3",
-                opponent_last=a2,
-                transcript="\n".join(transcript),
-            ),
-            api_key=api_key,
-            thesis=card["side_b_thesis"],
-            anti_thesis=card["side_b_anti_thesis"],
-            trace=trace,
-        )
         provider_statuses["openai_b"] = b_status
+        trace.extend(a_trace)
+        trace.extend(b_trace)
         turns.append({"turn": 3, "a": a3, "b": b3})
     except Exception as exc:
         raw_reason = str(exc)
