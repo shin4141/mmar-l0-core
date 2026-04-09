@@ -70,3 +70,23 @@ Progress metric (v0): resolved_count per window (session/day).
 If a deadline exists: intervene earlier (threshold is compressed to meet the date).
 Default intervention order: SUBTRACT → ADD_MODEL (avoid endless adding).
 
+## Render deployment lanes
+
+MMAR uses three verification lanes:
+
+- `local` = development only, never treated as complete
+- `preview` = Render-equivalent candidate environment
+- `public` = complete only after visible-world verification
+
+Operational rule:
+
+- local success = not complete
+- preview success = candidate
+- public success = complete
+
+The Render blueprint defines two web services:
+
+- `mmar-debate` for public
+- `mmar-debate-preview` for preview
+
+They share the same build/start commands and route structure, while keeping storage separate through different `HISTORY_DB_PATH` values and separate persistent disks.
