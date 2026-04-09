@@ -274,21 +274,45 @@ def _normalize_localized_view_lang(value: Any) -> str:
     return "en" if _clean_text(value).lower() == "en" else "ja"
 
 
+def _nested_run_json(record: dict[str, Any]) -> dict[str, Any]:
+    nested = record.get("run_json")
+    return nested if isinstance(nested, dict) else {}
+
+
 def _record_source_summary(record: dict[str, Any]) -> str:
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
-    return _clean_text(record.get("source_summary") or debate_result.get("source_summary") or "")
+    nested = _nested_run_json(record)
+    nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
+    return _clean_text(
+        record.get("source_summary")
+        or debate_result.get("source_summary")
+        or nested.get("source_summary")
+        or nested_debate.get("source_summary")
+        or ""
+    )
 
 
 def _record_summary_dict(record: dict[str, Any]) -> dict[str, Any]:
     top_level = record.get("judge_json") if isinstance(record.get("judge_json"), dict) else {}
     if top_level:
         return top_level
+    nested = _nested_run_json(record)
+    nested_top_level = nested.get("judge_json") if isinstance(nested.get("judge_json"), dict) else {}
+    if nested_top_level:
+        return nested_top_level
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
     nested = debate_result.get("summary") if isinstance(debate_result.get("summary"), dict) else {}
     if nested:
         return nested
+    nested_debate_result = _nested_run_json(record).get("debate_result")
+    nested_debate_summary = nested_debate_result.get("summary") if isinstance(nested_debate_result, dict) and isinstance(nested_debate_result.get("summary"), dict) else {}
+    if nested_debate_summary:
+        return nested_debate_summary
     judge_result = record.get("judge_result") if isinstance(record.get("judge_result"), dict) else {}
-    return judge_result if isinstance(judge_result, dict) else {}
+    if judge_result:
+        return judge_result
+    nested_judge_result = _nested_run_json(record).get("judge_result")
+    return nested_judge_result if isinstance(nested_judge_result, dict) else {}
 
 
 def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
@@ -302,10 +326,12 @@ def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
     takeaway = summary.get("gemini_takeaway") if isinstance(summary.get("gemini_takeaway"), dict) else {}
     gemini_quote = summary.get("gemini_quote") if isinstance(summary.get("gemini_quote"), dict) else {}
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    nested = _nested_run_json(record)
+    nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
     return {
-        "issue": _clean_text(record.get("topic") or debate_result.get("topic") or ""),
-        "side_a": _clean_text(record.get("stance_a") or record.get("side_a") or debate_result.get("stance_a") or ""),
-        "side_b": _clean_text(record.get("stance_b") or record.get("side_b") or debate_result.get("stance_b") or ""),
+        "issue": _clean_text(record.get("topic") or debate_result.get("topic") or nested.get("topic") or nested_debate.get("topic") or ""),
+        "side_a": _clean_text(record.get("stance_a") or record.get("side_a") or debate_result.get("stance_a") or nested.get("stance_a") or nested.get("side_a") or nested_debate.get("stance_a") or ""),
+        "side_b": _clean_text(record.get("stance_b") or record.get("side_b") or debate_result.get("stance_b") or nested.get("stance_b") or nested.get("side_b") or nested_debate.get("stance_b") or ""),
         "source_summary": _record_source_summary(record),
         "summary": {
             "winner": {

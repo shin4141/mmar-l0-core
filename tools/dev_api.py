@@ -381,36 +381,43 @@ def _record_turn_count(record: dict, debate_result: dict | None) -> int:
 def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
     if not isinstance(record, dict):
         return {}
+    nested_run = record.get("run_json") if isinstance(record.get("run_json"), dict) else {}
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
     judge_result = record.get("judge_result") if isinstance(record.get("judge_result"), dict) else {}
+    nested_debate_result = nested_run.get("debate_result") if isinstance(nested_run.get("debate_result"), dict) else {}
+    nested_judge_json = nested_run.get("judge_json") if isinstance(nested_run.get("judge_json"), dict) else {}
     raw_turns, display_turns, transcript = _extract_turns(debate_result)
+    if not (raw_turns or display_turns or transcript):
+        raw_turns, display_turns, transcript = _extract_turns(nested_debate_result)
     turn_count = _record_turn_count(record, debate_result)
+    if not turn_count:
+        turn_count = _record_turn_count(nested_run, nested_debate_result)
     flattened = {
         **record,
         "id": str(record.get("id") or record.get("session_id") or ""),
         "run_id": str(record.get("run_id") or record.get("session_id") or ""),
-        "topic": str(record.get("topic") or debate_result.get("topic") or ""),
-        "stance_a": str(record.get("stance_a") or debate_result.get("stance_a") or ""),
-        "stance_b": str(record.get("stance_b") or debate_result.get("stance_b") or ""),
-        "experience_mode": str(record.get("experience_mode") or debate_result.get("experience_mode") or "debate"),
-        "battle_lang": str(record.get("battle_lang") or debate_result.get("battle_lang") or "ja"),
-        "source_type": str(record.get("source_type") or debate_result.get("source_type") or ""),
-        "source_url": str(record.get("source_url") or debate_result.get("source_url") or ""),
-        "source_image": str(record.get("source_image") or debate_result.get("source_image") or ""),
-        "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or ""),
-        "canonical_lang": str(record.get("canonical_lang") or debate_result.get("canonical_lang") or "ja"),
-        "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else {},
+        "topic": str(record.get("topic") or debate_result.get("topic") or nested_run.get("topic") or nested_debate_result.get("topic") or ""),
+        "stance_a": str(record.get("stance_a") or debate_result.get("stance_a") or nested_run.get("stance_a") or nested_debate_result.get("stance_a") or ""),
+        "stance_b": str(record.get("stance_b") or debate_result.get("stance_b") or nested_run.get("stance_b") or nested_debate_result.get("stance_b") or ""),
+        "experience_mode": str(record.get("experience_mode") or debate_result.get("experience_mode") or nested_run.get("experience_mode") or nested_debate_result.get("experience_mode") or "debate"),
+        "battle_lang": str(record.get("battle_lang") or debate_result.get("battle_lang") or nested_run.get("battle_lang") or nested_debate_result.get("battle_lang") or "ja"),
+        "source_type": str(record.get("source_type") or debate_result.get("source_type") or nested_run.get("source_type") or nested_debate_result.get("source_type") or ""),
+        "source_url": str(record.get("source_url") or debate_result.get("source_url") or nested_run.get("source_url") or nested_debate_result.get("source_url") or ""),
+        "source_image": str(record.get("source_image") or debate_result.get("source_image") or nested_run.get("source_image") or nested_debate_result.get("source_image") or ""),
+        "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or nested_run.get("source_summary") or nested_debate_result.get("source_summary") or ""),
+        "canonical_lang": str(record.get("canonical_lang") or debate_result.get("canonical_lang") or nested_run.get("canonical_lang") or nested_debate_result.get("canonical_lang") or "ja"),
+        "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else (nested_run.get("localized_views") if isinstance(nested_run.get("localized_views"), dict) else {}),
         "turn_count": turn_count,
         "raw_turns": raw_turns,
         "display_turns": display_turns or raw_turns or transcript,
         "transcript_json": transcript or display_turns or raw_turns,
-        "provider_statuses": debate_result.get("provider_statuses") or {},
-        "output_meta": debate_result.get("output_meta") or "",
-        "elapsed_seconds": debate_result.get("elapsed_seconds"),
-        "source_mode": debate_result.get("source_mode") or "",
-        "judge_json": judge_result,
-        "excerpt": _record_excerpt(debate_result),
-        "tease": _record_excerpt(debate_result),
+        "provider_statuses": debate_result.get("provider_statuses") or nested_debate_result.get("provider_statuses") or {},
+        "output_meta": debate_result.get("output_meta") or nested_debate_result.get("output_meta") or "",
+        "elapsed_seconds": debate_result.get("elapsed_seconds") or nested_debate_result.get("elapsed_seconds"),
+        "source_mode": debate_result.get("source_mode") or nested_debate_result.get("source_mode") or "",
+        "judge_json": judge_result or nested_judge_json,
+        "excerpt": _record_excerpt(debate_result or nested_debate_result),
+        "tease": _record_excerpt(debate_result or nested_debate_result),
         "curated": bool(curated) if curated is not None else bool(record.get("curated")),
     }
     return flattened
