@@ -15,6 +15,7 @@
       const lang = String(params.get("lang") || (mode === "battle" ? storedLang : "") || "").trim().toLowerCase() === "en" ? "en" : "ja";
       window.__MMAR_INITIAL_MODE = mode;
       window.__MMAR_INITIAL_LANG = lang;
+      document.documentElement.setAttribute("data-initial-mode", mode);
       if (mode === "battle") {
         try {
           window.localStorage.setItem("mmar_lang", lang);
@@ -26,6 +27,8 @@
   </script>
   <style>
     html[data-first-paint-pending="1"] body { visibility: hidden; }
+    html[data-initial-mode="battle"] #topic-overwrite-note { display: none; }
+    html[data-initial-mode="battle"] #debug-pipeline-panel { display: none !important; }
   </style>
   <title>VerdAIct | Debate</title>
   <link rel="stylesheet" href="./debate.css?v=20260404b" />
@@ -104,11 +107,18 @@
           setText("app-title", "VerdAIct");
           setText("brand-signoff", "AI Battle");
           setText("app-lede", "A faster way in: see the winner and decisive hit first.");
+          setText("mode-debate-button", "Debate");
+          setText("mode-battle-button", "AI Battle");
           setText("battle-lang-switch-label", "Language");
           setText("battle-presets-copy", "Drop in a topic with one click and start the battle right away.");
           setText("battle-x-import-copy", "Paste an X post URL to start an AI battle.");
           setText("battle-x-url-label", "X post URL");
           setPlaceholder("battle-x-url", "Paste an X post URL");
+          setText("topic-label", "Issue");
+          setPlaceholder("topic", "Enter the issue");
+          setPlaceholder("side-a", "Enter Side A");
+          setPlaceholder("side-b", "Enter Side B");
+          setPlaceholder("keyword", "Optional keyword");
           setText("battle-x-build-button", "Create from X");
           setText("battle-source-label", "Source");
           setText("battle-source-link", "Open original");
@@ -129,7 +139,6 @@
           if (langSwitch) langSwitch.hidden = false;
           if (presets) presets.hidden = false;
           document.body.classList.add("battle-mode");
-          document.documentElement.removeAttribute("data-first-paint-pending");
         })();
       </script>
       <div id="public-fixed-demo-note" class="session-note public-fixed-demo-note" hidden>
@@ -172,29 +181,29 @@
 
       <form id="debate-form" class="stack">
         <label class="field">
-          <span>Topic</span>
-          <textarea id="topic" name="topic" rows="2" placeholder="例: 次の仮想通貨バブルは来るか"></textarea>
+          <span id="topic-label">Topic</span>
+          <textarea id="topic" name="topic" rows="2" placeholder=""></textarea>
         </label>
-        <p class="session-note muted">新しいお題を入力すると前の内容は上書きされます。</p>
+        <p id="topic-overwrite-note" class="session-note muted" hidden>新しいお題を入力すると前の内容は上書きされます。</p>
 
         <div class="position-row">
           <label class="field">
             <span>SIDE A POSITION</span>
-            <textarea id="side-a" name="sideA" rows="3" placeholder="例: 来る。流動性とETH主導の資金流入が起きる"></textarea>
+            <textarea id="side-a" name="sideA" rows="3" placeholder=""></textarea>
           </label>
 
           <button id="swap-sides-button" type="button" class="chip-button swap-btn" aria-label="Swap A and B positions" title="Swap A and B positions">↔</button>
 
           <label class="field">
             <span>SIDE B POSITION</span>
-            <textarea id="side-b" name="sideB" rows="3" placeholder="例: 来ない。規制と需要不足で前回ほど伸びない"></textarea>
+            <textarea id="side-b" name="sideB" rows="3" placeholder=""></textarea>
           </label>
         </div>
 
         <div class="control-row">
           <label class="field compact" style="flex:1;min-width:160px;">
             <span>Keyword (optional)</span>
-            <input id="keyword" name="keyword" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="例: ETH" />
+            <input id="keyword" name="keyword" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="" />
           </label>
         </div>
 
@@ -313,10 +322,10 @@
 
       <section class="output-block">
         <div class="section-title-row">
-          <h3>Turn Log</h3>
+          <h3 id="turn-log-title">Turn Log</h3>
         </div>
         <div id="turn-log" class="turn-log empty">
-          <div class="empty-state">
+          <div id="turn-log-empty-state" class="empty-state">
             Run を押すと、3ターンの討論ログと構造サマリーを表示します。
           </div>
         </div>
@@ -329,7 +338,7 @@
       <section id="public-summary" class="output-block public-summary-block" hidden style="display:none" aria-hidden="true">
       </section>
 
-      <section id="debug-pipeline-panel" class="output-block" hidden>
+      <section id="debug-pipeline-panel" class="output-block" hidden style="display:none">
         <details id="debug-pipeline-details">
           <summary>Debug Pipeline</summary>
           <div class="debug-pipeline-grid">

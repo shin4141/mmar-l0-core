@@ -37,6 +37,11 @@ const viewerFeedbackStatusEl = document.querySelector("#viewer-feedback-status")
 const statusRowEl = document.querySelector(".status-row");
 const statusEl = document.querySelector("#status");
 const errorHintEl = document.querySelector("#error-hint");
+const topicLabelEl = document.querySelector("#topic-label");
+const topicInputEl = document.querySelector("#topic");
+const topicOverwriteNoteEl = document.querySelector("#topic-overwrite-note");
+const sideAInputEl = document.querySelector("#side-a");
+const sideBInputEl = document.querySelector("#side-b");
 const topicDisplayEl = document.querySelector("#topic-display");
 const keywordInput = document.querySelector("#keyword");
 const swapSidesButton = document.querySelector("#swap-sides-button");
@@ -47,7 +52,9 @@ const readerBackButton = document.querySelector("#reader-back-button");
 const readerNextButton = document.querySelector("#reader-next-button");
 const runMetaEl = document.querySelector("#run-meta");
 const outputMetaEl = document.querySelector("#output-meta");
+const turnLogTitleEl = document.querySelector("#turn-log-title");
 const turnLogEl = document.querySelector("#turn-log");
+const turnLogEmptyStateEl = document.querySelector("#turn-log-empty-state");
 const publicSummaryEl = document.querySelector("#public-summary");
 const publicSummaryWinnerEl = document.querySelector("#public-summary-winner");
 const publicSummaryReasonEl = document.querySelector("#public-summary-reason");
@@ -240,6 +247,12 @@ const BATTLE_LANG_COPY = {
     galleryLoading: "AIバトルを読み込み中です。",
     galleryError: "AIバトルを読み込めませんでした。",
     battleBadge: "AIバトル",
+    topicLabel: "争点",
+    topicPlaceholder: "争点を入れる",
+    sideAPlaceholder: "A側の主張を入れる",
+    sideBPlaceholder: "B側の主張を入れる",
+    keywordPlaceholder: "キーワード（任意）",
+    emptyTurnLog: "バトルを始めると、勝敗と決定打までまとめて表示します。",
   },
   en: {
     title: "VerdAIct",
@@ -283,7 +296,23 @@ const BATTLE_LANG_COPY = {
     galleryLoading: "Loading AI battles.",
     galleryError: "Could not load AI battles.",
     battleBadge: "AI Battle",
+    topicLabel: "Issue",
+    topicPlaceholder: "Enter the issue",
+    sideAPlaceholder: "Enter Side A",
+    sideBPlaceholder: "Enter Side B",
+    keywordPlaceholder: "Optional keyword",
+    emptyTurnLog: "Start Battle to see the winner, decisive hit, and turn log.",
   },
+};
+const DEBATE_FORM_COPY = {
+  topicLabel: "Topic",
+  topicPlaceholder: "例: 次の仮想通貨バブルは来るか",
+  sideAPlaceholder: "例: 来る。流動性とETH主導の資金流入が起きる",
+  sideBPlaceholder: "例: 来ない。規制と需要不足で前回ほど伸びない",
+  keywordPlaceholder: "例: ETH",
+  overwriteNote: "新しいお題を入力すると前の内容は上書きされます。",
+  turnLogTitle: "Turn Log",
+  emptyTurnLog: "Run を押すと、3ターンの討論ログと構造サマリーを表示します。",
 };
 currentBattleLang = REQUESTED_BATTLE_LANG;
 
@@ -293,6 +322,35 @@ function currentArchiveModeFilter() {
 
 function battleCopy() {
   return BATTLE_LANG_COPY[currentBattleLang] || BATTLE_LANG_COPY.ja;
+}
+
+function clearBattleXSourceError() {
+  setBattleXSourceError("");
+}
+
+function applyFormShellCopy() {
+  if (turnLogTitleEl) turnLogTitleEl.textContent = DEBATE_FORM_COPY.turnLogTitle;
+  if (isBattleMode()) {
+    const copy = battleCopy();
+    if (topicLabelEl) topicLabelEl.textContent = copy.topicLabel;
+    if (topicInputEl) topicInputEl.placeholder = copy.topicPlaceholder;
+    if (sideAInputEl) sideAInputEl.placeholder = copy.sideAPlaceholder;
+    if (sideBInputEl) sideBInputEl.placeholder = copy.sideBPlaceholder;
+    if (keywordInput) keywordInput.placeholder = copy.keywordPlaceholder;
+    if (topicOverwriteNoteEl) topicOverwriteNoteEl.hidden = true;
+    if (turnLogEmptyStateEl) turnLogEmptyStateEl.textContent = copy.emptyTurnLog;
+    return;
+  }
+  if (topicLabelEl) topicLabelEl.textContent = DEBATE_FORM_COPY.topicLabel;
+  if (topicInputEl) topicInputEl.placeholder = DEBATE_FORM_COPY.topicPlaceholder;
+  if (sideAInputEl) sideAInputEl.placeholder = DEBATE_FORM_COPY.sideAPlaceholder;
+  if (sideBInputEl) sideBInputEl.placeholder = DEBATE_FORM_COPY.sideBPlaceholder;
+  if (keywordInput) keywordInput.placeholder = DEBATE_FORM_COPY.keywordPlaceholder;
+  if (topicOverwriteNoteEl) {
+    topicOverwriteNoteEl.textContent = DEBATE_FORM_COPY.overwriteNote;
+    topicOverwriteNoteEl.hidden = false;
+  }
+  if (turnLogEmptyStateEl) turnLogEmptyStateEl.textContent = DEBATE_FORM_COPY.emptyTurnLog;
 }
 
 function experienceCopyFor(mode) {
@@ -466,9 +524,15 @@ function setBattleLanguage(lang, options = {}) {
     const copy = experienceCopyFor("battle");
     if (appTitleEl) appTitleEl.textContent = copy.title;
     if (appLedeEl) appLedeEl.textContent = copy.lede;
+    const debateModeButton = document.querySelector("#mode-debate-button");
+    const battleModeButton = document.querySelector("#mode-battle-button");
+    if (debateModeButton) debateModeButton.textContent = currentBattleLang === "en" ? "Debate" : "討論";
+    if (battleModeButton) battleModeButton.textContent = currentBattleLang === "en" ? "AI Battle" : "AIバトル";
     if (!shouldUsePublicFixedDemo()) runButton.textContent = copy.runLabel;
     judgeButton.textContent = copy.judgeLabel;
   }
+  clearBattleXSourceError();
+  applyFormShellCopy();
   if (options.refresh !== false && changed) {
     if (currentResult) refreshOutput();
     else renderBattleSourceCard();
@@ -483,6 +547,10 @@ function applyExperienceMode(mode) {
   if (appTitleEl) appTitleEl.textContent = copy.title;
   if (brandSignoffEl) brandSignoffEl.textContent = copy.modeLabel || "";
   if (appLedeEl) appLedeEl.textContent = copy.lede;
+  const debateModeButton = document.querySelector("#mode-debate-button");
+  const battleModeButton = document.querySelector("#mode-battle-button");
+  if (debateModeButton) debateModeButton.textContent = currentExperienceMode === "battle" && currentBattleLang === "en" ? "Debate" : "討論";
+  if (battleModeButton) battleModeButton.textContent = currentExperienceMode === "battle" && currentBattleLang === "en" ? "AI Battle" : "AIバトル";
   if (!shouldUsePublicFixedDemo()) {
     runButton.textContent = copy.runLabel;
   }
@@ -492,6 +560,8 @@ function applyExperienceMode(mode) {
   }
   renderBattleXSourceSection();
   applyBattleLanguageText();
+  applyFormShellCopy();
+  clearBattleXSourceError();
   archiveModeFilter = currentArchiveModeFilter();
   syncArchiveModeFilterButtons();
   if (!archiveShellEl.hidden) {
@@ -582,6 +652,7 @@ function applyBattlePreset(topic) {
   topicInput.value = presetTopic;
   sideAInput.value = positions.a;
   sideBInput.value = positions.b;
+  clearBattleXSourceError();
   currentBattleSource = null;
   renderBattleSourceCard();
   if (keywordInput) keywordInput.value = "";
@@ -1152,9 +1223,10 @@ function setReadingMode(active) {
 }
 
 function renderEmptyTurnLog() {
+  const emptyCopy = isBattleMode() ? battleCopy().emptyTurnLog : DEBATE_FORM_COPY.emptyTurnLog;
   turnLogEl.innerHTML = `
     <div class="empty-state">
-      Run を押すと、3ターンの討論ログと構造サマリーを表示します。
+      ${escapeHtml(emptyCopy)}
     </div>
   `;
 }
@@ -4239,6 +4311,13 @@ battlePresetButtons.forEach((button) => {
   });
 });
 
+[topicInputEl, sideAInputEl, sideBInputEl, keywordInput].forEach((field) => {
+  field?.addEventListener("input", () => {
+    if (!isBattleMode()) return;
+    clearBattleXSourceError();
+  });
+});
+
 document.addEventListener("click", (event) => {
   const trigger = event.target.closest("#battle-x-build-button");
   if (!trigger) return;
@@ -4388,6 +4467,7 @@ renderDebugPipeline();
 setupViewerMode();
 applyReadOnlyDemoMode();
 applyExperienceMode(REQUESTED_EXPERIENCE_MODE);
+document.documentElement.removeAttribute("data-first-paint-pending");
 if (shouldUsePublicFixedDemo()) {
   void loadViewerArchive();
 }
