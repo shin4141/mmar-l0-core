@@ -1,0 +1,46 @@
+{
+  "runtime": "127.0.0.1:8912 · 16cb3e9 · boot 2026-03-25T14:19:24.713331+00:00 · public-fixed · keys OAG",
+  "topic": "本日SORAが撤退というニュースが出てきたけど。GPTは動画サービスに手を出すべきでなかった。",
+  "output_meta": "3 turns · fixed demo · fixture",
+  "status": "Debate ready",
+  "run_button": "Run Fixed Debate",
+  "topic_readonly": true,
+  "side_a_readonly": true,
+  "side_b_readonly": true,
+  "turn_count": 6,
+  "turn1a": "SORAの撤退報道が本当なら、GPTが動画サービスに踏み込む判断は筋が悪かった。\nSORAの撤退報道が示すのは、生成モデルの強さだけでは動画サービスの運営を支えきれず、配信インフラ・権利処理・継続投資まで抱える事業は別の勝負だという点だ。\n動画事業はモデルの派手さより、配信インフラ、権利処理、作品供給、運営コストを回し続けられるかで決まる。\nOpenAIの強みは生成モデルと開発者基盤にあり、そこから離れて総合動画サービスまで抱えると投資が分散しやすい。\n撤退が示すのは一時の失敗ではなく、事業の重さと主張のずれだ。\nだからGPTは動画サービスに手を出すべきではなかった。",
+  "fixture_fetch": true,
+  "api_debate_called": false,
+  "console_messages": [
+    {
+      "type": "info",
+      "text": "public_fixed_demo_enabled"
+    },
+    {
+      "type": "info",
+      "text": "run_click_received"
+    },
+    {
+      "type": "info",
+      "text": "public_fixed_demo_branch_entered"
+    },
+    {
+      "type": "info",
+      "text": "fixture_loader_entered"
+    },
+    {
+      "type": "info",
+      "text": "fixture_fetch_started ./fixtures/public_sora_demo.json"
+    },
+    {
+      "type": "info",
+      "text": "fixture_fetch_succeeded"
+    },
+    {
+      "type": "info",
+      "text": "fixture_loader_completed"
+    }
+  ],
+  "console_errors": [],
+  "page_errors": []
+}

@@ -1,0 +1,198 @@
+:root {
+  --bg: #f7f1e8;
+  --paper: #fffaf3;
+  --line: rgba(79, 55, 33, 0.14);
+  --text: #1f140e;
+  --muted: #655547;
+  --accent: #b13922;
+  --accent-alt: #1d4d8f;
+  --battle-badge-bg: rgba(177, 57, 34, 0.12);
+  --battle-badge-text: #972d1e;
+  --shadow: 0 20px 48px rgba(32, 22, 15, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+}
+
+.gallery-shell {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+  display: grid;
+  gap: 24px;
+}
+
+.gallery-hero,
+.gallery-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.gallery-eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.gallery-hero h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(32px, 4vw, 48px);
+  line-height: 1.05;
+}
+
+.gallery-hero p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.gallery-link,
+.gallery-sort-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--text);
+  text-decoration: none;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.gallery-sort-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gallery-sort-button.is-active {
+  border-color: rgba(35, 87, 137, 0.24);
+  background: rgba(35, 87, 137, 0.08);
+  color: var(--accent-alt);
+}
+
+.gallery-count {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.gallery-card {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.gallery-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 28px 56px rgba(32, 22, 15, 0.12);
+}
+
+.gallery-card:hover .gallery-card-image {
+  filter: brightness(0.92);
+}
+
+.gallery-card-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(177, 57, 34, 0.12), rgba(29, 77, 143, 0.08));
+}
+
+.gallery-card-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transition: filter 160ms ease;
+}
+
+.gallery-card-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--battle-badge-bg);
+  color: var(--battle-badge-text);
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 8px 20px rgba(32, 22, 15, 0.16);
+}
+
+.gallery-card-copy {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.gallery-card-issue {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.gallery-card:hover .gallery-card-issue {
+  color: var(--accent);
+}
+
+.gallery-empty {
+  grid-column: 1 / -1;
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 20px;
+  color: var(--muted);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+@media (max-width: 1040px) {
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .gallery-shell {
+    padding: 20px 16px 36px;
+  }
+
+  .gallery-grid {
+    grid-template-columns: 1fr;
+  }
+}

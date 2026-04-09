@@ -1,0 +1,4 @@
+Goal: restore public fixed demo branch on canonical 8912
+Verify: 8912 Run Fixed Debate renders fixture without provider_error
+Risk: runDebate branch or asset mismatch may still hit provider path
+Rollback: restore files from backups/ and patch from meta/git_diff.patch

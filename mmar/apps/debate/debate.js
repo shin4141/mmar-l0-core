@@ -4,10 +4,23 @@ import { alignDebateStory } from "./story_aligner.js";
 const form = document.querySelector("#debate-form");
 const runButton = document.querySelector("#run-button");
 const judgeButton = document.querySelector("#judge-button");
+const appTitleEl = document.querySelector("#app-title");
+const appLedeEl = document.querySelector("#app-lede");
+const brandSignoffEl = document.querySelector("#brand-signoff");
+const battleLangSwitchEl = document.querySelector("#battle-lang-switch");
+const battleLangSwitchLabelEl = document.querySelector("#battle-lang-switch-label");
+const battleLangButtons = [...document.querySelectorAll("[data-battle-lang]")];
+const battlePresetsEl = document.querySelector("#battle-presets");
+const battleXSourceSlotEl = document.querySelector("#battle-x-source-slot");
+const battleXSourceTemplateEl = document.querySelector("#battle-x-source-template");
+const modeButtons = [...document.querySelectorAll("[data-experience-mode]")];
+const battlePresetButtons = [...document.querySelectorAll("[data-battle-preset-ja]")];
 const saveButton = document.querySelector("#save-button");
 const historyButton = document.querySelector("#history-button");
 const archiveButton = document.querySelector("#archive-button");
 const detailLikeButton = document.querySelector("#detail-like-button");
+const shareBattleButton = document.querySelector("#share-battle-button");
+const shareBattleXButton = document.querySelector("#share-battle-x-button");
 const historyCloseButton = document.querySelector("#history-close-button");
 const historyBackdrop = document.querySelector("#history-backdrop");
 const archiveCloseButton = document.querySelector("#archive-close-button");
@@ -56,6 +69,7 @@ const archiveCountEl = document.querySelector("#archive-count");
 const archiveRecentCountEl = document.querySelector("#archive-recent-count");
 const archiveSavedCountEl = document.querySelector("#archive-saved-count");
 const archiveSearchEl = document.querySelector("#archive-search");
+const archiveModeNoteEl = document.querySelector("#archive-mode-note");
 const archiveRecentListEl = document.querySelector("#archive-recent-list");
 const archiveListEl = document.querySelector("#archive-list");
 const askShellEl = document.querySelector("#ask-shell");
@@ -78,6 +92,7 @@ const debugJudgePass2El = document.querySelector("#debug-judge-pass2");
 const debugStoryAlignReportEl = document.querySelector("#debug-story-align-report");
 const mobileMedia = window.matchMedia("(max-width: 768px)");
 const DEBATE_API_PATH = "/api/debate_v4";
+const DEFAULT_PUBLIC_SHARE_ORIGIN = "https://mmar-l0-core.onrender.com";
 
 let healthCheckTimer = null;
 let currentResult = null;
@@ -108,6 +123,7 @@ let historySortMode = "recent";
 let currentConstraintReport = null;
 let currentJudgePass1 = null;
 let currentJudgePass2 = null;
+let currentBattleLang = "ja";
 let currentStoryAlignReport = null;
 let currentHealthInfo = { status: "unknown", data: null, message: "health unavailable" };
 let activeSelectedTargets = [];
@@ -116,10 +132,35 @@ let activeDebateTimerId = null;
 let activeDebateStartedAt = 0;
 let currentElapsedSeconds = null;
 let currentRunToken = 0;
+let currentExperienceMode = "debate";
+let currentBattleSource = null;
+let battleXSourceEl = null;
+let battleXUrlInput = null;
+let battleXBuildButton = null;
+let battleXSourceErrorEl = null;
+let battleSourceCardEl = null;
+let battleSourceSummaryEl = null;
+let battleSourceLinkEl = null;
+let battleXBuildInFlight = false;
+
+function normalizeBattleLang(value) {
+  return String(value || "").trim().toLowerCase() === "en" ? "en" : "ja";
+}
+
+function storedBattleLang() {
+  try {
+    return normalizeBattleLang(window.localStorage.getItem("mmar_lang") || "");
+  } catch {
+    return "ja";
+  }
+}
 
 const queryParams = new URLSearchParams(window.location.search);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
 const BETA_MODE = queryParams.get("beta") === "1";
+const REQUESTED_EXPERIENCE_MODE = queryParams.get("mode") === "battle" ? "battle" : "debate";
+const REQUESTED_FOCUS = String(queryParams.get("focus") || "").trim().toLowerCase();
+const REQUESTED_BATTLE_LANG = normalizeBattleLang(queryParams.get("lang") || (REQUESTED_EXPERIENCE_MODE === "battle" ? storedBattleLang() : "ja"));
 const READ_ONLY_DEMO = false;
 const PUBLIC_LIMITED_DEMO = false;
 const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";
@@ -140,6 +181,155 @@ const MODEL_LABELS = {
   judge: "Gemini Judge",
 };
 const PUBLIC_ASK_DISABLED = true;
+const EXPERIENCE_COPY = {
+  debate: {
+    title: "VerdAIct",
+    modeLabel: "討論",
+    lede: "自由入力の題材で討論を走らせ、本文と判定をそのまま読む本線です。",
+    runLabel: "Run Debate",
+    judgeLabel: "判定を見る",
+  },
+  battle: {
+    title: "VerdAIct",
+    modeLabel: "AIバトル",
+    lede: "勝敗と決定打を先に読む、テンポ重視の入口です。",
+    runLabel: "バトル開始",
+    judgeLabel: "勝敗を見る",
+  },
+};
+const BATTLE_LANG_COPY = {
+  ja: {
+    title: "VerdAIct",
+    modeLabel: "AIバトル",
+    lede: "勝敗と決定打を先に読む、テンポ重視の入口です。",
+    runLabel: "バトル開始",
+    judgeLabel: "勝敗を見る",
+    langLabel: "言語",
+    presetsEyebrow: "Quick Start",
+    presetsCopy: "クリック1回で問いを入れて、そのままバトル開始できます。",
+    xImportEyebrow: "X Import",
+    xImportCopy: "Xの投稿URLを貼るだけでAIバトル開始",
+    xUrlLabel: "Xの投稿URL",
+    xUrlPlaceholder: "Xの投稿URLを貼る",
+    xBuildLabel: "Xからバトル作成",
+    sourceLabel: "元ネタ",
+    sourcePrefix: "元ネタ",
+    sourceLink: "元URLを開く",
+    shareCopyLabel: "共有リンクコピー",
+    shareXLabel: "Xで共有",
+    issueLabel: "AIバトル:",
+    winnerLabel: "勝者",
+    decisiveLabel: "決定打",
+    turningLabel: "流れが変わった瞬間",
+    summaryLabel: "一言まとめ",
+    weakLabel: "痛いところ",
+    xBuildReading: "X投稿を読み取り中",
+    xBuildHint: "元投稿を争点化して、battle 用の A/B を作っています。",
+    xBuildDone: "Xからバトル素材を作成",
+    xBuildError: "X投稿の読み取り失敗",
+    xBuildRetry: "この投稿は読み取れませんでした。別のX投稿URLで試してください",
+    shareOpened: "X共有を開きました",
+    shareFailed: "X共有を開けませんでした",
+    shareFallback: "AIバトルを作った",
+    historyBattleLabel: "Gallery",
+    galleryTitle: "VerdAIct",
+    galleryCopy: "気になるAIバトルを選ぶ",
+    galleryAction: "バトルを作る",
+    galleryCount: (count) => `${count} cards`,
+    galleryEmpty: "AIバトルはまだありません。",
+    galleryLoading: "AIバトルを読み込み中です。",
+    galleryError: "AIバトルを読み込めませんでした。",
+    battleBadge: "AIバトル",
+  },
+  en: {
+    title: "VerdAIct",
+    modeLabel: "AI Battle",
+    lede: "A faster way in: see the winner and decisive hit first.",
+    runLabel: "Start Battle",
+    judgeLabel: "See Result",
+    langLabel: "Language",
+    presetsEyebrow: "Quick Start",
+    presetsCopy: "Drop in a topic with one click and start the battle right away.",
+    xImportEyebrow: "X Import",
+    xImportCopy: "Paste an X post URL to start an AI battle.",
+    xUrlLabel: "X post URL",
+    xUrlPlaceholder: "Paste an X post URL",
+    xBuildLabel: "Create from X",
+    sourceLabel: "Source",
+    sourcePrefix: "Source",
+    sourceLink: "Open original",
+    shareCopyLabel: "Copy share link",
+    shareXLabel: "Share on X",
+    issueLabel: "AI Battle:",
+    winnerLabel: "Winner",
+    decisiveLabel: "Decisive Hit",
+    turningLabel: "Turning Point",
+    summaryLabel: "One-line Summary",
+    weakLabel: "Pain Point",
+    xBuildReading: "Reading the X post",
+    xBuildHint: "Turning the original post into a battle-ready issue and two sides.",
+    xBuildDone: "Built battle seed from X",
+    xBuildError: "Could not read that X post",
+    xBuildRetry: "Could not read that post. Try another X post URL.",
+    shareOpened: "Opened X share",
+    shareFailed: "Could not open X share",
+    shareFallback: "I turned this post into an AI battle",
+    historyBattleLabel: "Gallery",
+    galleryTitle: "VerdAIct",
+    galleryCopy: "Pick an AI battle that grabs you",
+    galleryAction: "Create a battle",
+    galleryCount: (count) => `${count} cards`,
+    galleryEmpty: "No AI battles yet.",
+    galleryLoading: "Loading AI battles.",
+    galleryError: "Could not load AI battles.",
+    battleBadge: "AI Battle",
+  },
+};
+currentBattleLang = REQUESTED_BATTLE_LANG;
+
+function currentArchiveModeFilter() {
+  return currentExperienceMode === "battle" ? "battle" : "debate";
+}
+
+function battleCopy() {
+  return BATTLE_LANG_COPY[currentBattleLang] || BATTLE_LANG_COPY.ja;
+}
+
+function experienceCopyFor(mode) {
+  if (mode === "battle") return battleCopy();
+  return EXPERIENCE_COPY.debate;
+}
+
+function isLocalOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
+  } catch {
+    return /127\.0\.0\.1|localhost/.test(String(origin || ""));
+  }
+}
+
+function shouldShowOperationalDebug() {
+  return isLocalOrigin(window.location.origin || "") || queryParams.get("debug") === "1";
+}
+
+function publicFacingOperationalHint(debugText, publicText = "") {
+  return shouldShowOperationalDebug() ? debugText : publicText;
+}
+
+function configuredPublicShareOrigin() {
+  const fromQuery = String(queryParams.get("share_origin") || "").trim();
+  const fromStorage = String(window.localStorage.getItem("mmar_public_origin") || "").trim();
+  const fromHealth = String(currentHealthInfo?.data?.public_origin || "").trim();
+  const preferred = fromQuery || fromStorage || fromHealth || DEFAULT_PUBLIC_SHARE_ORIGIN;
+  return preferred.replace(/\/+$/, "");
+}
+
+function currentShareOrigin() {
+  const localOrigin = String(window.location.origin || "").replace(/\/+$/, "");
+  if (!isLocalOrigin(localOrigin)) return localOrigin;
+  return configuredPublicShareOrigin() || localOrigin;
+}
 
 function shouldUsePublicFixedDemo() {
   return false;
@@ -212,6 +402,306 @@ function generatedPositionsFromTopic(topic) {
     a: `私は${framedTopic}を支持する。焦点は${anchorPhrase}で実際に何が改善し、その改善が他の手段では代替しにくいかだ。${anchorPhrase}の便益と実行条件が立つなら、この提案を進める理由は十分ある。`,
     b: `私は${framedTopic}に反対する。焦点は${anchorPhrase}を進めたときに何が悪化し、その負担を誰が引き受けるのかだ。${anchorPhrase}の副作用と失敗時のコストが閉じない限り、この提案を採るには早い。`,
   };
+}
+
+function isBattleMode() {
+  return currentExperienceMode === "battle";
+}
+
+function setExperienceModeButtonState(mode) {
+  modeButtons.forEach((button) => {
+    const active = button.dataset.experienceMode === mode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setBattleLangButtonState() {
+  battleLangButtons.forEach((button) => {
+    const active = normalizeBattleLang(button.dataset.battleLang) === currentBattleLang;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function applyBattleLanguageText() {
+  const copy = battleCopy();
+  if (battleLangSwitchLabelEl) battleLangSwitchLabelEl.textContent = copy.langLabel;
+  if (battleLangSwitchEl) battleLangSwitchEl.hidden = currentExperienceMode !== "battle";
+  const presetsEyebrowEl = document.querySelector("#battle-presets-eyebrow");
+  const presetsCopyEl = document.querySelector("#battle-presets-copy");
+  if (presetsEyebrowEl) presetsEyebrowEl.textContent = copy.presetsEyebrow;
+  if (presetsCopyEl) presetsCopyEl.textContent = copy.presetsCopy;
+  battlePresetButtons.forEach((button) => {
+    const label = currentBattleLang === "en"
+      ? String(button.dataset.battlePresetEn || button.textContent || "").trim()
+      : String(button.dataset.battlePresetJa || button.textContent || "").trim();
+    button.textContent = label;
+  });
+  const xImportEyebrowEl = document.querySelector("#battle-x-import-eyebrow");
+  const xImportCopyEl = document.querySelector("#battle-x-import-copy");
+  const xUrlLabelEl = document.querySelector("#battle-x-url-label");
+  const sourceLabelEl = document.querySelector("#battle-source-label");
+  if (xImportEyebrowEl) xImportEyebrowEl.textContent = copy.xImportEyebrow;
+  if (xImportCopyEl) xImportCopyEl.textContent = copy.xImportCopy;
+  if (xUrlLabelEl) xUrlLabelEl.textContent = copy.xUrlLabel;
+  if (battleXUrlInput) battleXUrlInput.placeholder = copy.xUrlPlaceholder;
+  if (battleXBuildButton) battleXBuildButton.textContent = copy.xBuildLabel;
+  if (sourceLabelEl) sourceLabelEl.textContent = copy.sourceLabel;
+  if (battleSourceLinkEl) battleSourceLinkEl.textContent = copy.sourceLink;
+  if (shareBattleButton) shareBattleButton.textContent = copy.shareCopyLabel;
+  if (shareBattleXButton) shareBattleXButton.textContent = copy.shareXLabel;
+  setBattleLangButtonState();
+}
+
+function setBattleLanguage(lang, options = {}) {
+  const nextLang = normalizeBattleLang(lang);
+  const changed = currentBattleLang !== nextLang;
+  currentBattleLang = nextLang;
+  try {
+    window.localStorage.setItem("mmar_lang", nextLang);
+  } catch {}
+  applyBattleLanguageText();
+  if (currentExperienceMode === "battle") {
+    const copy = experienceCopyFor("battle");
+    if (appTitleEl) appTitleEl.textContent = copy.title;
+    if (appLedeEl) appLedeEl.textContent = copy.lede;
+    if (!shouldUsePublicFixedDemo()) runButton.textContent = copy.runLabel;
+    judgeButton.textContent = copy.judgeLabel;
+  }
+  if (options.refresh !== false && changed) {
+    if (currentResult) refreshOutput();
+    else renderBattleSourceCard();
+  }
+}
+
+function applyExperienceMode(mode) {
+  currentExperienceMode = mode === "battle" ? "battle" : "debate";
+  const copy = experienceCopyFor(currentExperienceMode);
+  document.body.classList.toggle("battle-mode", currentExperienceMode === "battle");
+  setExperienceModeButtonState(currentExperienceMode);
+  if (appTitleEl) appTitleEl.textContent = copy.title;
+  if (brandSignoffEl) brandSignoffEl.textContent = copy.modeLabel || "";
+  if (appLedeEl) appLedeEl.textContent = copy.lede;
+  if (!shouldUsePublicFixedDemo()) {
+    runButton.textContent = copy.runLabel;
+  }
+  judgeButton.textContent = copy.judgeLabel;
+  if (battlePresetsEl) {
+    battlePresetsEl.hidden = currentExperienceMode !== "battle";
+  }
+  renderBattleXSourceSection();
+  applyBattleLanguageText();
+  archiveModeFilter = currentArchiveModeFilter();
+  syncArchiveModeFilterButtons();
+  if (!archiveShellEl.hidden) {
+    renderArchiveList();
+  }
+  if (currentResult) {
+    refreshOutput();
+  }
+  renderBattleSourceCard();
+  syncShareButton();
+}
+
+function syncBattleXSourceRefs() {
+  battleXSourceEl = document.querySelector("#battle-x-source");
+  battleXUrlInput = document.querySelector("#battle-x-url");
+  battleXBuildButton = document.querySelector("#battle-x-build-button");
+  battleXSourceErrorEl = document.querySelector("#battle-x-source-error");
+  battleSourceCardEl = document.querySelector("#battle-source-card");
+  battleSourceSummaryEl = document.querySelector("#battle-source-summary");
+  battleSourceLinkEl = document.querySelector("#battle-source-link");
+}
+
+function mountBattleXSourceSection() {
+  if (!battleXSourceSlotEl || !battleXSourceTemplateEl) return;
+  if (!battleXSourceSlotEl.firstElementChild) {
+    battleXSourceSlotEl.appendChild(battleXSourceTemplateEl.content.cloneNode(true));
+  }
+  syncBattleXSourceRefs();
+}
+
+function unmountBattleXSourceSection() {
+  if (battleXSourceSlotEl) {
+    battleXSourceSlotEl.replaceChildren();
+  }
+  syncBattleXSourceRefs();
+}
+
+function renderBattleXSourceSection() {
+  if (currentExperienceMode === "battle") {
+    mountBattleXSourceSection();
+  } else {
+    unmountBattleXSourceSection();
+  }
+}
+
+function applyRequestedBattleFocus() {
+  if (REQUESTED_EXPERIENCE_MODE !== "battle") return;
+  if (REQUESTED_FOCUS !== "x_url") return;
+  if (!isBattleMode()) return;
+  if (!battleXUrlInput) return;
+  window.requestAnimationFrame(() => {
+    battleXUrlInput?.focus();
+    battleXUrlInput?.select?.();
+  });
+}
+
+function normalizeExperienceMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "battle") return "battle";
+  return "debate";
+}
+
+function recordExperienceMode(record) {
+  return normalizeExperienceMode(record?.experience_mode || "debate");
+}
+
+function syncArchiveModeFilterButtons() {
+  archivePanelEl?.querySelectorAll("[data-mode-filter]").forEach((node) => {
+    node.classList.toggle("is-active", node.dataset.modeFilter === archiveModeFilter);
+  });
+  if (archiveModeNoteEl) {
+    archiveModeNoteEl.textContent = archiveModeFilter === "battle"
+      ? "現在はAIバトルの履歴を表示中"
+      : archiveModeFilter === "all"
+        ? "すべての履歴を表示中"
+        : "現在は討論の履歴を表示中";
+  }
+}
+
+function applyBattlePreset(topic) {
+  const topicInput = document.querySelector("#topic");
+  const sideAInput = document.querySelector("#side-a");
+  const sideBInput = document.querySelector("#side-b");
+  if (!topicInput || !sideAInput || !sideBInput) return;
+  const presetTopic = String(topic || "").trim();
+  if (!presetTopic) return;
+  const positions = generatedPositionsFromTopic(presetTopic);
+  topicInput.value = presetTopic;
+  sideAInput.value = positions.a;
+  sideBInput.value = positions.b;
+  currentBattleSource = null;
+  renderBattleSourceCard();
+  if (keywordInput) keywordInput.value = "";
+  if (!runButton.disabled) {
+    form.requestSubmit();
+  }
+}
+
+function renderBattleSourceCard() {
+  if (!battleSourceCardEl || !battleSourceSummaryEl || !battleSourceLinkEl) return;
+  const source = currentBattleSource;
+  const safeSourceUrl = sanitizeExternalUrl(source?.source_url, { xOnly: true });
+  const visible = Boolean(source && source.source_summary && safeSourceUrl);
+  battleSourceCardEl.hidden = !visible || !isBattleMode();
+  if (!visible) {
+    battleSourceSummaryEl.textContent = "";
+    safeSetExternalHref(battleSourceLinkEl, "", { xOnly: true });
+    return;
+  }
+  battleSourceSummaryEl.textContent = `${battleCopy().sourcePrefix}: ${source.source_summary}`;
+  safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
+}
+
+function currentBattleShareId() {
+  if (currentLoadedRecord?.run_id) return String(currentLoadedRecord.run_id).trim();
+  if (currentLoadedRecord?.session_id) return String(currentLoadedRecord.session_id).trim();
+  if (currentResult?.run_id) return String(currentResult.run_id).trim();
+  if (currentResult?.session_id) return String(currentResult.session_id).trim();
+  return "";
+}
+
+function buildBattleShareUrl(id) {
+  const base = `${currentShareOrigin()}/battle/${encodeURIComponent(String(id || "").trim())}`;
+  return currentBattleLang === "en" ? `${base}?lang=en` : base;
+}
+
+function buildBattleGalleryUrl() {
+  const url = new URL("/mmar/apps/debate/gallery.html", window.location.origin);
+  if (currentBattleLang === "en") url.searchParams.set("lang", "en");
+  return url.toString();
+}
+
+function syncShareButton() {
+  if (!shareBattleButton && !shareBattleXButton) return;
+  const visible = isBattleMode() && Boolean(currentResult);
+  if (shareBattleButton) {
+    shareBattleButton.hidden = !visible;
+    shareBattleButton.disabled = !visible;
+  }
+  if (shareBattleXButton) {
+    shareBattleXButton.hidden = !visible;
+    shareBattleXButton.disabled = !visible;
+  }
+}
+
+function setBattleXSourceError(message = "") {
+  if (!battleXSourceErrorEl) return;
+  battleXSourceErrorEl.textContent = message;
+  battleXSourceErrorEl.hidden = !message;
+}
+
+function fillBattleSourceFromXSeed(data) {
+  const topicInput = document.querySelector("#topic");
+  const sideAInput = document.querySelector("#side-a");
+  const sideBInput = document.querySelector("#side-b");
+  if (!topicInput || !sideAInput || !sideBInput) return;
+  setBattleLanguage(data.lang || currentBattleLang, { refresh: false });
+  topicInput.value = String(data.issue || "").trim();
+  sideAInput.value = String(data.side_a || "").trim();
+  sideBInput.value = String(data.side_b || "").trim();
+  if (keywordInput) keywordInput.value = "";
+  currentBattleSource = {
+    source_type: data.source_type || "x_post",
+    source_url: String(data.source_url || "").trim(),
+    source_image: String(data.source_image || "").trim(),
+    source_summary: String(data.source_summary || "").trim(),
+    issue: String(data.issue || "").trim(),
+    lang: normalizeBattleLang(data.lang || currentBattleLang),
+  };
+  renderBattleSourceCard();
+}
+
+async function createBattleFromXUrl() {
+  const url = String(battleXUrlInput?.value || "").trim();
+  if (!url) {
+    setBattleXSourceError(currentBattleLang === "en" ? "Enter an X post URL." : "Xの投稿URLを入れてください");
+    return;
+  }
+  if (battleXBuildInFlight) return;
+  battleXBuildInFlight = true;
+  if (battleXBuildButton) battleXBuildButton.disabled = true;
+  setBattleXSourceError("");
+  setStatus("running", battleCopy().xBuildReading);
+  setHint(battleCopy().xBuildHint);
+  try {
+    const { response, data } = await postJsonWithBrowserFallback(endpointUrl("/api/battle_from_x_url"), { url, lang: currentBattleLang });
+    if (!response.ok || !data?.ok) {
+      throw new Error(normalizeApiError("battle_from_x_url", response.status, data));
+    }
+    fillBattleSourceFromXSeed(data);
+    setStatus("ok", battleCopy().xBuildDone);
+    setHint("");
+    if (!runButton.disabled) {
+      form.requestSubmit();
+    }
+  } catch (error) {
+    currentBattleSource = null;
+    renderBattleSourceCard();
+    const message = String(error?.message || "");
+    if (/invalid_x_url/i.test(message)) {
+      setBattleXSourceError(battleCopy().xBuildRetry);
+    } else {
+      setBattleXSourceError(battleCopy().xBuildRetry);
+    }
+    setStatus("error", battleCopy().xBuildError);
+    setHint("");
+  } finally {
+    battleXBuildInFlight = false;
+    if (battleXBuildButton) battleXBuildButton.disabled = false;
+  }
 }
 
 function applyPublicInteractiveDefaults() {
@@ -612,14 +1102,6 @@ function formatElapsedSeconds(value) {
   return `${Math.round(seconds)}s`;
 }
 
-function summarizeHealthEnv(env) {
-  if (!env || typeof env !== "object") return "env unavailable";
-  const openai = env.OPENAI_API_KEY ? "O" : "-";
-  const anthropic = env.ANTHROPIC_API_KEY ? "A" : "-";
-  const gemini = env.GEMINI_API_KEY ? "G" : "-";
-  return `keys ${openai}${anthropic}${gemini}`;
-}
-
 function renderRuntimeFingerprint() {
   if (runtimeFingerprintEl) {
     runtimeFingerprintEl.hidden = true;
@@ -704,6 +1186,9 @@ function clearCurrentResultView() {
   syncSaveButton();
   syncAskButton();
   syncDetailLikeButton();
+  renderBattleSourceCard();
+  syncShareButton();
+  applyRequestedBattleFocus();
 }
 
 function clearPublicSummary() {
@@ -735,6 +1220,34 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function sanitizeExternalUrl(value, options = {}) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    const protocol = String(parsed.protocol || "").toLowerCase();
+    if (protocol !== "https:" && protocol !== "http:") return "";
+    if (options.xOnly) {
+      const host = String(parsed.hostname || "").toLowerCase();
+      if (host !== "x.com" && host !== "www.x.com") return "";
+    }
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+function safeSetExternalHref(element, value, options = {}) {
+  if (!element) return "";
+  const safeUrl = sanitizeExternalUrl(value, options);
+  element.href = safeUrl || "#";
+  element.setAttribute("rel", "noreferrer noopener");
+  element.setAttribute("target", "_blank");
+  element.hidden = !safeUrl;
+  element.setAttribute("aria-hidden", safeUrl ? "false" : "true");
+  return safeUrl;
 }
 
 function normalizeArrayValue(value) {
@@ -1282,7 +1795,8 @@ function updateHistoryButton(count = loadHistoryRecords().length) {
   if (count === loadHistoryRecords().length && curatedViewerRecords.length) {
     count += curatedViewerRecords.length;
   }
-  historyButton.textContent = `History (${count})`;
+  historyButton.textContent = isBattleMode() ? `${battleCopy().historyBattleLabel} (${count})` : `History (${count})`;
+  historyButton.dataset.historyTarget = isBattleMode() ? buildBattleGalleryUrl() : "drawer";
   historyCountEl.textContent = `${count} match${count === 1 ? "" : "es"}`;
 }
 
@@ -1385,6 +1899,17 @@ async function saveRunRecordToServer(record) {
   if (!response.ok || !data.ok || !data.record) {
     throw new Error(normalizeApiError("run_save", response.status, data));
   }
+  if (data.history_item) {
+    const savedHistory = normalizeSavedRecordForPreview(data.history_item);
+    const existingIndex = historyRecordsCache.findIndex((item) => item.id === savedHistory.id || item.fingerprint === savedHistory.fingerprint);
+    if (existingIndex >= 0) historyRecordsCache[existingIndex] = savedHistory;
+    else historyRecordsCache.unshift(savedHistory);
+    persistHistoryRecords(historyRecordsCache);
+    updateHistoryButton(historyRecordsCache.length);
+    updateArchiveButton(historyRecordsCache.length);
+    renderHistoryList();
+    renderArchiveList();
+  }
   return data.record;
 }
 
@@ -1402,6 +1927,8 @@ function normalizeSavedRecordForPreview(record) {
   const displayTurns = Array.isArray(record.display_turns) && record.display_turns.length ? record.display_turns : transcriptJson;
   return {
     ...record,
+    experience_mode: recordExperienceMode(record),
+    battle_lang: normalizeBattleLang(record.battle_lang || record.lang || "ja"),
     run_id: record.run_id || "",
     topic_hash: record.topic_hash || "",
     keyword: normalizeKeyword(record.keyword || ""),
@@ -1495,15 +2022,21 @@ function buildBattleRecord(result, payload) {
   const rawTurns = getRawTurns(debate);
   const displayTurns = getDisplayTurns(debate);
   const record = {
-    id: currentRecordId || `match_${Date.now()}`,
+    id: currentRecordId || result?.run_id || debate?.run_id || `match_${Date.now()}`,
     run_id: result?.run_id || debate?.run_id || "",
     topic_hash: result?.topic_hash || debate?.topic_hash || "",
     topic: debate.topic || payload?.topic || "",
     keyword: normalizeKeyword(payload?.keyword || ""),
     stance_a: payload?.side_a || "",
     stance_b: payload?.side_b || "",
+    source_type: payload?.source_type || "",
+    source_url: payload?.source_url || "",
+    source_image: payload?.source_image || "",
+    source_summary: payload?.source_summary || "",
+    battle_lang: normalizeBattleLang(payload?.battle_lang || currentBattleLang),
     turn_count: debate.turn_count || payload?.turn_count || 0,
     mode: payload?.mode || "casual",
+    experience_mode: currentExperienceMode,
     fighter_a_provider: currentFighters.a,
     fighter_b_provider: currentFighters.b,
     judge_provider: currentFighters.judge,
@@ -1558,6 +2091,12 @@ function buildRunRecord(result, payload, status = "debate_complete") {
       output_meta: record.output_meta,
       elapsed_seconds: record.elapsed_seconds,
       source_mode: record.source_mode,
+      experience_mode: record.experience_mode,
+      battle_lang: record.battle_lang,
+      source_type: record.source_type,
+      source_url: record.source_url,
+      source_summary: record.source_summary,
+      source_image: record.source_image,
     },
     judge_result: status === "judge_complete" ? record.judge_json : {},
     run_json: record,
@@ -1571,6 +2110,103 @@ async function autosaveCurrentRun(status = "debate_complete") {
   } catch (error) {
     console.warn("autosave failed", error);
     return null;
+  }
+}
+
+async function ensureBattleShareId() {
+  const existing = currentBattleShareId();
+  if (existing) return existing;
+  if (!currentResult || !currentPayload) throw new Error("share_unavailable");
+  const saved = await saveRunRecordToServer(buildRunRecord(currentResult, currentPayload, "debate_complete"));
+  const nextId = String(saved?.run_id || saved?.session_id || "").trim();
+  if (!nextId) throw new Error("share_unavailable");
+  return nextId;
+}
+
+async function copyBattleShareLink() {
+  try {
+    const id = await ensureBattleShareId();
+    const url = buildBattleShareUrl(id);
+    await navigator.clipboard.writeText(url);
+    setStatus("ok", "共有リンクをコピーしました");
+    setHint(url);
+  } catch (error) {
+    setStatus("error", "共有リンクを作れませんでした");
+    setHint(String(error?.message || "share_unavailable"));
+  }
+}
+
+function battleWinnerLabel(result = currentResult) {
+  const winner = normalizeWinner(result?.debate?.summary || {});
+  if (winner.side === "A" || winner.side === "B") return winner.side;
+  return "保留";
+}
+
+function currentBattleIssue() {
+  return String(
+    currentResult?.debate?.topic
+      || currentPayload?.topic
+      || currentLoadedRecord?.topic
+      || currentBattleSource?.issue
+      || ""
+  ).trim();
+}
+
+function buildBattleShareText(shareId = currentBattleShareId()) {
+  if (!shareId) return "";
+  const url = buildBattleShareUrl(shareId);
+  const issue = currentBattleIssue();
+  if (issue) {
+    return currentBattleLang === "en"
+      ? `AI Battle: ${issue}\n${url}`
+      : `AIバトル: ${issue}\n${url}`;
+  }
+  return `${battleCopy().shareFallback}\n${url}`;
+}
+
+function buildBattleXIntentUrl(text) {
+  return `https://x.com/intent/post?text=${encodeURIComponent(String(text || "").trim())}`;
+}
+
+async function shareBattleOnX() {
+  try {
+    const id = await ensureBattleShareId();
+    const shareText = buildBattleShareText(id) || `${battleCopy().shareFallback}\n${buildBattleShareUrl(id)}`;
+    const intentUrl = buildBattleXIntentUrl(shareText);
+    window.open(intentUrl, "_blank", "noopener,noreferrer");
+    setStatus("ok", battleCopy().shareOpened);
+    setHint(buildBattleShareUrl(id));
+  } catch (error) {
+    setStatus("error", battleCopy().shareFailed);
+    setHint(String(error?.message || "share_unavailable"));
+  }
+}
+
+function sharedBattleIdFromPath() {
+  const match = window.location.pathname.match(/^\/battle\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function loadSharedBattleFromPath() {
+  const sharedId = sharedBattleIdFromPath();
+  if (!sharedId) return false;
+  try {
+    const response = await fetch(endpointUrl(`/api/battle/${encodeURIComponent(sharedId)}`), { method: "GET" });
+    const data = await parseResponse(response);
+    if (!response.ok || !data?.ok || !data?.record) {
+      throw new Error(normalizeApiError("battle_item", response.status, data));
+    }
+    try {
+      await fetch(endpointUrl(`/api/battle/${encodeURIComponent(sharedId)}/view`), { method: "POST" });
+    } catch {}
+    loadRecordIntoView(data.record, { saved: false });
+    setStatus("ok", currentBattleLang === "en" ? "Showing shared battle" : "共有バトルを表示中");
+    setHint("");
+    return true;
+  } catch (error) {
+    setStatus("error", REQUESTED_BATTLE_LANG === "en" ? "Could not open shared battle" : "共有バトルを開けませんでした");
+    setHint(String(error?.message || "not found"));
+    return false;
   }
 }
 
@@ -1736,6 +2372,29 @@ function formatCreatedAt(value) {
   return date.toLocaleString("ja-JP", { hour12: false });
 }
 
+function buildBattleCardPlaceholderImage(topicLabel = "") {
+  const title = String(topicLabel || "AIバトル").trim() || "AIバトル";
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff1e7"/>
+      <stop offset="55%" stop-color="#f1d3c2"/>
+      <stop offset="100%" stop-color="#c24e36"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="1020" cy="118" r="180" fill="rgba(255,255,255,0.18)"/>
+  <circle cx="120" cy="594" r="220" fill="rgba(24,52,74,0.12)"/>
+  <text x="72" y="124" fill="#8d2f21" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">AIバトル</text>
+  <foreignObject x="72" y="176" width="1056" height="360">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial, Helvetica, sans-serif;color:#23150f;font-size:56px;line-height:1.16;font-weight:800;">${escapeHtml(title)}</div>
+  </foreignObject>
+</svg>
+  `.trim();
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function buildHistoryItemMarkup(record) {
   const preview = normalizeSavedRecordForPreview(record);
   const winner = preview.judge_json?.winner?.side || "Draw";
@@ -1744,6 +2403,10 @@ function buildHistoryItemMarkup(record) {
   const elapsed = formatElapsedSeconds(preview.elapsed_seconds);
   const sourceMode = formatRunModeMeta(preview.source_mode || "", preview.provider_statuses || {}).toLowerCase();
   const topicLabel = formatTopicDisplay(preview.topic, preview.keyword || "");
+  const experienceMode = preview.experience_mode === "battle" ? "battle" : "debate";
+  const experienceLabel = experienceMode === "battle" ? "AIバトル" : "討論";
+  const winnerLabel = winner === "Draw" ? "保留" : winner;
+  const battleImage = String(preview.source_image || "").trim() || buildBattleCardPlaceholderImage(topicLabel);
   const metaParts = [
     formatCreatedAt(preview.created_at),
     winner,
@@ -1751,10 +2414,29 @@ function buildHistoryItemMarkup(record) {
   ];
   if (elapsed) metaParts.push(elapsed);
   if (sourceMode) metaParts.push(sourceMode);
+  if (experienceMode === "battle") {
+    return `
+      <div class="history-item history-item-battle">
+        <button type="button" class="history-item-main history-item-main-battle" data-record-id="${escapeHtml(preview.id)}">
+          <div class="history-battle-image-wrap">
+            <img class="history-battle-image" src="${escapeHtml(battleImage)}" alt="${escapeHtml(topicLabel)}" loading="lazy" />
+            <span class="history-mode-badge history-mode-badge-${escapeHtml(experienceMode)}">${escapeHtml(experienceLabel)}</span>
+          </div>
+          <div class="history-battle-copy">
+            <div class="history-battle-issue">${escapeHtml(topicLabel)}</div>
+            <div class="history-battle-winner">勝者: ${escapeHtml(winnerLabel)}</div>
+          </div>
+        </button>
+      </div>
+    `;
+  }
   return `
     <div class="history-item">
       <button type="button" class="history-item-main" data-record-id="${escapeHtml(preview.id)}">
-      <div class="history-topic">${escapeHtml(topicLabel)}</div>
+      <div class="history-topic-row">
+        <div class="history-topic">${escapeHtml(topicLabel)}</div>
+        <span class="history-mode-badge history-mode-badge-${escapeHtml(experienceMode)}">${escapeHtml(experienceLabel)}</span>
+      </div>
       <div class="history-meta">${escapeHtml(metaParts.join(" / "))}</div>
       <div class="history-submeta">${escapeHtml(`${preview.fighter_a_model} vs ${preview.fighter_b_model} / ${preview.judge_model}`)}</div>
       <div class="history-verdict">${escapeHtml(excerpt)}</div>
@@ -1812,7 +2494,7 @@ function updateArchiveButton(count = loadHistoryRecords().length) {
 function filteredArchiveRecords(records, query, modeFilter) {
   const normalizedQuery = normalizeSearchText(query);
   return records.filter((record) => {
-    const matchesMode = modeFilter === "all" || record.mode === modeFilter;
+    const matchesMode = modeFilter === "all" || recordExperienceMode(record) === modeFilter;
     if (!matchesMode) return false;
     if (!normalizedQuery) return true;
     return normalizeSearchText(record.topic).includes(normalizedQuery);
@@ -1879,6 +2561,8 @@ function toggleArchive(open) {
   }
   archiveShellEl.hidden = !open;
   if (open) {
+    archiveModeFilter = currentArchiveModeFilter();
+    syncArchiveModeFilterButtons();
     void refreshHistoryRecords();
     archiveRecentListEl.scrollTop = 0;
     archiveListEl.scrollTop = 0;
@@ -1999,7 +2683,14 @@ function syncViewerReadOnlyControls() {
 function loadRecordIntoView(record, options = {}) {
   if (!record) return;
   const { saved = false } = options;
+  const rawBattleLang = String(record?.battle_lang || record?.lang || "").trim();
   const preview = normalizeSavedRecordForPreview(record);
+  const experienceMode = preview.experience_mode === "battle" ? "battle" : "debate";
+  const resolvedBattleLang = experienceMode === "battle"
+    ? normalizeBattleLang(rawBattleLang || REQUESTED_BATTLE_LANG || "ja")
+    : "ja";
+  setBattleLanguage(resolvedBattleLang, { refresh: false });
+  applyExperienceMode(experienceMode);
   currentLoadedRecord = preview;
   currentRecordId = saved ? preview.id : null;
   currentPayload = {
@@ -2011,7 +2702,20 @@ function loadRecordIntoView(record, options = {}) {
     mode: preview.mode,
     fighter_a_provider: preview.fighter_a_provider,
     fighter_b_provider: preview.fighter_b_provider,
+    source_type: preview.source_type || "",
+    source_url: preview.source_url || "",
+    source_image: preview.source_image || "",
+    source_summary: preview.source_summary || "",
+    battle_lang: resolvedBattleLang,
   };
+  currentBattleSource = preview.source_url ? {
+    source_type: preview.source_type || "x_post",
+    source_url: preview.source_url || "",
+    source_image: preview.source_image || "",
+    source_summary: preview.source_summary || "",
+    issue: preview.topic || "",
+    lang: resolvedBattleLang,
+  } : null;
   currentFighters = {
     a: preview.fighter_a_provider,
     b: preview.fighter_b_provider,
@@ -2025,6 +2729,7 @@ function loadRecordIntoView(record, options = {}) {
   document.querySelector(`input[name="debateMode"][value="${preview.mode}"]`)?.click();
   fighterAProviderInput.value = preview.fighter_a_provider;
   fighterBProviderInput.value = preview.fighter_b_provider;
+  renderBattleSourceCard();
   currentResult = buildResultFromRecord(preview);
   currentConstraintReport = currentResult.debate?.summary?.debug_constraint_report || null;
   currentJudgePass1 = currentResult.debate?.summary?.debug_pass1 || null;
@@ -2038,6 +2743,7 @@ function loadRecordIntoView(record, options = {}) {
   renderDebugPipeline();
   syncViewerReadOnlyControls();
   renderViewerList();
+  syncShareButton();
   setStatus("ok", "Structure revealed");
   toggleHistory(false);
   toggleArchive(false);
@@ -2381,12 +3087,25 @@ function renderSummary(summary) {
   const confidence = summary?.confidence || "Medium";
   const why = summary?.reason_one_liner || winner.reason;
   const topic = currentResult?.debate?.topic || "";
+  const battleIssue = currentBattleIssue() || topic;
+  const battleLabels = battleCopy();
   const headline = composeVerdictHeadline(topic, winner);
   const subline = composeVerdictSubline(topic, winner, why);
   const momentum = normalizeMomentum(summary, winner, confidence);
   const flipCondition = composeFlipCondition(winner, weakSpot, why);
   const takeaway = normalizeGeminiTakeaway(summary, topic);
   const geminiQuote = normalizeGeminiQuote(summary);
+  const safeBattleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
+  const battleSourceMarkup = isBattleMode() && currentBattleSource?.source_summary && currentBattleSource?.source_url
+    ? `
+      <article class="summary-card summary-card-source">
+        <div class="summary-label">${escapeHtml(battleLabels.sourceLabel)}</div>
+        <div class="summary-kicker">Source</div>
+        <div class="summary-value summary-source-copy">${escapeHtml(currentBattleSource.source_summary)}</div>
+        <div class="summary-subvalue">${safeBattleSourceUrl ? `<a class="summary-source-link" href="${escapeHtml(safeBattleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleLabels.sourceLink)}</a>` : ""}</div>
+      </article>
+    `
+    : "";
   const axisVisibility = computeAxisTagVisibility([
     { key: "winner", axisTag: summary?.winner_axis_tag || "" },
     { key: "why", axisTag: summary?.why_axis_tag || "" },
@@ -2466,6 +3185,75 @@ function renderSummary(summary) {
 
   verdictGridEl.classList.remove("empty");
   spotlightGridEl.classList.remove("empty");
+  if (isBattleMode()) {
+    verdictGridEl.innerHTML = `
+      <article class="summary-card summary-card-issue">
+        <div class="summary-label">${escapeHtml(battleLabels.issueLabel)}</div>
+        <div class="summary-value summary-issue-copy">${escapeHtml(battleIssue)}</div>
+      </article>
+      ${battleSourceMarkup}
+      <article class="summary-card summary-card-verdict tone-winner">
+        <div class="summary-label">${escapeHtml(battleLabels.winnerLabel)}</div>
+        <div class="summary-kicker">Battle Result</div>
+        <div class="summary-value summary-emphasis">${escapeHtml(winner.side)}</div>
+        <div class="summary-subvalue summary-winner-reason">${escapeHtml(winner.reason)}</div>
+      </article>
+      <button type="button" class="summary-card tone-fatal summary-jump-card" data-jump-target="fatal">
+        <div class="summary-label">${escapeHtml(battleLabels.decisiveLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(fatal.role || "decisive_lock"))}</div>
+        <div class="summary-meta summary-turn-badge">${escapeHtml(`Turn ${fatal.turn} / ${fatal.speaker}`)}</div>
+        <div class="summary-value summary-quote">${escapeHtml(fatal.quote)}</div>
+        <div class="summary-subvalue summary-reason">${escapeHtml(fatal.why)}</div>
+      </button>
+      <button type="button" class="summary-card tone-turning summary-jump-card" data-jump-target="turning">
+        <div class="summary-label">${escapeHtml(battleLabels.turningLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(turning.role || "frame_shift"))}</div>
+        <div class="summary-meta summary-turn-badge">${escapeHtml(turning.turn)}</div>
+        <div class="summary-value summary-turning-copy">${escapeHtml(turning.summary)}</div>
+      </button>
+      <article class="summary-card summary-card-why">
+        <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(summary?.why_role || "verdict_summary"))}</div>
+        <div class="summary-value summary-why-copy">${escapeHtml(why)}</div>
+      </article>
+    `;
+    spotlightGridEl.innerHTML = `
+      <button type="button" class="summary-card tone-contradiction summary-jump-card" data-jump-target="weak">
+        <div class="summary-label">${escapeHtml(battleLabels.weakLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
+        <div class="summary-meta">${escapeHtml(`${weakSpot.side} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
+        <div class="summary-value summary-weak-label">${escapeHtml(weakSpot.label)}</div>
+        <div class="summary-subvalue summary-quote">${escapeHtml(`「${weakSpot.quote_excerpt}」`)}</div>
+      </button>
+      <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
+        <div class="summary-label">最初のヒビ</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
+        <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
+        <div class="summary-value">${escapeHtml(firstCrack.quote || "まだ最初のヒビは特定されていない。")}</div>
+        <div class="summary-subvalue">${escapeHtml(firstCrack.reason || "どこで最初の傷が入ったかを追う。")}</div>
+      </button>
+      <article class="summary-card summary-card-confidence">
+        <div class="summary-label">判定の強さ</div>
+        <div class="summary-value summary-emphasis">${escapeHtml(confidence)}</div>
+      </article>
+      ${showClincher ? `
+        <button type="button" class="summary-card tone-clincher summary-jump-card" data-jump-target="clincher">
+          <div class="summary-label">最後の押し込み</div>
+          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(clincher.role || "clincher"))}</div>
+          <div class="summary-meta">${escapeHtml(`Turn ${clincher.turn} / ${clincher.speaker || "?"}`)}</div>
+          <div class="summary-value">${escapeHtml(clincher.quote)}</div>
+          <div class="summary-subvalue">${escapeHtml(clincher.reason)}</div>
+        </button>
+      ` : ""}
+    `;
+    detailPanelEl.innerHTML = `
+      <details class="analysis-details" open>
+        <summary>詳細を見る</summary>
+        <div class="analysis-detail-copy">${escapeHtml(fullRationale || "詳しい判定メモはまだありません。")}</div>
+      </details>
+    `;
+    return;
+  }
   verdictGridEl.innerHTML = `
     <article class="summary-card summary-card-verdict tone-winner">
       <div class="summary-label">Winner</div>
@@ -2851,6 +3639,7 @@ function renderResult(result) {
   syncSaveButton();
   syncAskButton();
   syncViewerReadOnlyControls();
+  syncShareButton();
 }
 
 function exitReaderModeToEdit() {
@@ -2898,6 +3687,11 @@ function collectPayload() {
       anthropic: document.querySelector("#anthropic-key").value.trim(),
       gemini: document.querySelector("#gemini-key").value.trim(),
     },
+    source_type: isBattleMode() ? currentBattleSource?.source_type || "" : "",
+    source_url: isBattleMode() ? currentBattleSource?.source_url || "" : "",
+    source_image: isBattleMode() ? currentBattleSource?.source_image || "" : "",
+    source_summary: isBattleMode() ? currentBattleSource?.source_summary || "" : "",
+    battle_lang: isBattleMode() ? currentBattleLang : "ja",
   };
 }
 
@@ -2908,13 +3702,13 @@ async function checkApiHealth() {
     if (response.status === 404) {
       currentHealthInfo = { status: "error", data: null, message: "health unavailable" };
       renderRuntimeFingerprint();
-      if (!analysisHidden) setHint("API health unavailable");
+      if (!analysisHidden) setHint(publicFacingOperationalHint("API health unavailable", ""));
       return;
     }
     if (!response.ok) {
       currentHealthInfo = { status: "error", data: null, message: "health unavailable" };
       renderRuntimeFingerprint();
-      if (!analysisHidden) setHint("API unavailable");
+      if (!analysisHidden) setHint(publicFacingOperationalHint("API unavailable", ""));
       return;
     }
     const data = await response.json();
@@ -2924,7 +3718,7 @@ async function checkApiHealth() {
   } catch {
     currentHealthInfo = { status: "error", data: null, message: "health unavailable" };
     renderRuntimeFingerprint();
-    if (!analysisHidden) setHint("API unavailable");
+    if (!analysisHidden) setHint(publicFacingOperationalHint("API unavailable", ""));
   }
 }
 
@@ -2949,9 +3743,9 @@ async function ensureApiHealthBeforeRun() {
     currentHealthInfo = { status: "error", data: null, message: "health unavailable" };
     renderRuntimeFingerprint();
     if (error?.name === "AbortError") {
-      throw new Error("Backend not responding");
+      throw new Error(publicFacingOperationalHint("Backend not responding", "接続に失敗しました"));
     }
-    throw new Error("Server unavailable (port 8912)");
+    throw new Error(publicFacingOperationalHint("Server unavailable (port 8912)", "接続に失敗しました"));
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -2975,6 +3769,7 @@ setTurnCountSelection(selectedTurnCount());
 applyPublicFixedDemoDefaults();
 applyPublicInteractiveDefaults();
 clearPublicSummary();
+void loadSharedBattleFromPath();
 
 keywordInput?.addEventListener("blur", () => {
   keywordInput.value = normalizeKeyword(keywordInput.value);
@@ -3007,6 +3802,12 @@ function explainHttpError(endpointLabel, status) {
 function normalizeApiError(endpointLabel, status, data) {
   const raw = String(data?.error || "").trim();
   const normalized = raw.toLowerCase();
+  if (normalized === "invalid_x_url") {
+    return currentBattleLang === "en" ? "Only X post URLs are supported." : "Xの投稿URLだけ使えます";
+  }
+  if (normalized === "battle_source_unavailable" || normalized === "internal_error") {
+    return currentBattleLang === "en" ? "Could not read that post. Try another X post URL." : "読み込みに失敗しました。別のX投稿URLで試してください";
+  }
   if (normalized === "invalid_fighter_provider") return "The selected model combination is not available.";
   if (normalized === "invalid_judge_provider") return "The selected judge model is not available.";
   if (normalized === "provider_error") return "The selected model could not be reached.";
@@ -3157,12 +3958,13 @@ async function runDebate(event) {
 
   try {
     setStatus("running", "開始準備中");
-    setHint("接続を確認しています。通常は数秒で始まります。");
+    setHint(publicFacingOperationalHint("接続を確認しています。通常は数秒で始まります。", "開始を準備しています。"));
     await ensureApiHealthBeforeRun();
   } catch (error) {
     setStatus("error", "Connection failed");
-    setHint(String(error?.message || "Backend not responding"));
-    setRunMetaForImmediateFailure(String(error?.message || "Backend not responding"));
+    const message = String(error?.message || publicFacingOperationalHint("Backend not responding", "接続に失敗しました"));
+    setHint(message);
+    setRunMetaForImmediateFailure(message);
     outputMetaEl.textContent = `${payload.turn_count} turns · failed`;
     outputMetaEl.hidden = false;
     outputMetaEl.style.display = "";
@@ -3171,16 +3973,16 @@ async function runDebate(event) {
 
   try {
     setStatus("running", "モデル確認中");
-    setHint("3ターンの討論を始める前に利用可能なモデルを確認しています。");
+    setHint(publicFacingOperationalHint("3ターンの討論を始める前に利用可能なモデルを確認しています。", "開始条件を確認しています。"));
     const preflight = await runProviderPreflight(payload);
     if (!preflight.ok) {
       setStatus("error", "Model check failed");
-      setHint(String(preflight.error || "Model check failed"));
+      setHint(publicFacingOperationalHint(String(preflight.error || "Model check failed"), "開始条件の確認に失敗しました。"));
       return;
     }
   } catch (error) {
     setStatus("error", "Model check failed");
-    setHint(String(error?.message || "Model check failed"));
+    setHint(publicFacingOperationalHint(String(error?.message || "Model check failed"), "開始条件の確認に失敗しました。"));
     return;
   }
 
@@ -3416,6 +4218,41 @@ function applyReadOnlyDemoMode() {
   saveButton.disabled = true;
 }
 
+modeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    applyExperienceMode(button.dataset.experienceMode || "debate");
+  });
+});
+
+battleLangButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setBattleLanguage(button.dataset.battleLang || "ja");
+  });
+});
+
+battlePresetButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const topic = currentBattleLang === "en"
+      ? button.dataset.battlePresetEn || ""
+      : button.dataset.battlePresetJa || "";
+    applyBattlePreset(topic);
+  });
+});
+
+document.addEventListener("click", (event) => {
+  const trigger = event.target.closest("#battle-x-build-button");
+  if (!trigger) return;
+  void createBattleFromXUrl();
+});
+
+shareBattleButton?.addEventListener("click", () => {
+  void copyBattleShareLink();
+});
+
+shareBattleXButton?.addEventListener("click", () => {
+  void shareBattleOnX();
+});
+
 form.addEventListener("submit", runDebate);
 runButton.addEventListener("click", (event) => {
   if (!shouldUsePublicFixedDemo()) return;
@@ -3432,7 +4269,13 @@ saveButton.addEventListener("click", () => {
   if (READ_ONLY_DEMO) return;
   saveCurrentMatch();
 });
-historyButton.addEventListener("click", () => toggleHistory(true));
+historyButton.addEventListener("click", () => {
+  if (isBattleMode()) {
+    window.location.href = buildBattleGalleryUrl();
+    return;
+  }
+  toggleHistory(true);
+});
 archiveButton.addEventListener("click", () => toggleArchive(true));
 archiveCloseButton.addEventListener("click", () => toggleArchive(false));
 archiveBackdrop.addEventListener("click", () => toggleArchive(false));
@@ -3467,9 +4310,7 @@ archivePanelEl?.addEventListener("click", (event) => {
   const filterTrigger = event.target.closest("[data-mode-filter]");
   if (filterTrigger) {
     archiveModeFilter = filterTrigger.dataset.modeFilter || "all";
-    archivePanelEl.querySelectorAll("[data-mode-filter]").forEach((node) => {
-      node.classList.toggle("is-active", node.dataset.modeFilter === archiveModeFilter);
-    });
+    syncArchiveModeFilterButtons();
     renderArchiveList();
     return;
   }
@@ -3546,6 +4387,7 @@ renderAskThread();
 renderDebugPipeline();
 setupViewerMode();
 applyReadOnlyDemoMode();
+applyExperienceMode(REQUESTED_EXPERIENCE_MODE);
 if (shouldUsePublicFixedDemo()) {
   void loadViewerArchive();
 }

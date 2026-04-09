@@ -3,7 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MMAR Debate</title>
+  <base href="/mmar/apps/debate/" />
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode") === "battle" ? "battle" : "debate";
+      let storedLang = "";
+      try {
+        storedLang = String(window.localStorage.getItem("mmar_lang") || "").trim().toLowerCase();
+      } catch {}
+      const lang = String(params.get("lang") || (mode === "battle" ? storedLang : "") || "").trim().toLowerCase() === "en" ? "en" : "ja";
+      window.__MMAR_INITIAL_MODE = mode;
+      window.__MMAR_INITIAL_LANG = lang;
+      if (mode === "battle") {
+        try {
+          window.localStorage.setItem("mmar_lang", lang);
+        } catch {}
+      }
+      document.documentElement.lang = lang;
+      if (mode === "battle" && lang === "en") document.documentElement.setAttribute("data-first-paint-pending", "1");
+    })();
+  </script>
+  <style>
+    html[data-first-paint-pending="1"] body { visibility: hidden; }
+  </style>
+  <title>VerdAIct | Debate</title>
   <link rel="stylesheet" href="./debate.css?v=20260404b" />
 </head>
 <body>
@@ -11,14 +35,103 @@
     <aside class="panel input-panel">
       <div class="topline">
         <div class="brand-lockup">
-          <h1>MMAR Debate</h1>
-          <div class="brand-signoff" aria-hidden="true">live mainline</div>
+          <h1 id="app-title">VerdAIct</h1>
+          <div id="brand-signoff" class="brand-signoff" aria-hidden="true">討論</div>
         </div>
         <div id="demo-mode-badge" class="demo-mode-badge" hidden>Public live</div>
       </div>
-      <p class="lede">
+      <div class="experience-switch" role="tablist" aria-label="Experience mode">
+        <button id="mode-debate-button" type="button" class="experience-switch-button is-active" data-experience-mode="debate" aria-pressed="true">討論</button>
+        <button id="mode-battle-button" type="button" class="experience-switch-button" data-experience-mode="battle" aria-pressed="false">AIバトル</button>
+      </div>
+      <p id="app-lede" class="lede">
         自由入力の題材で討論を走らせ、本文と判定をそのまま読む本線です。
       </p>
+      <section id="battle-lang-switch" class="battle-lang-switch" hidden>
+        <div id="battle-lang-switch-label" class="battle-lang-switch-label">言語</div>
+        <div class="battle-lang-toggle" role="group" aria-label="Battle language">
+          <button id="battle-lang-ja-button" type="button" class="battle-lang-button is-active" data-battle-lang="ja" aria-pressed="true">日本語</button>
+          <button id="battle-lang-en-button" type="button" class="battle-lang-button" data-battle-lang="en" aria-pressed="false">English</button>
+        </div>
+      </section>
+      <section id="battle-presets" class="battle-presets" hidden>
+        <div class="battle-presets-head">
+          <div id="battle-presets-eyebrow" class="eyebrow">Quick Start</div>
+          <p id="battle-presets-copy">クリック1回で問いを入れて、そのままバトル開始できます。</p>
+        </div>
+        <div class="battle-preset-list">
+          <button type="button" class="battle-preset-button" data-battle-preset-ja="この発言、どっちが正しい？" data-battle-preset-en="Who is right in this post?">この発言、どっちが正しい？</button>
+          <button type="button" class="battle-preset-button" data-battle-preset-ja="このニュース、誰が悪い？" data-battle-preset-en="Who is at fault in this story?">このニュース、誰が悪い？</button>
+          <button type="button" class="battle-preset-button" data-battle-preset-ja="これ、あり？なし？" data-battle-preset-en="Is this okay or not?">これ、あり？なし？</button>
+        </div>
+      </section>
+      <template id="battle-x-source-template">
+        <section id="battle-x-source" class="battle-x-source">
+          <div class="battle-x-source-head">
+            <div id="battle-x-import-eyebrow" class="eyebrow">X Import</div>
+            <p id="battle-x-import-copy">Xの投稿URLを貼るだけでAIバトル開始</p>
+          </div>
+          <div class="battle-x-source-row">
+            <label class="field compact battle-x-source-field">
+              <span id="battle-x-url-label">Xの投稿URL</span>
+              <input id="battle-x-url" type="url" placeholder="Xの投稿URLを貼る" autocomplete="off" spellcheck="false" />
+            </label>
+            <button id="battle-x-build-button" type="button" class="secondary-button">Xからバトル作成</button>
+          </div>
+          <div id="battle-x-source-error" class="inline-hint" hidden></div>
+          <div id="battle-source-card" class="battle-source-card" hidden>
+            <div class="battle-source-card-head">
+              <span id="battle-source-label" class="battle-source-label">元ネタ</span>
+              <a id="battle-source-link" href="#" target="_blank" rel="noreferrer noopener">元URLを開く</a>
+            </div>
+            <div id="battle-source-summary" class="battle-source-summary"></div>
+          </div>
+        </section>
+      </template>
+      <div id="battle-x-source-slot"></div>
+      <script>
+        (function () {
+          if (window.__MMAR_INITIAL_MODE !== "battle" || window.__MMAR_INITIAL_LANG !== "en") return;
+          document.title = "VerdAIct | AI Battle";
+          const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+          };
+          const setPlaceholder = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.setAttribute("placeholder", value);
+          };
+          setText("app-title", "VerdAIct");
+          setText("brand-signoff", "AI Battle");
+          setText("app-lede", "A faster way in: see the winner and decisive hit first.");
+          setText("battle-lang-switch-label", "Language");
+          setText("battle-presets-copy", "Drop in a topic with one click and start the battle right away.");
+          setText("battle-x-import-copy", "Paste an X post URL to start an AI battle.");
+          setText("battle-x-url-label", "X post URL");
+          setPlaceholder("battle-x-url", "Paste an X post URL");
+          setText("battle-x-build-button", "Create from X");
+          setText("battle-source-label", "Source");
+          setText("battle-source-link", "Open original");
+          setText("run-button", "Start Battle");
+          setText("judge-button", "See Result");
+          const debateBtn = document.getElementById("mode-debate-button");
+          const battleBtn = document.getElementById("mode-battle-button");
+          const langSwitch = document.getElementById("battle-lang-switch");
+          const presets = document.getElementById("battle-presets");
+          if (debateBtn) {
+            debateBtn.classList.remove("is-active");
+            debateBtn.setAttribute("aria-pressed", "false");
+          }
+          if (battleBtn) {
+            battleBtn.classList.add("is-active");
+            battleBtn.setAttribute("aria-pressed", "true");
+          }
+          if (langSwitch) langSwitch.hidden = false;
+          if (presets) presets.hidden = false;
+          document.body.classList.add("battle-mode");
+          document.documentElement.removeAttribute("data-first-paint-pending");
+        })();
+      </script>
       <div id="public-fixed-demo-note" class="session-note public-fixed-demo-note" hidden>
         この front では固定ケース導線を前面表示しません。
         <div class="front-mode-links">
@@ -191,6 +304,8 @@
           <button id="history-button" type="button" class="chip-button">History (0)</button>
           <button id="archive-button" type="button" class="chip-button" aria-label="Open archive" hidden>⚙️</button>
           <button id="detail-like-button" type="button" class="chip-button" hidden>Like (0)</button>
+          <button id="share-battle-button" type="button" class="chip-button" hidden>共有リンクコピー</button>
+          <button id="share-battle-x-button" type="button" class="chip-button" hidden>Xで共有</button>
           <div id="run-meta" class="meta-chip" hidden style="display:none">No run yet</div>
           <div id="output-meta" class="meta-chip" hidden style="display:none">0 turns / pending</div>
         </div>
@@ -277,10 +392,11 @@
           <input id="archive-search" type="text" placeholder="topic を検索" autocomplete="off" spellcheck="false" />
         </label>
         <div class="archive-filter-group" role="tablist" aria-label="Mode filter">
-          <button type="button" class="chip-button archive-filter is-active" data-mode-filter="all">All</button>
-          <button type="button" class="chip-button archive-filter" data-mode-filter="casual">Casual</button>
-          <button type="button" class="chip-button archive-filter" data-mode-filter="pro">Pro</button>
+          <button type="button" class="chip-button archive-filter" data-mode-filter="all">すべて</button>
+          <button type="button" class="chip-button archive-filter is-active" data-mode-filter="debate">討論</button>
+          <button type="button" class="chip-button archive-filter" data-mode-filter="battle">AIバトル</button>
         </div>
+        <div id="archive-mode-note" class="archive-mode-note">現在は討論の履歴を表示中</div>
       </div>
       <div class="archive-sections">
         <section class="archive-section">

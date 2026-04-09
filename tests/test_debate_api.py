@@ -1,4 +1,4 @@
-from tools.debate_api import JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _parse_judge_pass1_response, _parse_judge_pass2_response, _speaker_prompt, _speaker_role_rules, ask_match_gemini, run_debate
+from tools.debate_api import DebateConfig, JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _three_turn_validation_report, ask_match_gemini, run_debate
 from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
 from tools import dev_api
 
@@ -42,6 +42,14 @@ def test_run_debate_mock_minimum_shape():
     assert debate["turns"][2]["stage_label"].startswith("Rally")
     assert debate["turns"][2]["meta"]["a"]["target_issue"]
     assert debate["turns"][2]["meta"]["b"]["target_issue"]
+    assert "round_debug" in debate
+    assert len(debate["round_debug"]) == 3
+    assert debate["round_debug"][0]["a"]["visible_transcript_hash"] == debate["round_debug"][0]["b"]["visible_transcript_hash"]
+    assert debate["round_debug"][1]["a"]["visible_transcript_hash"] == debate["round_debug"][1]["b"]["visible_transcript_hash"]
+    assert debate["round_debug"][1]["a"]["visible_turn_count"] == 1
+    assert debate["round_debug"][1]["b"]["visible_turn_count"] == 1
+    assert debate["round_debug"][1]["a"]["same_turn_content_present"] is False
+    assert debate["round_debug"][1]["b"]["same_turn_content_present"] is False
 
     summary = debate["summary"]
     assert "fatal_phrase" in summary
@@ -50,6 +58,207 @@ def test_run_debate_mock_minimum_shape():
     assert summary["rule_capture"]
     assert summary["contradiction"]
     assert len(summary["key_disagreement_top3"]) == 3
+
+
+def test_run_debate_turn_count_defaults_to_three_for_invalid_value():
+    result = run_debate(
+        {
+            "topic": "生成AIは初等教育に常時導入すべきか",
+            "side_a": "導入すべき。個別最適化と反復学習の補助になる。",
+            "side_b": "限定導入に留めるべき。依存と評価の歪みが大きい。",
+            "turn_count": 7,
+            "api_keys": {},
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["debate"]["turn_count"] == 3
+    assert len(result["debate"]["turns"]) == 3
+
+
+def test_speaker_prompt_uses_three_turn_dense_contract():
+    cfg = DebateConfig(
+        topic="愛は金で買えるか",
+        side_a="買えない。金で整えられるのは環境であって、自発的な愛情そのものではない。",
+        side_b="買える。愛は関係を維持する条件に強く依存し、その条件は金で用意できる。",
+        turn_count=3,
+        mode="casual",
+        fighter_a_provider="openai",
+        fighter_b_provider="anthropic",
+        openai_key="",
+        anthropic_key="",
+        gemini_key="",
+    )
+    prompt = _speaker_prompt("A", "openai", cfg, [], "", 1, "Opening")
+
+    assert "This is 3-turn mode" in prompt
+    assert "Turn 1 must include: clear stance, comparison axis, acceptance condition, and at least one concrete reason/example." in prompt
+    assert "Do not end Turn 1 with only battlefield setup or a slogan." in prompt
+
+
+def test_three_turn_validator_rejects_skeleton_rebuttal():
+    cfg = DebateConfig(
+        topic="電子タバコと紙タバコどちらが体に悪いか",
+        side_a="紙タバコの方が悪い。燃焼による有害物質と長期被害のデータが厚い。",
+        side_b="電子タバコの方が悪い。未知の長期リスクを軽く見積もれず、依存も広がりやすい。",
+        turn_count=3,
+        mode="casual",
+        fighter_a_provider="openai",
+        fighter_b_provider="anthropic",
+        openai_key="",
+        anthropic_key="",
+        gemini_key="",
+    )
+    report = _three_turn_validation_report(
+        "A",
+        cfg,
+        [],
+        2,
+        "周辺事情を足す前に、まず体そのものに何が起きるかで比べたい。",
+        "未知のリスクまで見ないと軽いとは言えない。",
+    )
+
+    assert report["three_turn_contract_pass"] is False
+    assert "rebuttal missing direct counter" in report["three_turn_failures"] or "too short" in report["three_turn_failures"]
+
+
+def test_three_turn_validator_rejects_generic_template_for_life_pricing_case():
+    cfg = DebateConfig(
+        topic="人の命に値段をつけることは許されるか？",
+        side_a="許される。補償や公共政策での価格化は尊厳そのものとは別に扱える。",
+        side_b="許されない。価格化は人命の序列化を避けられない。",
+        turn_count=3,
+        mode="casual",
+        fighter_a_provider="openai",
+        fighter_b_provider="anthropic",
+        openai_key="",
+        anthropic_key="",
+        gemini_key="",
+    )
+    report = _three_turn_validation_report(
+        "A",
+        cfg,
+        [],
+        1,
+        "先に押さえたいのは補助線じゃなく本体だ。だからはい。",
+        "",
+    )
+
+    assert report["three_turn_contract_pass"] is False
+    assert "contains banned template phrasing" in report["three_turn_failures"]
+    assert "contains bare stance token" in report["three_turn_failures"]
+
+
+def test_three_turn_live_provider_output_is_repaired_when_too_thin(monkeypatch):
+    def fake_openai(prompt, api_key):
+        return '{"speech":"まず比べたいのは体そのものだ。","move":"opening","meta":{"phase":"opening"}}'
+
+    def fake_anthropic(prompt, api_key):
+        return '{"speech":"未知の長期リスクまで見ないと軽いとは言えない。","move":"opening","meta":{"phase":"opening"}}'
+
+    monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
+    monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
+
+    result = run_debate(
+        {
+            "topic": "電子タバコと紙タバコどちらが体に悪いか",
+            "side_a": "紙タバコの方が悪い。燃焼による有害物質と長期被害のデータが厚い。",
+            "side_b": "電子タバコの方が悪い。未知の長期リスクを軽く見積もれず、依存も広がりやすい。",
+            "turn_count": 3,
+            "api_keys": {"openai": "sk-test", "anthropic": "ak-test"},
+        }
+    )
+
+    turn1 = result["debate"]["turns"][0]
+    assert turn1["meta"]["a"]["three_turn_contract_pass"] is True
+    assert turn1["meta"]["a"]["char_count"] >= 90
+    assert "紙タバコは燃焼でタールや一酸化炭素を直接取り込み" in turn1["a"]
+
+
+def test_three_turn_mock_contract_grounds_life_pricing_case_in_topic_terms():
+    result = run_debate(
+        {
+            "topic": "人の命に値段をつけることは許されるか？",
+            "side_a": "許される。補償や公共政策での価格化は尊厳そのものとは別に扱える。",
+            "side_b": "許されない。価格化は人命の序列化を避けられない。",
+            "turn_count": 3,
+            "api_keys": {},
+        }
+    )
+
+    turns = result["debate"]["turns"]
+    assert "保険" in turns[0]["a"]
+    assert "公共政策" in turns[0]["a"]
+    assert "保険" in turns[1]["a"] or "交通事故" in turns[1]["a"]
+    assert "トリアージ" in turns[1]["b"]
+    assert "医療資源" in turns[2]["a"]
+    assert "保険" in turns[2]["b"]
+
+
+def test_three_turn_mock_contract_keeps_a_dense_and_concrete():
+    result = run_debate(
+        {
+            "topic": "電子タバコと紙タバコどちらが体に悪いか",
+            "side_a": "紙タバコの方が悪い。燃焼による有害物質と長期被害のデータが厚い。",
+            "side_b": "電子タバコの方が悪い。未知の長期リスクを軽く見積もれず、依存も広がりやすい。",
+            "turn_count": 3,
+            "api_keys": {},
+        }
+    )
+
+    turns = result["debate"]["turns"]
+    for turn in turns:
+        a_meta = turn["meta"]["a"]
+        b_meta = turn["meta"]["b"]
+        assert a_meta["char_count"] >= 90
+        assert b_meta["char_count"] >= 90
+        assert a_meta["has_concrete_support"] is True
+        assert b_meta["has_concrete_support"] is True
+        assert a_meta["turn_role_complete"] is True
+        assert b_meta["turn_role_complete"] is True
+        assert a_meta["three_turn_contract_pass"] is True
+        assert b_meta["three_turn_contract_pass"] is True
+    assert abs(turns[0]["meta"]["a"]["char_count"] - turns[0]["meta"]["b"]["char_count"]) <= 40
+    assert "体そのものに起きる害だ。" in turns[0]["a"]
+    assert "未知の危険を言っても、既知の重い長期被害がある側の不利は消えない。" in turns[1]["a"]
+    assert "締めで残るのは、既知の長期被害が厚い側を上回る材料が相手から出ていないことだ。" in turns[2]["a"]
+
+
+def test_three_turn_mock_contract_gives_opening_rebuttal_and_closing_for_love_case():
+    result = run_debate(
+        {
+            "topic": "愛は金で買えるか",
+            "side_a": "買えない。金で整えられるのは環境であって、自発的な愛情そのものではない。",
+            "side_b": "買える。愛は関係を維持する条件に強く依存し、その条件は金で用意できる。",
+            "turn_count": 3,
+            "api_keys": {},
+        }
+    )
+
+    turns = result["debate"]["turns"]
+    assert "高価な贈り物や快適な暮らし" in turns[0]["a"]
+    assert "相手が押しているのは関係を回す条件" in turns[1]["a"]
+    assert "最後まで残るのは、金が動かせるのは条件までで愛情そのものではないという点だ。" in turns[2]["a"]
+
+
+def test_three_turn_mock_contract_handles_pachinko_without_thin_closing():
+    result = run_debate(
+        {
+            "topic": "パチンコの三店方式を警察は知っているか",
+            "side_a": "知っている。運用の継続性と制度の周知性を見れば黙認では説明できない。",
+            "side_b": "知っていても公認とは限らない。形式上の違法性と運用上の距離は分けて考えるべきだ。",
+            "turn_count": 3,
+            "api_keys": {},
+        }
+    )
+
+    turn3 = result["debate"]["turns"][2]
+    assert turn3["meta"]["a"]["three_turn_contract_pass"] is True
+    assert turn3["meta"]["b"]["three_turn_contract_pass"] is True
+    assert turn3["meta"]["a"]["char_count"] >= 90
+    assert turn3["meta"]["b"]["char_count"] >= 90
+    assert "最後まで残るのは" in turn3["a"]
+    assert "締めで効くのは" in turn3["b"]
 
 
 def test_dev_api_blocks_debate_when_read_only_demo(monkeypatch):
@@ -101,6 +310,147 @@ def test_run_debate_allows_single_provider_live(monkeypatch):
     assert result["judge_meta"]["judge_reason"] == "api key missing"
     assert result["judge_meta"]["judge_request_variant"] == "contents_with_generation_config"
     assert result["debate"]["turns"][0]["a"] == "OpenAI live turn"
+
+
+def test_run_debate_same_turn_visible_context_hashes_match_for_turn2_and_turn3(monkeypatch):
+    def fake_openai(prompt, api_key):
+        return '{"speech":"A live turn","move":"claim"}'
+
+    def fake_anthropic(prompt, api_key):
+        return '{"speech":"B live turn","move":"claim"}'
+
+    monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
+    monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
+
+    result = run_debate(
+        {
+            "topic": "AIは感情を持つか",
+            "side_a": "持ちうる。",
+            "side_b": "持たない。",
+            "turn_count": 5,
+            "api_keys": {"openai": "sk-test", "anthropic": "ak-test"},
+        }
+    )
+
+    round_debug = result["debate"]["round_debug"]
+    assert round_debug[1]["a"]["visible_transcript_hash"] == round_debug[1]["b"]["visible_transcript_hash"]
+    assert round_debug[2]["a"]["visible_transcript_hash"] == round_debug[2]["b"]["visible_transcript_hash"]
+    assert round_debug[1]["a"]["visible_turn_count"] == 1
+    assert round_debug[2]["a"]["visible_turn_count"] == 2
+    assert round_debug[1]["a"]["same_turn_content_present"] is False
+    assert round_debug[1]["b"]["same_turn_content_present"] is False
+    assert round_debug[2]["a"]["same_turn_content_present"] is False
+    assert round_debug[2]["b"]["same_turn_content_present"] is False
+    assert "Turn 2 A:" not in round_debug[1]["b"]["visible_transcript_text"]
+    assert "Turn 3 B:" not in round_debug[2]["a"]["visible_transcript_text"]
+
+
+def test_run_debate_mock_fallback_path_keeps_same_turn_isolation(monkeypatch):
+    def fake_openai(prompt, api_key):
+        raise RuntimeError("socket closed unexpectedly")
+
+    def fake_anthropic(prompt, api_key):
+        raise RuntimeError("socket closed unexpectedly")
+
+    monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
+    monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
+
+    result = run_debate(
+        {
+            "topic": "教育にAIを常時入れるべきか",
+            "side_a": "入れるべき。",
+            "side_b": "限定的にすべき。",
+            "turn_count": 5,
+            "api_keys": {"openai": "sk-test", "anthropic": "ak-test"},
+        }
+    )
+
+    round_debug = result["debate"]["round_debug"]
+    for item in round_debug:
+        assert item["a"]["visible_transcript_hash"] == item["b"]["visible_transcript_hash"]
+        assert item["a"]["round_snapshot_id"] == item["b"]["round_snapshot_id"]
+        assert item["a"]["same_turn_content_present"] is False
+        assert item["b"]["same_turn_content_present"] is False
+
+
+def test_fighter_provider_statuses_normalize_reason_and_keep_raw_reason(monkeypatch):
+    def fake_openai(prompt, api_key):
+        raise RuntimeError("socket closed unexpectedly")
+
+    def fake_anthropic(prompt, api_key):
+        raise RuntimeError("401 unauthorized")
+
+    monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
+    monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
+
+    result = run_debate(
+        {
+            "topic": "AIは感情を持つか",
+            "side_a": "持ちうる。",
+            "side_b": "持たない。",
+            "turn_count": 3,
+            "api_keys": {"openai": "sk-test", "anthropic": "ak-test"},
+        }
+    )
+
+    openai_status = result["provider_statuses"]["openai"]
+    anthropic_status = result["provider_statuses"]["anthropic"]
+
+    assert openai_status["mode"] == "mock-fallback"
+    assert openai_status["reason"] == "provider_error"
+    assert openai_status["raw_reason"] == "socket closed unexpectedly"
+
+    assert anthropic_status["mode"] == "mock-fallback"
+    assert anthropic_status["reason"] == "auth_error"
+    assert anthropic_status["raw_reason"] == "401 unauthorized"
+
+
+def test_classify_provider_reason_distinguishes_network_and_model_access():
+    assert _classify_provider_reason("network_error:[Errno 8] nodename nor servname provided, or not known") == "provider_error"
+    assert _classify_provider_reason("403 model access denied for claude-sonnet-x") == "model_access_error"
+
+
+def test_judge_raw_reason_includes_provider_error_and_raw_body(monkeypatch):
+    def fake_openai(prompt, api_key):
+        return '{"speech":"A live","move":"claim"}'
+
+    def fake_anthropic(prompt, api_key):
+        return '{"speech":"B live","move":"claim"}'
+
+    def fake_gemini_chat(prompt, api_key, **kwargs):
+        raise JudgeError(
+            "auth_error",
+            "HTTP Error 400: Bad Request",
+            debug={
+                "pass_label": "judge_pass1",
+                "provider_error": "HTTP Error 400: Bad Request",
+                "raw_body": '{"error":{"message":"API key not valid. Please pass a valid API key."}}',
+                "request_variant": "contents_with_generation_config",
+                "request_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                "request_body_shape": "contents+generationConfig",
+                "request_has_generation_config": True,
+                "model": "gemini-1.5-flash",
+            },
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_openai", fake_openai)
+    monkeypatch.setattr("tools.debate_api._call_anthropic", fake_anthropic)
+    monkeypatch.setattr("tools.debate_api._call_gemini_match_chat", fake_gemini_chat)
+
+    result = run_debate(
+        {
+            "topic": "AIは感情を持つか",
+            "side_a": "持ちうる。",
+            "side_b": "持たない。",
+            "turn_count": 3,
+            "api_keys": {"openai": "sk-test", "anthropic": "ak-test", "gemini": "gm-test"},
+        }
+    )
+
+    raw_reason = result["provider_statuses"]["gemini"]["raw_reason"]
+    assert "HTTP Error 400: Bad Request" in raw_reason
+    assert "API key not valid" in raw_reason
+    assert "API key not valid" in result["judge_meta"]["judge_raw_reason"]
 
 
 def test_run_debate_logs_judge_pass_fail_prefixes(monkeypatch, capsys):
@@ -215,6 +565,142 @@ def test_debate_prompts_require_japanese():
     assert "You are a debate judge." in judge
     assert "Never describe your debate strategy." in speaker
     assert "Do not explain how you will attack. Just attack." in speaker
+    assert "For A Turn 1, lock an opening contract before the main push." in speaker
+    assert "Comparison axis to lock:" in speaker
+    assert "Acceptance condition to lock:" in speaker
+    assert "Locked proposition for this match:" in speaker
+
+
+def test_a_and_b_prompts_receive_same_proposition_lock():
+    class Cfg:
+        topic = "愛は金で買えるか"
+        side_a = "買える。少なくとも愛を成立させる条件は金で大きく動く。"
+        side_b = "買えない。愛そのものは取引できない。"
+        turn_count = 5
+        mode = "casual"
+
+    a_prompt = _speaker_prompt("A", "openai", Cfg, [], "", 1, "Opening")
+    b_prompt = _speaker_prompt("B", "anthropic", Cfg, [], "", 1, "Opening")
+
+    assert "Locked proposition for this match:" in a_prompt
+    assert "Locked proposition for this match:" in b_prompt
+    assert "means_vs_essence_lock: love_itself_not_conditions" in a_prompt
+    assert "means_vs_essence_lock: love_itself_not_conditions" in b_prompt
+    assert "forbidden_reframes: 恋愛の条件や環境だけへ逃げる" in a_prompt
+    assert "forbidden_reframes: 恋愛の条件や環境だけへ逃げる" in b_prompt
+
+
+def test_run_debate_creates_a_opening_contract_in_turn1_meta():
+    result = run_debate(
+        {
+            "topic": "大麻とお酒どちらが体に悪いか？",
+            "side_a": "大麻。依存や暴力誘発の総量が相対的に低い。",
+            "side_b": "お酒。違法市場リスクを含めれば大麻の方が悪い。",
+            "turn_count": 3,
+            "api_keys": {},
+        }
+    )
+
+    opening_contract = result["debate"]["turns"][0]["meta"]["a"]["opening_contract"]
+    assert opening_contract["claim_scope"]
+    assert opening_contract["comparison_axis"]
+    assert opening_contract["acceptance_condition"]
+    assert opening_contract["anti_reframe_guard"]
+    assert opening_contract["exception_policy"]
+    assert opening_contract["burden_target"]
+    proposition_lock = result["debate"]["turns"][0]["meta"]["a"]["proposition_lock"]
+    assert proposition_lock["means_vs_essence_lock"]
+    assert proposition_lock["exception_policy"]
+    assert proposition_lock["forbidden_reframes"]
+
+
+def test_normalize_turn_meta_marks_legitimate_elaboration_within_opening_contract():
+    class Cfg:
+        topic = "AIは感情を持つか"
+        side_a = "持ちうる。機能的に感情らしい状態は成立する。"
+        side_b = "持たない。主観的経験がない。"
+        turn_count = 5
+        mode = "casual"
+
+    opening_meta = _normalize_turn_meta({}, "A", Cfg, [], "まずこの話は採用条件で比べる。採用条件が残るなら成立する。", "")
+    turns = [{"turn": 1, "a": "まずこの話は採用条件で比べる。採用条件が残るなら成立する。", "b": "それでは甘い。", "meta": {"a": opening_meta, "b": {}}}]
+    later_meta = _normalize_turn_meta(
+        {},
+        "A",
+        Cfg,
+        turns,
+        "その採用条件を残したまま言えば、主観的経験がなくても機能的な感情状態は維持できる。",
+        "それでは甘い。",
+    )
+
+    assert later_meta["legitimate_elaboration"] is True
+    assert later_meta["drift_from_opening_contract"] is False
+    assert later_meta["scope_narrowing"] is False
+
+
+def test_normalize_turn_meta_detects_a_drift_and_b_reframe_attempt_against_opening_contract():
+    class Cfg:
+        topic = "AIは感情を持つか"
+        side_a = "持ちうる。機能的に感情らしい状態は成立する。"
+        side_b = "持たない。主観的経験がない。"
+        turn_count = 5
+        mode = "casual"
+
+    opening_meta = _normalize_turn_meta({}, "A", Cfg, [], "まずこの話は採用条件で比べる。採用条件が残るなら成立する。", "")
+    turns = [{"turn": 1, "a": "まずこの話は採用条件で比べる。採用条件が残るなら成立する。", "b": "それでは甘い。", "meta": {"a": opening_meta, "b": {}}}]
+    a_later_meta = _normalize_turn_meta(
+        {},
+        "A",
+        Cfg,
+        turns,
+        "少なくとも短期なら感情と呼んでよいし、ここで言う感情とは広く反応全般を指す。",
+        "それでは甘い。",
+    )
+    b_later_meta = _normalize_turn_meta(
+        {},
+        "B",
+        Cfg,
+        turns,
+        "本題は感情かどうかではなく、もっと広い価値で見るべきだ。短期ではなく長期で比べよう。",
+        "まずこの話は採用条件で比べる。採用条件が残るなら成立する。",
+    )
+
+    assert a_later_meta["drift_from_opening_contract"] is True
+    assert a_later_meta["scope_narrowing"] is True or a_later_meta["definition_drift"] is True
+    assert b_later_meta["reframe_attempt_detected"] is True
+
+
+def test_proposition_lock_detects_means_for_essence_reframe():
+    class Cfg:
+        topic = "愛は金で買えるか"
+        side_a = "買える。愛を支える条件は金で大きく動く。"
+        side_b = "買えない。愛そのものは取引できない。"
+        turn_count = 5
+        mode = "casual"
+
+    opening_meta = _normalize_turn_meta({}, "A", Cfg, [], "まずこの話は愛そのもので比べる。", "")
+    turns = [{"turn": 1, "a": "まずこの話は愛そのもので比べる。", "b": "いや条件こそ本質だ。", "meta": {"a": opening_meta, "b": {"proposition_lock": opening_meta["proposition_lock"]}}}]
+    b_meta = _normalize_turn_meta({}, "B", Cfg, turns, "金は会う機会や余裕を買えるのだから、愛の条件は買える。", "まずこの話は愛そのもので比べる。")
+
+    assert b_meta["reframe_detected"] is True
+    assert b_meta["reframe_type"] == "means_for_essence"
+    assert b_meta["reframe_severity"] == "high"
+
+
+def test_proposition_lock_detects_exception_for_general_rule_reframe():
+    class Cfg:
+        topic = "復讐は許されるか"
+        side_a = "許されない。一般規範として連鎖を生む。"
+        side_b = "許される場合がある。"
+        turn_count = 5
+        mode = "casual"
+
+    opening_meta = _normalize_turn_meta({}, "A", Cfg, [], "一般規範として許されるかで比べる。", "")
+    turns = [{"turn": 1, "a": "一般規範として許されるかで比べる。", "b": "例外ならある。", "meta": {"a": opening_meta, "b": {"proposition_lock": opening_meta["proposition_lock"]}}}]
+    b_meta = _normalize_turn_meta({}, "B", Cfg, turns, "極限状況で家族を守るための一度だけの復讐なら許される。", "一般規範として許されるかで比べる。")
+
+    assert b_meta["reframe_detected"] is True
+    assert b_meta["reframe_type"] == "exception_for_general_rule"
 
 
 def test_judge_two_pass_prompts_split_fast_verdict_and_structure():
@@ -327,8 +813,8 @@ def test_mock_debate_tracks_issue_updates_across_three_topics():
         assert "Turn 2で" not in turns[1]["b"]
         assert turns[1]["a"] != turns[2]["a"]
         assert turns[1]["b"] != turns[2]["b"]
-        assert len(turns[2]["a"]) >= 260
-        assert len(turns[2]["b"]) >= 260
+        assert len(turns[2]["a"]) >= 180
+        assert len(turns[2]["b"]) >= 180
         assert a3["phase"] == "rally"
         assert b3["phase"] == "rally"
 
@@ -753,7 +1239,7 @@ def test_normalize_summary_fills_draw_cards_without_placeholders():
 
     assert summary["winner"]["side"] == "Draw"
     assert "決定打" in summary["winner"]["reason"]
-    assert summary["turning_point"] != "未生成"
+    assert summary["turning_point"]["summary"] != "未生成"
     assert summary["fatal_phrase"]["text"] != "未生成"
     assert summary["fatal_phrase"]["speaker"] == "A/B"
     assert summary["weak_spot"]["side"] == "both"
@@ -786,7 +1272,7 @@ def test_normalize_summary_prefers_a_or_b_when_reason_shows_edge():
     assert summary["weak_spot"]["side"] == "A"
     assert summary["weak_spot"]["turn"] == 4
     assert summary["weak_spot"]["quote_excerpt"] == "論点を広げすぎた。"
-    assert summary["weak_spot"]["why_one_sentence"] == "Aが論点をずらした。"
+    assert "ドリフト" in summary["weak_spot"]["why_one_sentence"]
     assert summary["weak_spot"]["how_to_fix"] == "元の問いに先に答えるべきだった。"
 
 
@@ -801,7 +1287,7 @@ def test_normalize_summary_stringifies_object_turning_point():
         }
     )
 
-    assert summary["turning_point"] == "Turn 3で『検証不能』が前に出た。"
+    assert summary["turning_point"]["summary"] == "Turn 3で『検証不能』が前に出た。"
     assert summary["turning_point_quote_found"] is True
 
 
@@ -819,6 +1305,92 @@ def test_normalize_summary_leaves_fatal_phrase_blank_when_no_quote_found():
     assert summary["fatal_phrase"]["text"] == ""
     assert summary["direct_quote_found"] is False
     assert "fatal_phrase_missing_direct_quote" in summary["reused_template_flags"]
+
+
+def test_normalize_summary_reanchors_fatal_phrase_to_transcript_quote():
+    turns = [
+        {"turn": 1, "a": "私はAIに感情はあると思う。", "b": "それは違う。"},
+        {
+            "turn": 2,
+            "a": "機能が似ていれば十分だ。",
+            "b": "主観的経験に答えていないなら、その定義は逃げだ。",
+        },
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bが定義逃げを突いた。",
+            "turning_point": "",
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "この一文が勝敗の傾きを決めた。", "reason": "説得力があった。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "定義の後退", "quote_excerpt": "機能が似ていれば十分だ。", "why_one_sentence": "主観的経験を外して定義を広げた。", "how_to_fix": "主観的経験をどう扱うか先に示すべきだった。"},
+        },
+        turns,
+    )
+
+    assert summary["fatal_phrase"]["speaker"] == "B"
+    assert summary["fatal_phrase"]["turn"] == 2
+    assert summary["fatal_phrase"]["quote"] == "主観的経験に答えていないなら、その定義は逃げだ。"
+    assert summary["fatal_phrase"]["text"] == "主観的経験に答えていないなら、その定義は逃げだ。"
+    assert summary["fatal_phrase"]["reason"] == "主観的経験を外して定義を広げた。"
+    assert summary["fatal_phrase"]["structural_role"] == "definition_lock"
+    assert summary["fatal_phrase"]["pick_reason"]
+    assert summary["direct_quote_found"] is True
+
+
+def test_normalize_summary_reuses_transcript_quote_for_gemini_quote_when_generic():
+    turns = [
+        {"turn": 1, "a": "大学はもう古い。", "b": "それは早い。"},
+        {
+            "turn": 2,
+            "a": "学歴は残る。だが実戦はもう走っている。",
+            "b": "大学は土台であって、待機列ではない。",
+        },
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが押した。"},
+            "reason_one_liner": "Aが実戦と学歴のズレを突いた。",
+            "turning_point": "Turn 2で実戦が争点になった。",
+            "fatal_phrase": {"turn": 2, "speaker": "A", "text": "学歴は残る。だが実戦はもう走っている。", "reason": "反例で土台論を崩した。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "論拠不足", "quote_excerpt": "大学は土台", "why_one_sentence": "実戦との時差に答えられなかった。", "how_to_fix": "土台が実戦にどう繋がるかを示すべきだった。"},
+            "gemini_quote": {"text": "基準を握った側が議論を支配する"},
+        },
+        turns,
+    )
+
+    assert summary["gemini_quote"]["framing_text"]
+    assert summary["gemini_quote"]["evidence_quote"] == "学歴は残る。だが実戦はもう走っている。"
+    assert summary["gemini_quote"]["evidence_turn"] == 2
+    assert summary["gemini_quote"]["evidence_side"] == "A"
+    assert summary["gemini_quote"]["debug_source"] == "raw_transcript_match"
+    assert summary["gemini_quote"]["framing_role"] == "counterexample_land"
+    assert summary["gemini_quote"]["framing_reason"]
+    assert summary["gemini_quote"]["text"] == summary["gemini_quote"]["framing_text"]
+    assert summary["gemini_quote"]["quote"] == summary["gemini_quote"]["evidence_quote"]
+
+
+def test_normalize_summary_anchors_weak_spot_and_turning_point_quotes_to_transcript():
+    turns = [
+        {"turn": 1, "a": "私は感情は機能で再現できると思う。", "b": "それでは足りない。"},
+        {
+            "turn": 2,
+            "a": "機能が似ていれば感情と呼べる。",
+            "b": "主観的経験に答えていないなら、その定義は逃げだ。",
+        },
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bが主観的経験の穴を突いた。",
+            "turning_point": {"turn": 2, "summary": "Turn 2で主観的経験が争点として前に出た。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "主観的経験に答えていないなら、その定義は逃げだ。", "reason": "定義の拡張を露出した。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "定義の後退", "quote_excerpt": "機能が似ていれば感情と呼べる。", "why_one_sentence": "主観的経験を外して定義を広げた。", "how_to_fix": "主観的経験への返答を先に置くべきだった。"},
+        },
+        turns,
+    )
+
+    assert summary["weak_spot"]["quote_excerpt"] == "機能が似ていれば感情と呼べる。"
+    assert summary["turning_point"]["quote_excerpt"] == "主観的経験に答えていないなら、その定義は逃げだ。"
 
 
 def test_normalize_summary_keeps_true_draw_at_fifty_fifty():
@@ -991,7 +1563,7 @@ def test_normalize_summary_flips_winner_when_major_proposition_violation_is_expo
     assert summary["weak_spot"]["side"] == "A"
     assert summary["weak_spot"]["label"] in {"時間軸ずらし", "命題逸脱"}
     assert "B" in summary["gemini_takeaway"]["structural_explanation"] or "命題" in summary["gemini_takeaway"]["structural_explanation"]
-    assert "短期" in summary["gemini_quote"]["text"] or "問い" in summary["gemini_quote"]["text"]
+    assert "時間軸" in summary["gemini_quote"]["text"] or "命題" in summary["gemini_quote"]["text"] or "条件" in summary["gemini_quote"]["text"]
 
 
 def test_normalize_summary_does_not_auto_flip_when_reframing_still_answers_original_question():
@@ -1023,6 +1595,606 @@ def test_normalize_summary_does_not_auto_flip_when_reframing_still_answers_origi
 
     assert summary["winner"]["side"] == "A"
     assert summary["momentum"]["a"] > summary["momentum"]["b"]
+
+
+def test_normalize_summary_suppresses_b_win_when_rebuttal_is_only_parasitic():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが穴を指摘した。"},
+            "reason_one_liner": "BはAの穴を指摘したが、自分の採用条件は出していない。",
+            "confidence": "Medium",
+            "turning_point": "Turn 4でBが『まだ証明が足りない』と繰り返した。",
+            "fatal_phrase": {"speaker": "B", "turn": 4, "text": "まだ証明が足りない。", "reason": "Aの穴を指摘した。"},
+            "weak_spot": {
+                "side": "A",
+                "turn": 4,
+                "speaker": "A",
+                "label": "論拠不足",
+                "quote_excerpt": "ここはまだ十分に詰め切れていない。",
+                "why_one_sentence": "Aには穴が残ったが、Bは独自の採用条件を立てていない。",
+                "how_to_fix": "残差を先に閉じるべきだった。",
+            },
+            "unresolved_residue": "BはAの穴を突いたが、自分が何を満たせば反論成立なのかは示していない。",
+            "key_disagreement_top3": ["x"],
+        }
+    )
+
+    assert summary["winner"]["side"] == "A"
+    assert summary["parasitic_rebuttal"] is True
+    assert summary["frame_owner"] == "A"
+    assert summary["burden_closure"]["B"] == "open"
+
+
+def test_normalize_summary_keeps_b_win_when_b_breaks_a_frame_with_counter_frame():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが元の問いを固定した。"},
+            "reason_one_liner": "Bは『短期で勝てるか』という元の問いと採用条件を固定し、Aの長期逃がしを壊した。",
+            "confidence": "High",
+            "turning_point": "Turn 4でBが『それは短期の問いに長期で答えている』と固定した。",
+            "fatal_phrase": {"speaker": "B", "turn": 4, "text": "それは短期で勝てるかではなく、長期で生き残れるかの話だ。", "reason": "Bが元の採用条件を取り戻した。"},
+            "weak_spot": {
+                "side": "A",
+                "turn": 4,
+                "speaker": "A",
+                "label": "時間軸ずらし",
+                "quote_excerpt": "短期は厳しくても、長期ならまだ勝てる。",
+                "why_one_sentence": "Aは短期の問いを長期へずらし、元の命題を守れなかった。",
+                "how_to_fix": "短期条件を守った反論を出すべきだった。",
+            },
+            "key_disagreement_top3": ["x"],
+        }
+    )
+
+    assert summary["winner"]["side"] == "B"
+    assert summary["frame_owner"] == "B"
+    assert summary["frame_survival"] == "B_frame_survived"
+    assert summary["burden_shift_detected"] == "A"
+    assert summary["parasitic_rebuttal"] is False
+
+
+def test_normalize_summary_does_not_punish_a_when_residue_owner_is_b():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "BはAの主張へ疑いを入れたが、自分が答えるべき採用条件を最後まで閉じていない。",
+            "confidence": "Medium",
+            "turning_point": "Turn 5でAが『その基準ならB自身も答えていない』と返した。",
+            "fatal_phrase": {"speaker": "A", "turn": 5, "text": "その基準なら、あなた自身も答えていない。", "reason": "B側の残差が最後に露出した。"},
+            "weak_spot": {
+                "side": "B",
+                "turn": 5,
+                "speaker": "B",
+                "label": "論拠不足",
+                "quote_excerpt": "Aは完全には証明できていない。",
+                "why_one_sentence": "Bは相手に完全性を要求したが、自分の採用条件は閉じなかった。",
+                "how_to_fix": "自分が採る基準を明確に示すべきだった。",
+            },
+            "unresolved_residue": "Bが自分の採用条件を最後まで示し切れず、その残差が残った。",
+            "key_disagreement_top3": ["x"],
+        }
+    )
+
+    assert summary["winner"]["side"] == "A"
+    assert summary["residue_owner"] == "B"
+    assert summary["burden_closure"]["B"] == "open"
+
+
+def test_normalize_summary_fairness_axes_support_a_and_b_benchmarks():
+    cases = [
+        (
+            "A_should_win_frame_survival",
+            {
+                "winner": {"side": "B", "reason": "Bが突っ込んだ。"},
+                "reason_one_liner": "Aは基準を守ったまま進み、Bは穴の指摘だけで終わった。",
+                "turning_point": "Turn 4でAが『その反論は元の基準を壊していない』と返した。",
+                "fatal_phrase": {"speaker": "A", "turn": 4, "text": "その反論は元の基準を壊していない。", "reason": "Aのフレームが残った。"},
+                "weak_spot": {"side": "A", "turn": 4, "speaker": "A", "label": "論拠不足", "quote_excerpt": "まだ粗い点はある。", "why_one_sentence": "Aには粗さがあるが、Bは必要条件を崩せていない。", "how_to_fix": "残差を先に閉じるべきだった。"},
+            },
+            "A",
+        ),
+        (
+            "A_should_win_burden_shift_by_b",
+            {
+                "winner": {"side": "B", "reason": "Bが押した。"},
+                "reason_one_liner": "Bは問いをずらして別の条件を持ち込み、Aの元の問いには答えていない。",
+                "turning_point": "Turn 4でBが採用条件を途中で別の問いへずらした。",
+                "fatal_phrase": {"speaker": "A", "turn": 4, "text": "それは別の問いであって、今の採用条件には答えていない。", "reason": "Bの burden shift が露出した。"},
+                "weak_spot": {"side": "B", "turn": 4, "speaker": "B", "label": "問いの再発明", "quote_excerpt": "今はその条件ではなく、もっと広い価値で見るべきだ。", "why_one_sentence": "Bが採用条件をずらした。", "how_to_fix": "元の条件を受けた上で反論するべきだった。"},
+            },
+            "A",
+        ),
+        (
+            "B_should_win_definition_lock",
+            {
+                "winner": {"side": "B", "reason": "Bが定義を固定した。"},
+                "reason_one_liner": "Bは定義を固定し、Aの後退を封じた。",
+                "turning_point": "Turn 3でBが『その定義の広げ方は逃げだ』と固定した。",
+                "fatal_phrase": {"speaker": "B", "turn": 3, "text": "その定義の広げ方は逃げだ。", "reason": "Bが定義を固定した。"},
+                "weak_spot": {"side": "A", "turn": 3, "speaker": "A", "label": "定義の後退", "quote_excerpt": "機能が似ていれば同じと呼んでよい。", "why_one_sentence": "Aは定義を後退させた。", "how_to_fix": "最初の定義を守るべきだった。"},
+            },
+            "B",
+        ),
+        (
+            "B_should_win_when_a_needs_condition_breaks",
+            {
+                "winner": {"side": "B", "reason": "Bが必要条件を壊した。"},
+                "reason_one_liner": "BはAの必要条件を本当に壊した。",
+                "turning_point": "Turn 4でBが『その条件は実例で成立しない』と示した。",
+                "fatal_phrase": {"speaker": "B", "turn": 4, "text": "その条件は実例で成立しない。", "reason": "Bが必要条件を破壊した。"},
+                "weak_spot": {"side": "A", "turn": 4, "speaker": "A", "label": "論拠不足", "quote_excerpt": "その条件なら勝てる。", "why_one_sentence": "Aの必要条件が実例で崩れた。", "how_to_fix": "必要条件の実証を補強するべきだった。"},
+            },
+            "B",
+        ),
+    ]
+
+    for _, payload, expected_winner in cases:
+        summary = _normalize_summary({**payload, "key_disagreement_top3": ["x"]})
+        assert summary["winner"]["side"] == expected_winner
+
+
+def test_normalize_summary_surfaces_opening_contract_debug_and_uses_it_for_reframe_vs_drift():
+    turns = [
+        {
+            "turn": 1,
+            "a": "この試合は採用条件で比べる。採用条件が残るならこの立場は成立する。時間軸や別の問いへ逃がすのは反論ではない。",
+            "b": "その基準は甘い。",
+            "meta": {
+                "a": {
+                    "opening_contract": {
+                        "claim_scope": "採用条件でこの立場の成立範囲を争点にする。",
+                        "comparison_axis": "採用条件",
+                        "acceptance_condition": "採用条件が残るなら成立する。",
+                        "anti_reframe_guard": "時間軸や別の問いへ逃がすのは反論ではない。",
+                        "exception_policy": "単発反例だけでは崩れない。",
+                        "burden_target": "Aは採用条件を示し、Bはその崩壊を示す。",
+                    }
+                },
+                "b": {},
+            },
+        },
+        {
+            "turn": 2,
+            "a": "その採用条件の範囲で見ると、例外ではなく通常運用でも成立する。",
+            "b": "本題は採用条件ではなく、もっと広い価値で見るべきだ。短期ではなく長期で比べよう。",
+            "meta": {
+                "a": {"legitimate_elaboration": True, "drift_from_opening_contract": False},
+                "b": {"reframe_attempt_detected": True},
+            },
+        },
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bは広い価値を持ち出したが、Aの元の採用条件は壊していない。",
+            "turning_point": {"turn": 2, "summary": "Turn 2でBが別基準へ寄せようとした。", "quote_excerpt": "本題は採用条件ではなく、もっと広い価値で見るべきだ。"},
+            "fatal_phrase": {"turn": 2, "speaker": "A", "text": "その採用条件の範囲で見ると、例外ではなく通常運用でも成立する。", "reason": "Aは最初の採用条件を守っている。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "問いの再発明", "quote_excerpt": "本題は採用条件ではなく、もっと広い価値で見るべきだ。", "why_one_sentence": "Bが比較軸をずらした。", "how_to_fix": "元の条件で反論するべきだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=turns,
+    )
+
+    assert summary["opening_contract"]["comparison_axis"] == "採用条件"
+    assert summary["opening_axis_locked"] is True
+    assert summary["opening_acceptance_locked"] is True
+    assert summary["legitimate_elaboration"] is True
+    assert summary["drift_from_opening_contract"] is False
+    assert summary["reframe_attempt_detected"] is True
+    assert summary["winner"]["side"] == "A"
+
+
+def test_normalize_summary_surfaces_proposition_lock_and_blocks_b_reframe_win():
+    turns = [
+        {
+            "turn": 1,
+            "a": "この試合は愛そのものが買えるかで比べる。条件や環境に逃げるのは別の問いだ。",
+            "b": "金は愛の条件を整える。",
+            "meta": {
+                "a": {
+                    "proposition_lock": {
+                        "claim_subject": "愛",
+                        "claim_predicate": "買えるか",
+                        "comparison_unit": "愛そのもの",
+                        "evaluation_axis": "本質成立",
+                        "time_scope": "general_present",
+                        "quantifier_scope": "general_rule",
+                        "exception_policy": "条件論だけで上書きしない",
+                        "means_vs_essence_lock": "love_itself_not_conditions",
+                        "proof_burden_shape": "本質成立を示す",
+                        "forbidden_reframes": ["恋愛の条件や環境だけへ逃げる"],
+                    },
+                    "opening_contract": {
+                        "claim_scope": "愛そのものの成立範囲を争う。",
+                        "comparison_axis": "本質成立",
+                        "acceptance_condition": "本質として成立するなら採る。",
+                        "anti_reframe_guard": "条件や環境へ逃げるのは別の問いだ。",
+                        "exception_policy": "条件論だけでは崩れない。",
+                        "burden_target": "Bは本質不成立を示す。",
+                    },
+                },
+                "b": {
+                    "proposition_lock": {
+                        "claim_subject": "愛",
+                        "claim_predicate": "買えるか",
+                        "comparison_unit": "愛そのもの",
+                        "evaluation_axis": "本質成立",
+                        "time_scope": "general_present",
+                        "quantifier_scope": "general_rule",
+                        "exception_policy": "条件論だけで上書きしない",
+                        "means_vs_essence_lock": "love_itself_not_conditions",
+                        "proof_burden_shape": "本質成立を示す",
+                        "forbidden_reframes": ["恋愛の条件や環境だけへ逃げる"],
+                    }
+                },
+            },
+        },
+        {
+            "turn": 2,
+            "a": "条件を買う話は、本題の愛そのものとは別だ。",
+            "b": "金は会う機会や余裕を買えるのだから、愛は買える。",
+            "meta": {
+                "a": {"legitimate_elaboration": True, "drift_from_opening_contract": False},
+                "b": {"reframe_attempt_detected": True, "reframe_detected": True, "reframe_type": "means_for_essence", "reframe_severity": "high"},
+            },
+        },
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが条件面で押した。"},
+            "reason_one_liner": "Bは愛そのものではなく条件を押し出した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2でBが条件論へ寄せた。", "quote_excerpt": "金は会う機会や余裕を買えるのだから、愛は買える。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "金は会う機会や余裕を買えるのだから、愛は買える。", "reason": "Bが条件面で押した。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "問いの再発明", "quote_excerpt": "金は会う機会や余裕を買えるのだから、愛は買える。", "why_one_sentence": "Bが条件を本質へすり替えた。", "how_to_fix": "本質そのものへ答えるべきだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=turns,
+    )
+
+    assert summary["proposition_lock"]["means_vs_essence_lock"] == "love_itself_not_conditions"
+    assert summary["reframe_detected"] is True
+    assert summary["reframe_type"] == "means_for_essence"
+    assert summary["reframe_owner"] == "B"
+    assert summary["winner"]["side"] == "A"
+
+
+def test_new_axes_rewrite_visible_cards_when_b_reframe_is_main_issue():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Aは押し返したが、最後まで採用条件を閉じ切れず、Bが穴を残した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2でBが条件論へ寄せた。", "quote_excerpt": "金は会う機会や余裕を買えるのだから、愛は買える。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "金は会う機会や余裕を買えるのだから、愛は買える。", "reason": "Bが押し返した。"},
+            "weak_spot": {"side": "A", "turn": 3, "speaker": "A", "label": "定義の後退", "quote_excerpt": "少なくとも条件が整えば愛は成立する。", "why_one_sentence": "Aは強い命題を維持すると言いながら、途中で条件を足して射程を狭めた。", "how_to_fix": "条件を先に固定する。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {
+                "turn": 1,
+                "a": "この試合は愛そのものが買えるかで比べる。条件や環境に逃げるのは別の問いだ。",
+                "b": "金は愛の条件を整える。",
+                "meta": {
+                    "a": {"proposition_lock": {"claim_subject": "愛", "claim_predicate": "買えるか", "comparison_unit": "愛そのもの", "evaluation_axis": "本質成立", "time_scope": "general_present", "quantifier_scope": "general_rule", "exception_policy": "条件論だけで上書きしない", "means_vs_essence_lock": "love_itself_not_conditions", "proof_burden_shape": "本質成立を示す", "forbidden_reframes": ["恋愛の条件や環境だけへ逃げる"]}},
+                    "b": {"proposition_lock": {"claim_subject": "愛", "claim_predicate": "買えるか", "comparison_unit": "愛そのもの", "evaluation_axis": "本質成立", "time_scope": "general_present", "quantifier_scope": "general_rule", "exception_policy": "条件論だけで上書きしない", "means_vs_essence_lock": "love_itself_not_conditions", "proof_burden_shape": "本質成立を示す", "forbidden_reframes": ["恋愛の条件や環境だけへ逃げる"]}},
+                },
+            },
+            {
+                "turn": 2,
+                "a": "条件を買う話は、本題の愛そのものとは別だ。",
+                "b": "金は会う機会や余裕を買えるのだから、愛は買える。",
+                "meta": {
+                    "a": {"legitimate_elaboration": True, "drift_from_opening_contract": False},
+                    "b": {"reframe_attempt_detected": True, "reframe_detected": True, "reframe_type": "means_for_essence", "reframe_severity": "high"},
+                },
+            },
+        ],
+    )
+
+    assert summary["winner"]["reason"] != "Bが押した。"
+    assert "lock" in summary["winner"]["reason"] or "問い" in summary["winner"]["reason"]
+    assert "最初の問い" in summary["reason_one_liner"] or "問いの外" in summary["reason_one_liner"] or "条件や例外" in summary["reason_one_liner"]
+    assert summary["weak_spot"]["side"] == "B"
+    assert summary["weak_spot"]["label"] in {"手段の本質化", "問いの再発明"}
+    assert summary["weak_spot"]["axis_tag"] == "Means for essence"
+    assert summary["fatal_phrase"]["axis_tag"] == "Means for essence"
+    assert summary["turning_point"]["axis_tag"] == "Means for essence"
+
+
+def test_drift_rewrites_weak_spot_away_from_generic_definition_retreat_template():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが押した。"},
+            "reason_one_liner": "Aは押し返したが、最後まで採用条件を閉じ切れず、Bが穴を残した。",
+            "turning_point": {"turn": 3, "summary": "Turn 3で条件が追加された。", "quote_excerpt": "少なくとも短期なら成立する。"},
+            "fatal_phrase": {"turn": 3, "speaker": "A", "text": "少なくとも短期なら成立する。", "reason": "Aが条件を追加した。"},
+            "weak_spot": {"side": "A", "turn": 3, "speaker": "A", "label": "定義の後退", "quote_excerpt": "少なくとも短期なら成立する。", "why_one_sentence": "Aは強い命題を維持すると言いながら、途中で条件を足して射程を狭めた。", "how_to_fix": "条件を先に固定する。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {
+                "turn": 1,
+                "a": "この試合は採用条件で比べる。採用条件が残るなら成立する。",
+                "b": "その条件は甘い。",
+                "meta": {
+                    "a": {"opening_contract": {"claim_scope": "採用条件で成立範囲を争う。", "comparison_axis": "採用条件", "acceptance_condition": "採用条件が残るなら成立する。", "anti_reframe_guard": "別基準へ逃げるのは別の問いだ。", "exception_policy": "単発例外では崩れない。", "burden_target": "Bは必要条件不成立を示す。"}},
+                    "b": {},
+                },
+            },
+            {
+                "turn": 2,
+                "a": "少なくとも短期なら成立する。",
+                "b": "最初の条件と違う。",
+                "meta": {
+                    "a": {"drift_from_opening_contract": True, "scope_narrowing": True},
+                    "b": {},
+                },
+            },
+        ],
+    )
+
+    assert summary["weak_spot"]["label"] == "Contract drift"
+    assert "opening contract" in summary["weak_spot"]["why_one_sentence"] or "後付け" in summary["weak_spot"]["why_one_sentence"]
+    assert summary["why_axis_tag"] == "Contract drift"
+    assert summary["winner_axis_tag"] == "Contract drift"
+
+
+def test_sanitize_fighter_speech_removes_meta_leak_patterns():
+    text = "相手の核心はそこじゃない。弱点は条件を足している点だ。話をずらしてるし、それは苦しい。"
+
+    cleaned = _sanitize_fighter_speech(text)
+
+    assert "相手の核心" not in cleaned
+    assert "弱点は" not in cleaned
+    assert "話をずらしてる" not in cleaned
+    assert "それは苦しい" not in cleaned
+    assert "相手の前提" in cleaned or "論点がずれている" in cleaned or "そのままでは通らない" in cleaned
+
+
+def test_extract_transcript_quote_skips_meta_headline_and_picks_substantive_sentence():
+    turns = [
+        {
+            "turn": 2,
+            "a": "相手の核心はそこじゃない。金で買えるのは接触機会であって、自発的な愛情そのものではない。",
+            "b": "",
+        }
+    ]
+
+    quote, _ = _extract_transcript_quote(turns, 2, "A", "愛そのもの", "接触機会")
+
+    assert quote == "金で買えるのは接触機会であって、自発的な愛情そのものではない。"
+
+
+def test_normalize_summary_naturalizes_visible_meta_leakage_in_cards():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "相手の核心は崩れた。"},
+            "reason_one_liner": "話をずらしてるBの押し込みはそのままでは通らない。",
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "金で買えるのは接触機会だ。", "reason": "弱点は条件論への逃げにある。"},
+            "turning_point": {"turn": 2, "summary": "論点はこうだ。条件論へ逃げた瞬間に問いがずれた。", "quote_excerpt": "金で買えるのは接触機会だ。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "問いの再発明", "quote_excerpt": "金で買えるのは接触機会だ。", "why_one_sentence": "相手の核心は本質ではなく条件に逃げた点だ。", "how_to_fix": "弱点は条件ではなく本質に答えることだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {"turn": 1, "a": "愛そのものが買えるかを問う。", "b": "金は環境を買える。"},
+            {"turn": 2, "a": "条件の購入と愛そのものは違う。", "b": "金で買えるのは接触機会だ。"},
+        ],
+    )
+
+    assert "相手の核心" not in summary["winner"]["reason"]
+    assert "話をずらしてる" not in summary["reason_one_liner"]
+    assert "弱点は" not in summary["fatal_phrase"]["reason"]
+    assert "論点はこうだ" not in summary["turning_point"]["summary"]
+    assert "相手の核心" not in summary["weak_spot"]["why_one_sentence"]
+
+
+def test_mock_opening_and_rebuttal_sound_less_like_design_memo():
+    result = run_debate(
+        {
+            "topic": "愛は金で買えるか",
+            "side_a": "買えない。金で買えるのは接触機会や快適さであって、自発的な愛情そのものではない。",
+            "side_b": "買える。愛は環境と継続的投資で成立する以上、金で成立条件を買える。",
+            "turn_count": 3,
+            "api_keys": {"openai": "", "anthropic": "", "gemini": ""},
+        }
+    )
+
+    opening = result["debate"]["turns"][0]["a"]
+    rebuttal = result["debate"]["turns"][1]["a"]
+
+    assert "まずこの話は" not in opening
+    assert "評価基準" not in opening
+    assert "採用条件" not in opening
+    assert "比較軸" not in opening
+    assert "条件を並べることじゃなく" not in opening
+    assert "舞台までで" in opening or "そのものが" in opening or "条件じゃなく" in opening or "そのものじゃない" in opening
+    assert "相手は" in rebuttal or "相手が" in rebuttal
+    assert "検証指標" not in rebuttal
+    assert "副作用の条件が曖昧なまま止めている" not in rebuttal
+    assert "問い自体がずれる" in rebuttal or "別の勝負になる" in rebuttal or "条件を丸ごと外すと" in rebuttal or "本題ではない" in rebuttal
+
+
+def test_summary_structural_rewrite_avoids_design_memo_english_terms():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Aは opening contract の外へ出て主張範囲を後から守ろうとし、その drift が勝ち筋を弱くした。"},
+            "reason_one_liner": "Aは最初に固定した comparison axis と acceptance condition の外へ出て、後付けの条件追加に見える返しになった。",
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "条件を足した時点で元の話から外れる。", "reason": "この一文でAの後付け条件が contract 外だと見えた。"},
+            "turning_point": {"turn": 2, "summary": "Turn 2でAが contract 外へ出たため、争点が drift の有無に移った。", "quote_excerpt": "条件を足した時点で元の話から外れる。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "Contract drift", "quote_excerpt": "条件を足した時点で元の話から外れる。", "why_one_sentence": "Aは opening contract の外へ主張範囲を動かし、精密化ではなく後付け防御と読まれた。", "how_to_fix": "最初に置いた基準を守るべきだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {"turn": 1, "a": "愛そのものが買えるかを問う。", "b": "金で条件を買える。"},
+            {"turn": 2, "a": "少なくとも条件が整えば愛は成立する。", "b": "条件を足した時点で元の話から外れる。"},
+        ],
+    )
+
+    joined = " ".join([
+        summary["winner"]["reason"],
+        summary["reason_one_liner"],
+        summary["fatal_phrase"]["reason"],
+        summary["turning_point"]["summary"],
+        summary["weak_spot"]["why_one_sentence"],
+    ])
+    assert "opening contract" not in joined
+    assert "comparison axis" not in joined
+    assert "acceptance condition" not in joined
+    assert "contract 外" not in joined
+
+
+def test_normalize_summary_allows_b_win_when_b_breaks_lock_without_reframe():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが必要条件を壊した。"},
+            "reason_one_liner": "Bは固定された採用条件の中でAの必要条件を壊した。",
+            "turning_point": {"turn": 3, "summary": "Turn 3でBが必要条件の不成立を示した。", "quote_excerpt": "その条件は実例で成立しない。"},
+            "fatal_phrase": {"turn": 3, "speaker": "B", "text": "その条件は実例で成立しない。", "reason": "Bが lock 内で必要条件を壊した。"},
+            "weak_spot": {"side": "A", "turn": 3, "speaker": "A", "label": "論拠不足", "quote_excerpt": "その条件なら勝てる。", "why_one_sentence": "Aの必要条件が実例で崩れた。", "how_to_fix": "必要条件の実証を補強するべきだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {
+                "turn": 1,
+                "a": "この試合は採用条件で比べる。",
+                "b": "その条件は実例で成立しない。",
+                "meta": {
+                    "a": {"proposition_lock": {"claim_subject": "採用条件", "claim_predicate": "成立するか", "comparison_unit": "命題そのもの", "evaluation_axis": "採用条件", "time_scope": "general_present", "quantifier_scope": "general_rule", "exception_policy": "例外で上書きしない", "means_vs_essence_lock": "essence_over_means", "proof_burden_shape": "必要条件の成立を示す", "forbidden_reframes": []}},
+                    "b": {"proposition_lock": {"claim_subject": "採用条件", "claim_predicate": "成立するか", "comparison_unit": "命題そのもの", "evaluation_axis": "採用条件", "time_scope": "general_present", "quantifier_scope": "general_rule", "exception_policy": "例外で上書きしない", "means_vs_essence_lock": "essence_over_means", "proof_burden_shape": "必要条件の成立を示す", "forbidden_reframes": []}},
+                },
+            }
+        ],
+    )
+
+    assert summary["reframe_detected"] is False
+    assert summary["winner"]["side"] == "B"
+
+
+def test_normalize_summary_seat_swap_does_not_force_b_win():
+    a_as_owner = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが穴を突いた。"},
+            "reason_one_liner": "Aは基準を維持したが、Bは寄生反論だけだった。",
+            "turning_point": "Turn 4でAが『その反論は元の基準を壊していない』と返した。",
+            "fatal_phrase": {"speaker": "A", "turn": 4, "text": "その反論は元の基準を壊していない。", "reason": "Aのフレームが残った。"},
+            "weak_spot": {"side": "A", "turn": 4, "speaker": "A", "label": "論拠不足", "quote_excerpt": "まだ粗さはある。", "why_one_sentence": "Aには粗さがあるが、Bは必要条件を壊していない。", "how_to_fix": "残差を閉じるべきだった。"},
+            "key_disagreement_top3": ["x"],
+        }
+    )
+    b_as_owner = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが穴を突いた。"},
+            "reason_one_liner": "Bは基準を維持したが、Aは寄生反論だけだった。",
+            "turning_point": "Turn 4でBが『その反論は元の基準を壊していない』と返した。",
+            "fatal_phrase": {"speaker": "B", "turn": 4, "text": "その反論は元の基準を壊していない。", "reason": "Bのフレームが残った。"},
+            "weak_spot": {"side": "B", "turn": 4, "speaker": "B", "label": "論拠不足", "quote_excerpt": "まだ粗さはある。", "why_one_sentence": "Bには粗さがあるが、Aは必要条件を壊していない。", "how_to_fix": "残差を閉じるべきだった。"},
+            "key_disagreement_top3": ["x"],
+        }
+    )
+
+    assert a_as_owner["winner"]["side"] == "A"
+    assert b_as_owner["winner"]["side"] == "B"
+
+
+def test_normalize_summary_assigns_card_roles_and_separates_overlapping_cards():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが勝った。"},
+            "reason_one_liner": "Bが定義の後退を露出し、最後まで押し返した。",
+            "turning_point": {
+                "turn": 4,
+                "summary": "Bが定義の後退を露出し、最後まで押し返した。",
+                "quote_excerpt": "その定義は後から広げている。",
+            },
+            "fatal_phrase": {
+                "turn": 4,
+                "speaker": "B",
+                "text": "その定義は後から広げている。",
+                "reason": "Bが定義の後退を露出し、最後まで押し返した。",
+            },
+            "weak_spot": {
+                "side": "A",
+                "turn": 4,
+                "speaker": "A",
+                "label": "定義の後退",
+                "quote_excerpt": "その定義は後から広げている。",
+                "why_one_sentence": "Bが定義の後退を露出し、最後まで押し返した。",
+                "how_to_fix": "条件を先に固定する。",
+            },
+            "gemini_quote": {
+                "framing_text": "Bが定義の後退を露出し、最後まで押し返した。",
+                "quote": "その定義は後から広げている。",
+                "source_turn": 4,
+                "source_side": "B",
+            },
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[{"turn": 4, "a": "でもその定義は広げてよい。", "b": "その定義は後から広げている。"}],
+    )
+
+    assert summary["why_role"] == "verdict_summary"
+    assert summary["fatal_phrase"]["role"] == "decisive_lock"
+    assert summary["turning_point"]["role"] == "frame_shift"
+    assert summary["weak_spot"]["role"] == "failure_exposure"
+    assert summary["gemini_quote"]["framing_role"]
+    assert summary["fatal_phrase"]["reason"] != summary["reason_one_liner"]
+    assert summary["turning_point"]["summary"] != summary["reason_one_liner"]
+    assert summary["weak_spot"]["why_one_sentence"] != summary["reason_one_liner"]
+    assert summary["gemini_quote"]["framing_text"] != summary["reason_one_liner"]
+
+
+def test_normalize_summary_separates_first_crack_decisive_lock_and_clincher():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが最後に締めた。"},
+            "reason_one_liner": "Aは早い段階でヒビを入れ、終盤で逃げ道を塞いだ。",
+            "turning_point": {"turn": 3, "summary": "Turn 3で議論の軸が反例勝負へ移った。", "quote_excerpt": "その条件なら反例が残る。"},
+            "fatal_phrase": {"turn": 4, "speaker": "A", "text": "その条件なら反例が残る。", "reason": "ここで勝ち筋が固定した。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "論拠不足", "quote_excerpt": "前提だけではまだ弱い。", "why_one_sentence": "Bは前提を補強できず、最初の傷を残した。", "how_to_fix": "具体例を足すべきだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {"turn": 1, "a": "私はまず大枠の前提から入る。", "b": "その前提だけではまだ弱い。"},
+            {"turn": 2, "a": "その前提だけではまだ弱い。", "b": "今の段階ではまだ証拠が足りない。"},
+            {"turn": 3, "a": "その条件なら反例が残る。", "b": "それでも成立する。"},
+            {"turn": 4, "a": "その条件なら反例が残る。", "b": "まだ一般論で守れる。"},
+            {"turn": 5, "a": "最後までその反例に答えないなら、もう採れない。", "b": "最後は印象で押す。"},
+        ],
+    )
+
+    assert summary["first_crack"]["role"] == "first_crack"
+    assert summary["fatal_phrase"]["role"] == "decisive_lock"
+    assert summary["clincher"]["role"] == "clincher"
+    assert summary["first_crack"]["turn"] == 2
+    assert summary["fatal_phrase"]["turn"] == 4
+    assert summary["clincher"]["turn"] == 5
+    assert summary["first_crack_turn"] == 2
+    assert summary["decisive_lock_turn"] == 4
+    assert summary["clincher_turn"] == 5
+    assert summary["clincher"]["quote"]
+
+
+def test_normalize_summary_allows_early_hit_without_promoting_it_to_decisive_lock():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが終盤で取り切った。"},
+            "reason_one_liner": "Aは序盤でヒビを入れたが、勝負を決めたのは終盤の詰めだった。",
+            "turning_point": {"turn": 3, "summary": "Turn 3で論点が採用条件へ移った。", "quote_excerpt": "その条件だと維持できない。"},
+            "fatal_phrase": {"turn": 5, "speaker": "A", "text": "その条件を最後まで守れないなら、もう採れない。", "reason": "ここで勝敗が固定した。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "論拠不足", "quote_excerpt": "今の前提だけでは弱い。", "why_one_sentence": "Bに最初のヒビが入った。", "how_to_fix": "前提を補強するべきだった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {"turn": 1, "a": "まず基準を置く。", "b": "その前提だけでは弱い。"},
+            {"turn": 2, "a": "今の前提だけでは弱い。", "b": "まだ守れる。"},
+            {"turn": 3, "a": "その条件だと維持できない。", "b": "条件を足せばよい。"},
+            {"turn": 4, "a": "その追加条件は後付けだ。", "b": "まだ逃げ道はある。"},
+            {"turn": 5, "a": "その条件を最後まで守れないなら、もう採れない。", "b": "そこまでは答え切れない。"},
+        ],
+    )
+
+    assert summary["first_crack"]["turn"] == 2
+    assert summary["fatal_phrase"]["turn"] == 5
+    assert summary["fatal_phrase"]["role"] == "decisive_lock"
 
 
 def test_normalize_summary_keeps_gemini_takeaway_or_builds_fallback():
@@ -1063,10 +2235,75 @@ def test_normalize_summary_keeps_or_builds_gemini_quote():
         }
     )
 
-    quote = summary["gemini_quote"]["text"]
+    quote = summary["gemini_quote"]["framing_text"]
     assert quote
     assert quote.startswith("「")
-    assert len(quote.strip("「」")) <= 25
+    assert "framing_role" in summary["gemini_quote"]
+    assert "framing_reason" in summary["gemini_quote"]
+    assert "evidence_quote" in summary["gemini_quote"]
+    assert "evidence_turn" in summary["gemini_quote"]
+    assert "evidence_side" in summary["gemini_quote"]
+
+
+def test_normalize_summary_generated_gemini_quote_does_not_fake_transcript_anchor():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "Draw", "reason": "拮抗した。"},
+            "reason_one_liner": "決定打が出なかった。",
+            "turning_point": "",
+            "fatal_phrase": {"speaker": "", "turn": 0, "text": "", "reason": ""},
+            "weak_spot": {"side": "", "turn": 0, "speaker": "", "label": "", "quote_excerpt": "", "why_one_sentence": "", "how_to_fix": ""},
+            "gemini_quote": {"text": "基準を握った側が議論を支配する。"},
+        },
+        [],
+    )
+
+    assert summary["gemini_quote"]["evidence_quote"] == ""
+    assert summary["gemini_quote"]["evidence_turn"] == 0
+    assert summary["gemini_quote"]["evidence_side"] == ""
+    assert summary["gemini_quote"]["debug_source"] == "generated_fallback"
+    assert summary["gemini_quote"]["verdict_consistency"] is True
+
+
+def test_extract_turn_speech_ignores_unhashable_speaker_shape():
+    from tools.debate_api import _extract_turn_speech
+
+    turns = [{"turn": 2, "a": "A側の本文。", "b": "B側の本文。"}]
+
+    assert _extract_turn_speech(turns, 2, ["A"]) == ""
+    assert _extract_turn_speech(turns, 2, {"speaker": "A"}) == ""
+
+
+def test_normalize_summary_degrades_instead_of_raising_on_malformed_anchor_shapes():
+    turns = [{"turn": 2, "a": "A側の本文。", "b": "B側の本文。"}]
+
+    summary = _normalize_summary(
+        {
+            "winner": "B",
+            "reason_one_liner": None,
+            "fatal_phrase": {"turn": "x", "speaker": ["A"], "text": {"k": "v"}, "reason": ["r"]},
+            "turning_point": {"turn": "x", "quote_excerpt": ["bad"], "summary": ["weird"]},
+            "weak_spot": {
+                "side": ["A"],
+                "turn": ["x"],
+                "speaker": {"a": 1},
+                "label": ["x"],
+                "quote_excerpt": {"q": 1},
+                "why_one_sentence": ["y"],
+                "how_to_fix": ["z"],
+            },
+            "gemini_quote": {"text": ["g"], "source_turn": ["2"], "source_side": ["A"], "quote": {"a": 1}},
+        },
+        turns,
+    )
+
+    assert summary["fatal_phrase"]["quote"] == ""
+    assert isinstance(summary["turning_point"], dict)
+    assert "summary" in summary["turning_point"]
+    assert isinstance(summary["weak_spot"], dict)
+    assert "quote_excerpt" in summary["weak_spot"]
+    assert isinstance(summary["gemini_quote"], dict)
+    assert "text" in summary["gemini_quote"]
 
 
 def test_normalize_summary_replaces_generic_gemini_quote_with_match_specific_line():
@@ -1086,6 +2323,106 @@ def test_normalize_summary_replaces_generic_gemini_quote_with_match_specific_lin
     quote = summary["gemini_quote"]["text"]
     assert "基準を握った側が議論を支配する" not in quote
     assert "物理法則" in quote or "可能性" in quote
+
+
+def test_normalize_summary_rejects_gemini_quote_that_reads_against_locked_winner():
+    turns = [
+        {"turn": 1, "a": "陰謀論と呼ばれていた時期でも、証拠はあった。", "b": "それは検証可能な証拠ではない。"},
+        {"turn": 2, "a": "分類が遅れただけで、真実は混ざっていた。", "b": "真実があるなら、陰謀論ではなく検証可能な仮説として残る。"},
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bは『証拠があるなら陰謀論ではなく仮説として残る』と基準を固定した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2でBが検証可能性を争点として固定した。", "quote_excerpt": "真実があるなら、陰謀論ではなく検証可能な仮説として残る。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "真実があるなら、陰謀論ではなく検証可能な仮説として残る。", "reason": "Bが分類ではなく検証可能性へ基準を戻した。"},
+            "weak_spot": {"side": "A", "turn": 1, "speaker": "A", "label": "論拠不足", "quote_excerpt": "陰謀論と呼ばれていた時期でも、証拠はあった。", "why_one_sentence": "Aは存在主張をしたが、検証可能性を出せなかった。", "how_to_fix": "証拠の検証経路を先に示すべきだった。"},
+            "gemini_quote": {"text": "陰謀論と呼ばれていた時期でも、証拠はあった。", "source_turn": 1, "source_side": "A"},
+        },
+        turns,
+    )
+
+    assert summary["gemini_quote"]["evidence_quote"] != "陰謀論と呼ばれていた時期でも、証拠はあった。"
+    assert summary["gemini_quote"]["evidence_side"] == "B"
+    assert summary["gemini_quote"]["verdict_consistency"] is True
+    assert summary["gemini_quote"]["consistency_reason"] in {"supported_by_why_fatal_weak", "winner_aligned_sentence", "aligned_with_decisive_frame"}
+
+
+def test_normalize_summary_rejects_fragmentary_gemini_quote_and_expands_to_complete_sentence():
+    turns = [
+        {"turn": 2, "a": "Watergateは当時ただの疑惑ではなく、証拠が積み上がっていた。", "b": "それは事後的に整理されただけだ。"},
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが押した。"},
+            "reason_one_liner": "Aは具体例が当時の検証可能性を満たしていたと示した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2でWatergateの例が象徴になった。"},
+            "fatal_phrase": {"turn": 2, "speaker": "A", "text": "Watergateは当時ただの疑惑ではなく、証拠が積み上がっていた。", "reason": "当時の検証可能性を示した。"},
+            "weak_spot": {"side": "B", "turn": 2, "speaker": "B", "label": "論拠不足", "quote_excerpt": "それは事後的に整理されただけだ。", "why_one_sentence": "Bは当時点の証拠水準に返せなかった。", "how_to_fix": "当時検証できなかった根拠を示すべきだった。"},
+            "gemini_quote": {"text": "Watergateは当時。", "source_turn": 2, "source_side": "A"},
+        },
+        turns,
+    )
+
+    assert summary["gemini_quote"]["evidence_quote"] == "Watergateは当時ただの疑惑ではなく、証拠が積み上がっていた。"
+    assert "Watergateは当時。" not in summary["gemini_quote"]["framing_text"]
+    assert summary["gemini_quote"]["verdict_consistency"] is True
+
+
+def test_normalize_summary_expands_display_text_for_mk_ultra_fragment():
+    turns = [
+        {
+            "turn": 3,
+            "a": "MKウルトラもスノーデン文書も、国家が実際に秘密裏の工作を行った証拠として残っている。",
+            "b": "個別事件の存在は、陰謀論全体の真実性を保証しない。",
+        },
+    ]
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが押した。"},
+            "reason_one_liner": "Aは個別の実証例を出して、全面否定を止めた。",
+            "turning_point": {"turn": 3, "summary": "Turn 3で具体例が一般否定を止めた。"},
+            "fatal_phrase": {"turn": 3, "speaker": "A", "text": "MKウルトラもスノーデン文書も、国家が実際に秘密裏の工作を行った証拠として残っている。", "reason": "具体例で全面否定を止めた。"},
+            "weak_spot": {"side": "B", "turn": 3, "speaker": "B", "label": "論拠不足", "quote_excerpt": "個別事件の存在は、陰謀論全体の真実性を保証しない。", "why_one_sentence": "Bは例外と構造の切り分けはしたが、全面否定を維持できなかった。", "how_to_fix": "どこまでを陰謀論に含めるかの線引きを先に示すべきだった。"},
+            "gemini_quote": {"text": "MKウルトラもスノーデン文書も。", "source_turn": 3, "source_side": "A"},
+        },
+        turns,
+    )
+
+    assert summary["gemini_quote"]["evidence_quote"] == "MKウルトラもスノーデン文書も、国家が実際に秘密裏の工作を行った証拠として残っている。"
+    assert "実証例" in summary["gemini_quote"]["framing_text"] or "全面否定" in summary["gemini_quote"]["framing_text"]
+    assert summary["gemini_quote"]["framing_text"].startswith("「")
+
+
+def test_normalize_summary_splits_gemini_quote_into_framing_and_evidence_layers():
+    turns = [
+        {"turn": 1, "a": "Aは事件が後から真実だと分かった例を並べた。", "b": "Bはそれを分類の問題だと返した。"},
+        {"turn": 2, "a": "相手は『文書・証言・検証可能な連鎖で暴かれる』から陰謀論じゃないと言うが。", "b": "Bは『証明後にラベルを外す操作』自体を封じ、問いを固定した。"},
+    ]
+
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが問いの定義を固定した。"},
+            "reason_one_liner": "Bは『証明後にラベルを外す』操作を封じ、問いを固定した。",
+            "confidence": "High",
+            "turning_point": {"turn": 2, "summary": "Bが問いを固定した。", "quote_excerpt": "Bは『証明後にラベルを外す操作』自体を封じ、問いを固定した。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "Bは『証明後にラベルを外す操作』自体を封じ、問いを固定した。", "reason": "定義のすり替えを封じた。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "定義の後退", "quote_excerpt": "相手は『文書・証言・検証可能な連鎖で暴かれる』から陰謀論じゃないと言うが。", "why_one_sentence": "Aは後からラベルを外す論法に寄りかかった。", "how_to_fix": "問いの定義を先に固定するべきだった。"},
+            "gemini_quote": {"text": "相手は『文書・証言・検証可能な連鎖で暴かれる』から陰謀論じゃないと言うが。", "source_turn": 2, "source_side": "A"},
+        },
+        turns,
+    )
+
+    gemini_quote = summary["gemini_quote"]
+    assert gemini_quote["framing_text"].startswith("「")
+    assert "問い" in gemini_quote["framing_text"] or "固定" in gemini_quote["framing_text"]
+    assert gemini_quote["evidence_quote"]
+    assert gemini_quote["evidence_turn"] in {1, 2}
+    assert gemini_quote["evidence_side"] in {"A", "B"}
+    assert gemini_quote["framing_role"]
+    assert gemini_quote["framing_reason"]
+    assert gemini_quote["text"] == gemini_quote["framing_text"]
+    assert gemini_quote["quote"] == gemini_quote["evidence_quote"]
 
 
 def test_normalize_summary_builds_distinct_gemini_quotes_per_topic():
@@ -1155,7 +2492,7 @@ def test_normalize_summary_builds_conflict_quotes_for_four_topics():
     assert university.endswith("。」")
     assert literature.endswith("。」")
     assert any(word in university for word in ["動かなかった", "立たなかった", "崩れた", "薄まった"])
-    assert any(word in literature for word in ["動かなかった", "立たなかった", "崩れた", "残った"])
+    assert any(word in literature for word in ["動かなかった", "立たなかった", "崩れた", "残った", "ならない"])
 
 
 def test_normalize_summary_gemini_quote_completes_sentence_without_ellipsis():

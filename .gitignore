@@ -61,3 +61,5 @@ __pycache__/
 examples/raw_local/
 .env
 data/
+
+.env.backup*

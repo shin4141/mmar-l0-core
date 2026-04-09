@@ -1,0 +1,24 @@
+ M mmar/apps/debate/debate.css
+ M mmar/apps/debate/debate.html
+ M mmar/apps/debate/debate.js
+ M tests/test_debate_api.py
+ M tests/test_debate_ui_contract_smoke.py
+ M tools/debate_api.py
+ M tools/dev_api.py
+ M tools/history_store.py
+?? docs/mmar_public_fixed_demo_notes.md
+?? el.value
+?? mmar/apps/debate/fixtures/public_sora_demo.json
+?? snapshots/
+?? tmp_capture_gpt_gemini_8912.py
+?? tmp_capture_gpt_only_8912.py
+?? tmp_capture_history_reopen_8912.py
+?? tmp_capture_public_limited_8912.py
+?? tmp_fetch_gpt_gemini_8912.py
+?? tmp_fetch_render_gpt_only_8912.py
+?? tmp_history_run_verify_8912.py
+?? tmp_history_verify_8912.js
+?? tmp_mmar_8912_capture.scpt
+?? tmp_seed_history_8912.py
+?? tmp_seed_history_from_bundles_8912.py
+?? tmp_verify_public_8912.py

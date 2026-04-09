@@ -1,0 +1,119 @@
+{
+  "after_initial_run": {
+    "run": {
+      "exists": true,
+      "hidden": false,
+      "disabled": false,
+      "text": "Run Fixed Debate",
+      "rect": {
+        "x": 31,
+        "y": 691.390625,
+        "width": 220,
+        "height": 48
+      },
+      "hit": {
+        "tag": "ASIDE",
+        "id": "",
+        "className": "panel input-panel reader-collapsed",
+        "text": "Structure Detector\nby Decision-OS\nFIXED CASE DEMO\n\n討論の勝敗ではなく、議論の崩れ方と決め手を見抜く体験型デモ"
+      },
+      "selfHit": true
+    },
+    "next": {
+      "exists": true,
+      "hidden": false,
+      "disabled": false,
+      "text": "次の試合",
+      "rect": {
+        "x": 284.34375,
+        "y": 166.578125,
+        "width": 77.5,
+        "height": 36
+      },
+      "hit": {
+        "tag": "BUTTON",
+        "id": "reader-next-button",
+        "className": "chip-button",
+        "text": "次の試合"
+      },
+      "selfHit": true
+    },
+    "judge": {
+      "exists": true,
+      "hidden": false,
+      "disabled": false,
+      "text": "Judge Debate",
+      "rect": {
+        "x": 189,
+        "y": 1381.859375,
+        "width": 125.921875,
+        "height": 37
+      },
+      "hit": {
+        "tag": "BUTTON",
+        "id": "judge-button",
+        "className": "secondary-button",
+        "text": "Judge Debate"
+      },
+      "selfHit": true
+    },
+    "status": "Debate ready"
+  },
+  "after_second_run_without_next": {
+    "status": "Debate ready",
+    "turn_blocks": 6,
+    "output_meta": "3 turns · fixed demo · fixture"
+  },
+  "after_next_match": {
+    "status": "Ready",
+    "turn_blocks": 0,
+    "run": {
+      "exists": true,
+      "hidden": false,
+      "disabled": false,
+      "text": "Run Fixed Debate",
+      "rect": {
+        "x": 39,
+        "y": 501.125,
+        "width": 220,
+        "height": 48
+      },
+      "hit": {
+        "tag": "BUTTON",
+        "id": "run-button",
+        "className": "",
+        "text": "Run Fixed Debate"
+      },
+      "selfHit": true
+    }
+  },
+  "after_next_match_rerun": {
+    "status": "Debate ready",
+    "turn_blocks": 6
+  },
+  "judge_before_click": {
+    "exists": true,
+    "hidden": false,
+    "disabled": false,
+    "text": "Judge Debate",
+    "rect": {
+      "x": 189,
+      "y": 1381.859375,
+      "width": 125.921875,
+      "height": 37
+    },
+    "hit": {
+      "tag": "BUTTON",
+      "id": "judge-button",
+      "className": "secondary-button",
+      "text": "Judge Debate"
+    },
+    "selfHit": true
+  },
+  "judge_after_click": {
+    "status": "Structure revealed",
+    "turn_blocks": 6
+  },
+  "console_errors": [],
+  "page_errors": []
+}

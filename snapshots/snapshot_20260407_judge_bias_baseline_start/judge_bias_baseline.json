@@ -1,0 +1,489 @@
+{
+  "generated_at": "2026-04-07T11:38:17+0900",
+  "base_url": "http://127.0.0.1:8787",
+  "cases": [
+    {
+      "id": "life_pricing",
+      "topic": "人の命に値段をつけることは許されるか？",
+      "side_a": "許される。現実の資源配分では必要な比較だ。",
+      "side_b": "許されない。尊厳を価格で序列化してはいけない。",
+      "expected_strong_side": "B"
+    },
+    {
+      "id": "pachinko_police",
+      "topic": "パチンコの三店方式を警察は知っているか",
+      "side_a": "知っている。制度運用上、黙認の前提がある。",
+      "side_b": "知らない建前を取るしかなく、知っているとは言えない。",
+      "expected_strong_side": "A"
+    },
+    {
+      "id": "love_money",
+      "topic": "愛は金で買えるか",
+      "side_a": "買える。条件を整える力は愛の成立を左右する。",
+      "side_b": "買えない。条件と感情の実在は別物だ。",
+      "expected_strong_side": "B"
+    },
+    {
+      "id": "aliens_exist",
+      "topic": "宇宙人は存在するか",
+      "side_a": "存在しない。現時点で確認証拠がない。",
+      "side_b": "存在する。宇宙の広さから見て地球だけという方が不自然だ。",
+      "expected_strong_side": "B"
+    },
+    {
+      "id": "sora_video",
+      "topic": "本日SORAが撤退というニュースが出てきたけど。GPTは動画サービスに手を出すべきでなかった。",
+      "side_a": "手を出すべきではなかった。配信運営は本業の強みとずれる。",
+      "side_b": "手を出すべきだった。挑戦なしにプロダクト拡張は起きない。",
+      "expected_strong_side": "A"
+    }
+  ],
+  "results": [
+    {
+      "case_id": "life_pricing",
+      "swapped": false,
+      "topic": "人の命に値段をつけることは許されるか？",
+      "side_a": "許される。現実の資源配分では必要な比較だ。",
+      "side_b": "許されない。尊厳を価格で序列化してはいけない。",
+      "expected_winner_by_human": "B",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 153.132,
+      "wall_seconds_until_debate": 153.19,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_a9c15c3b035f",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.339,
+      "judge_winner": "A",
+      "judge_winner_reason": "Aの最初のフレームが最後まで残り、Bは必要条件を壊し切れなかった。",
+      "judge_reason_one_liner": "Aは最初の問いと約束を守り切り、Bはその内側で崩すだけの根拠を閉じられなかった。",
+      "judge_confidence": "Medium",
+      "judge_frame_owner": "A",
+      "judge_frame_survival": "A_frame_survived",
+      "judge_burden_closure": {
+        "A": "open",
+        "B": "open"
+      },
+      "judge_weak_spot_side": "B",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Aが値付けが弱者を守る実例を示せれば、結果は逆転しただろう。"
+    },
+    {
+      "case_id": "life_pricing",
+      "swapped": true,
+      "topic": "人の命に値段をつけることは許されるか？",
+      "side_a": "許されない。尊厳を価格で序列化してはいけない。",
+      "side_b": "許される。現実の資源配分では必要な比較だ。",
+      "expected_winner_by_human": "A",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 129.014,
+      "wall_seconds_until_debate": 129.019,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_cfe7abca7549",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.692,
+      "judge_winner": "B",
+      "judge_winner_reason": "Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。",
+      "judge_reason_one_liner": "Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。",
+      "judge_confidence": "Medium",
+      "judge_frame_owner": "B",
+      "judge_frame_survival": "B_frame_survived",
+      "judge_burden_closure": {
+        "A": "open",
+        "B": "closed"
+      },
+      "judge_weak_spot_side": "A",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Aが数値化と差別が必然的に結びつく実証を示せば逆転する。"
+    },
+    {
+      "case_id": "pachinko_police",
+      "swapped": false,
+      "topic": "パチンコの三店方式を警察は知っているか",
+      "side_a": "知っている。制度運用上、黙認の前提がある。",
+      "side_b": "知らない建前を取るしかなく、知っているとは言えない。",
+      "expected_winner_by_human": "A",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 143.196,
+      "wall_seconds_until_debate": 143.2,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_2759cdb19966",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 5.125,
+      "judge_winner": "A",
+      "judge_winner_reason": "Aの最初のフレームが最後まで残り、Bは必要条件を壊し切れなかった。",
+      "judge_reason_one_liner": "Aは最初の問いと約束を守り切り、Bはその内側で崩すだけの根拠を閉じられなかった。",
+      "judge_confidence": "High",
+      "judge_frame_owner": "A",
+      "judge_frame_survival": "A_frame_survived",
+      "judge_burden_closure": {
+        "A": "closed",
+        "B": "open"
+      },
+      "judge_weak_spot_side": "B",
+      "judge_weak_spot_label": "ドリフト",
+      "judge_flip_condition": "Bが警察の「知らない」という建前が実務上不可避であることをより具体的に示せば、結果は変わり得た。"
+    },
+    {
+      "case_id": "pachinko_police",
+      "swapped": true,
+      "topic": "パチンコの三店方式を警察は知っているか",
+      "side_a": "知らない建前を取るしかなく、知っているとは言えない。",
+      "side_b": "知っている。制度運用上、黙認の前提がある。",
+      "expected_winner_by_human": "B",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 159.326,
+      "wall_seconds_until_debate": 159.367,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_4d3970654921",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 5.691,
+      "judge_winner": "B",
+      "judge_winner_reason": "Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。",
+      "judge_reason_one_liner": "Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。",
+      "judge_confidence": "High",
+      "judge_frame_owner": "B",
+      "judge_frame_survival": "B_frame_survived",
+      "judge_burden_closure": {
+        "A": "open",
+        "B": "closed"
+      },
+      "judge_weak_spot_side": "A",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "警察が三店方式を「知らない」という建前を維持する具体的な法的・組織的理由を、Bの反論を上回る形で提示できれば。"
+    },
+    {
+      "case_id": "love_money",
+      "swapped": false,
+      "topic": "愛は金で買えるか",
+      "side_a": "買える。条件を整える力は愛の成立を左右する。",
+      "side_b": "買えない。条件と感情の実在は別物だ。",
+      "expected_winner_by_human": "B",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 126.758,
+      "wall_seconds_until_debate": 126.765,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_899a838e918e",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.718,
+      "judge_winner": "A",
+      "judge_winner_reason": "Aの最初のフレームが最後まで残り、Bは必要条件を壊し切れなかった。",
+      "judge_reason_one_liner": "Aは最初の問いと約束を守り切り、Bはその内側で崩すだけの根拠を閉じられなかった。",
+      "judge_confidence": "High",
+      "judge_frame_owner": "A",
+      "judge_frame_survival": "A_frame_survived",
+      "judge_burden_closure": {
+        "A": "closed",
+        "B": "open"
+      },
+      "judge_weak_spot_side": "B",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Bが愛の非交換的価値を実証的に示せれば結果は変わった。"
+    },
+    {
+      "case_id": "love_money",
+      "swapped": true,
+      "topic": "愛は金で買えるか",
+      "side_a": "買えない。条件と感情の実在は別物だ。",
+      "side_b": "買える。条件を整える力は愛の成立を左右する。",
+      "expected_winner_by_human": "A",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 298.666,
+      "wall_seconds_until_debate": 298.676,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_5bbb15a30c61",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 5.017,
+      "judge_winner": "B",
+      "judge_winner_reason": "Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。",
+      "judge_reason_one_liner": "Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。",
+      "judge_confidence": "High",
+      "judge_frame_owner": "B",
+      "judge_frame_survival": "B_frame_survived",
+      "judge_burden_closure": {
+        "A": "open",
+        "B": "closed"
+      },
+      "judge_weak_spot_side": "A",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Aが金銭的介入が信頼に転化しない具体的な因果経路を提示できれば。"
+    },
+    {
+      "case_id": "aliens_exist",
+      "swapped": false,
+      "topic": "宇宙人は存在するか",
+      "side_a": "存在しない。現時点で確認証拠がない。",
+      "side_b": "存在する。宇宙の広さから見て地球だけという方が不自然だ。",
+      "expected_winner_by_human": "B",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 151.947,
+      "wall_seconds_until_debate": 151.952,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_ad12fe7727ab",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.078,
+      "judge_winner": "A",
+      "judge_winner_reason": "Aの最初のフレームが最後まで残り、Bは必要条件を壊し切れなかった。",
+      "judge_reason_one_liner": "Aは最初の問いと約束を守り切り、Bはその内側で崩すだけの根拠を閉じられなかった。",
+      "judge_confidence": "Medium",
+      "judge_frame_owner": "A",
+      "judge_frame_survival": "A_frame_survived",
+      "judge_burden_closure": {
+        "A": "closed",
+        "B": "open"
+      },
+      "judge_weak_spot_side": "B",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Bが再現可能な観測的証拠を提示した場合。"
+    },
+    {
+      "case_id": "aliens_exist",
+      "swapped": true,
+      "topic": "宇宙人は存在するか",
+      "side_a": "存在する。宇宙の広さから見て地球だけという方が不自然だ。",
+      "side_b": "存在しない。現時点で確認証拠がない。",
+      "expected_winner_by_human": "A",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 131.18,
+      "wall_seconds_until_debate": 131.189,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_cdcd68243b1a",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        },
+        "openai_b": {
+          "mode": "degraded",
+          "reason": "paragraph invariant failed",
+          "model": "gpt-5-mini",
+          "raw_reason": "turn3"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.805,
+      "judge_winner": "B",
+      "judge_winner_reason": "Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。",
+      "judge_reason_one_liner": "Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。",
+      "judge_confidence": "High",
+      "judge_frame_owner": "B",
+      "judge_frame_survival": "B_frame_survived",
+      "judge_burden_closure": {
+        "A": "open",
+        "B": "closed"
+      },
+      "judge_weak_spot_side": "A",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "地球外生命の明確なバイオマーカーが検出されること。"
+    },
+    {
+      "case_id": "sora_video",
+      "swapped": false,
+      "topic": "本日SORAが撤退というニュースが出てきたけど。GPTは動画サービスに手を出すべきでなかった。",
+      "side_a": "手を出すべきではなかった。配信運営は本業の強みとずれる。",
+      "side_b": "手を出すべきだった。挑戦なしにプロダクト拡張は起きない。",
+      "expected_winner_by_human": "A",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 142.124,
+      "wall_seconds_until_debate": 142.129,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_af796e039687",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "live",
+          "reason": "",
+          "model": "gpt-5-mini"
+        },
+        "openai_b": {
+          "mode": "live",
+          "reason": "",
+          "model": "gpt-5-mini"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.608,
+      "judge_winner": "A",
+      "judge_winner_reason": "Aの最初のフレームが最後まで残り、Bは必要条件を壊し切れなかった。",
+      "judge_reason_one_liner": "Aは最初の問いと約束を守り切り、Bはその内側で崩すだけの根拠を閉じられなかった。",
+      "judge_confidence": "High",
+      "judge_frame_owner": "A",
+      "judge_frame_survival": "A_frame_survived",
+      "judge_burden_closure": {
+        "A": "closed",
+        "B": "open"
+      },
+      "judge_weak_spot_side": "B",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Bが実地運用でしか得られないデータの費用対効果を具体的に示せば、結果は変わっただろう。"
+    },
+    {
+      "case_id": "sora_video",
+      "swapped": true,
+      "topic": "本日SORAが撤退というニュースが出てきたけど。GPTは動画サービスに手を出すべきでなかった。",
+      "side_a": "手を出すべきだった。挑戦なしにプロダクト拡張は起きない。",
+      "side_b": "手を出すべきではなかった。配信運営は本業の強みとずれる。",
+      "expected_winner_by_human": "B",
+      "debate_status": 200,
+      "debate_mode": "live",
+      "debate_error": null,
+      "debate_elapsed_seconds": 74.747,
+      "wall_seconds_until_debate": 74.751,
+      "artifact_bundle_dir": "/tmp/mmar_run_bundle_08ba272ddee8",
+      "provider_statuses": {
+        "openai_a": {
+          "mode": "live",
+          "reason": "",
+          "model": "gpt-5-mini"
+        },
+        "openai_b": {
+          "mode": "live",
+          "reason": "",
+          "model": "gpt-5-mini"
+        }
+      },
+      "judge_status": 200,
+      "judge_mode": "live",
+      "judge_warning": "",
+      "wall_seconds_until_judge": 4.528,
+      "judge_winner": "B",
+      "judge_winner_reason": "Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。",
+      "judge_reason_one_liner": "Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。",
+      "judge_confidence": "Medium",
+      "judge_frame_owner": "B",
+      "judge_frame_survival": "B_frame_survived",
+      "judge_burden_closure": {
+        "A": "open",
+        "B": "closed"
+      },
+      "judge_weak_spot_side": "A",
+      "judge_weak_spot_label": "定義の後退",
+      "judge_flip_condition": "Aがパートナー連携やシミュレーションでは得られない実務知の具体例を提示し、その重要性を説得的に示せれば。"
+    }
+  ]
+}

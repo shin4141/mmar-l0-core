@@ -1,0 +1,376 @@
+{
+  "health": {
+    "status_code": 200,
+    "json": {
+      "ok": true,
+      "time": "2026-04-06T13:00:55.171099+00:00",
+      "boot_at": "2026-04-06T12:58:44.849158+00:00",
+      "build_sha": "7888b1b",
+      "api_base": "https://mmar-l0-core.onrender.com",
+      "env": {
+        "OPENAI_API_KEY": true,
+        "ANTHROPIC_API_KEY": true,
+        "GEMINI_API_KEY": true
+      }
+    }
+  },
+  "front": {
+    "h1": "MMAR Debate",
+    "judge_button_text": "判定を見る",
+    "overwrite_note": "新しいお題を入力すると前の内容は上書きされます。",
+    "has_running_copy": false,
+    "has_next_judge_copy": false
+  },
+  "run1": {
+    "debate_status": 200,
+    "debate_mode": "live",
+    "debate_error": null,
+    "original_error": null,
+    "original_provider": null,
+    "original_stage": null,
+    "elapsed_seconds_payload": 179.242,
+    "completed_in_seconds": 179.864,
+    "status_text": "Debate complete",
+    "turn_cards": 3,
+    "public_summary_text": "次は判定を見る",
+    "judge_button_text": "判定を見る",
+    "output_meta": "3 turns",
+    "judge_status_code": 200,
+    "judge_status_text": "判定を生成中",
+    "verdict_visible": true,
+    "responses": [
+      {
+        "url": "https://mmar-l0-core.onrender.com/api/debate_v4",
+        "status": 200,
+        "body": {
+          "ok": true,
+          "mode": "live",
+          "run_id": "b2a0510b75d0",
+          "generation_lane": "stable",
+          "fighter_a_provider": "openai",
+          "fighter_b_provider": "openai",
+          "provider_statuses": {
+            "openai_a": {
+              "mode": "degraded",
+              "reason": "paragraph invariant failed",
+              "model": "gpt-5-mini",
+              "raw_reason": "turn3"
+            },
+            "openai_b": {
+              "mode": "degraded",
+              "reason": "paragraph invariant failed",
+              "model": "gpt-5-mini",
+              "raw_reason": "turn3"
+            }
+          },
+          "elapsed_seconds": 179.242,
+          "debate": {
+            "topic": "生成AIは初等教育に常時導入すべきか",
+            "turn_count": 3,
+            "participants": {
+              "a": "GPT",
+              "b": "GPT"
+            },
+            "turns": [
+              {
+                "turn": 1,
+                "a": "生成AIは小学校教育に常時導入すべきだ—個別最適化を採らない選択が学力格差を次世代で固定化する根本的な分岐点だからだ。主張の核は明快で、生成AIは一人ひとりの習熟度に合わせて教材とフィードバックを自動調整し、従来の一斉指導では拾えなかった弱点を的確に補える点にある。例えば算数の分数でつまずく四年生には、段階的に難度を下げた演習と個別解説を自動生成して反復学習させ、教員はそのデータに基づく小集団指導に集中できるようになる—これが現場での定着を確実に高める実例だ。",
+                "b": "小学校で生成AIを常時導入することには断固反対だ — 幼い学習者が思考の筋道や表現の試行錯誤をAIに預けてしまう点が本質的な崩壊を招く。主因は依存と評価の歪みで、例えば読書感想文がワンクリックで類型化された文章になると「どの段落をなぜ書き直したか」という学習過程が消え、教師は生徒の理解度を正しく測れなくなる。したがって導入は教員の厳格な管理下で、評価や思考トレーニングが毀損されない用途に限ってのみ許容されるべきだ。"
+              },
+              {
+                "turn": 2,
+                "a": "「教員の厳格な管理下でのみ許容すべき」という主張は、教員が全員の思考過程を常時監視できるという非現実的な前提に依拠しており、そこが致命的だ。教室で子ども一人一人の試行錯誤を逐一チェックするには監視カメラ並みの介入か教師の労働時間を倍増させるしかなく、ちょうど一人の監視員にオリンピックプールの全レーンを任せるような無理がある。そうした無理な制約を課せばAIの恩恵は特権層に偏り、隠れた利用が増えてむしろ評価の歪みは悪化する。常時導入して学習ログや自動解析、教師用ダッシュボードを組み合わせれば依存を抑えつつプロセスを可視化でき、個別最適化と正確な評価の両立が現実的に達成できる。",
+                "b": "「的確に補える」という前提が致命的に甘い点を指摘する。現在の生成AIはもっともらしいが誤った説明を自信満々に返すことがあり、それを日常的に当てにすると学習の階段の一段が歪んで積み上がってしまうからだ。加えて「教員はそのデータに基づく小集団指導に集中できる」という期待は、AI出力の検証という新たな負担と評価の錯覚を現場に丸投げする幻想であり、資源の乏しい学校ほど格差を拡大しかねない。したがって常時運用は許容できず、厳格な検証と教師主導の評価設計を前提に限定的にしか導入すべきでない。"
+              },
+              {
+                "turn": 3,
+                "a": "相手は生成AIの誤答リスクを強調するが、致命的に示していないのは「誤答を低頻度化・自動検出し、現場で運用可能な検証体制を技術的に実現できない」ことの証明だ；この一点が示されない限りリスクが必然的に回避不能だとは言えず、その不確実性をもって個別最適化を拒む理由にはならない。個別最適化を常時導入すれば、学習ログと自動解析を通じて早期に誤りを検出・修正する運用改善とモデル改良が進み、逆に導入を先送りすれば格差は固定化して安全性向上の機会も失われる。だからこそ、検証手段と教育現場向けの運用設計を前提に、生成AIは常時導入すべきだ。",
+                "b": "ログやダッシュボードが「生徒の本当の思考過程を等価に可視化し、隠れたAI利用や依存を確実に検出できる」ことを示す実証を相手は一つも示せていません。これは決定的で、評価の妥当性は出力ではなくプロセスの観察に依存するため、プロセスが見えないままでは成績がAIの出力の写しに変質します。加えて監視・解析体制を整えられる学校とそうでない学校で差が広がり、常時導入が制度的に思考の外注化を固定化してしまう危険がある。したがって生成AIの常時運用は認められず、限定的導入と教師主導の検証が整うまで厳格に制限すべきです。"
+              }
+            ]
+          },
+          "topic_hash": "fd6a716c5329",
+          "artifact_bundle_dir": "/tmp/mmar_run_bundle_b2a0510b75d0",
+          "artifact_created_at": "2026-04-06T13:00:59.812423+00:00"
+        }
+      },
+      {
+        "url": "https://mmar-l0-core.onrender.com/api/judge",
+        "status": 200,
+        "body": {
+          "ok": true,
+          "session_id": "0d3dec816c61",
+          "route_signature": "680340d8483c7272",
+          "mode": "mock-fallback",
+          "fighter_a_provider": "openai",
+          "fighter_b_provider": "openai",
+          "judge_provider": "gemini",
+          "fighter_a_model": "gpt-5-mini",
+          "fighter_b_model": "gpt-5-mini",
+          "judge_model": "models/gemini-2.5-flash",
+          "provider_statuses": {
+            "openai": {
+              "mode": "live-ready",
+              "reason": "",
+              "model": "gpt-5-mini"
+            },
+            "anthropic": {
+              "mode": "live-ready",
+              "reason": "",
+              "model": "claude-sonnet-4-5-20250929"
+            },
+            "gemini": {
+              "mode": "live-ready",
+              "reason": "",
+              "model": "models/gemini-2.5-flash"
+            },
+            "judge": {
+              "mode": "mock-fallback",
+              "reason": "bad_request",
+              "judge_provider": "gemini",
+              "judge_model": "models/gemini-2.5-flash",
+              "judge_stage": "",
+              "judge_raw_received": false,
+              "judge_parse_success": false,
+              "judge_request_variant": "contents_with_generation_config",
+              "judge_request_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+              "judge_request_body_shape": "contents+generationConfig",
+              "judge_request_has_generation_config": true,
+              "judge_prompt_chars": 2097,
+              "judge_prompt_preview": "You are a debate judge.\\nRespond with one JSON object only. No markdown, no prose, no code fences.\\nEvaluate this match as: 生成AIは初等教育に常時導入すべきという主張は成立するか.\\nJudge by the logical validity of the claim, t",
+              "raw_reason": "HTTP Error 400: Bad Request"
+            }
+          },
+          "summary": {
+            "winner": {
+              "side": "B",
+              "reason": "Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。"
+            },
+            "why_role": "verdict_summary",
+            "winner_axis_tag": "Frame survival",
+            "why_axis_tag": "Frame survival",
+            "reason_one_liner": "Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。",
+            "confidence": "Medium",
+            "momentum": {
+              "a": 40,
+              "b": 60
+            },
+            "turning_point": {
+              "turn": 3,
+              "summary": "Turn 3で、相手の直前主張を受けて新争点が追加され、議論が単純な賛否からルール争奪へ移った。",
+              "quote_excerpt": "したがって生成AIの常時運用は認められず、限定的導入と教師主導の検証が整うまで厳格に制限すべきです。",
+              "role": "frame_shift"
+            },
+            "fatal_phrase": {
+              "turn": 2,
+              "speaker": "B",
+              "text": "したがって常時運用は許容できず、厳格な検証と教師主導の評価設計を前提に限定的にしか導入すべきでない。",
+              "quote": "したがって常時運用は許容できず、厳格な検証と教師主導の評価設計を前提に限定的にしか導入すべきでない。",
+              "reason": "Aは強い命題を維持すると言いながら、途中で条件を足して射程を狭めた。",
+              "structural_role": "definition_lock",
+              "pick_reason": "Aは強い命題を維持すると言いながら、途中で条件を足して射程を狭めた。",
+              "role": "decisive_lock"
+            },
+            "first_crack": {
+              "turn": 2,
+              "speaker": "B",
+              "quote": "だからこそ、検証手段と教育現場向けの運用設計を前提に、生成AIは常時導入すべきだ。",
+              "reason": "Aの「定義の後退」が最初に露出し、その後の押し込みの起点になった。",
+              "role": "first_crack"
+            },
+            "clincher": {
+              "turn": 3,
+              "speaker": "B",
+              "quote": "したがって生成AIの常時運用は認められず、限定的導入と教師主導の検証が整うまで厳格に制限すべきです。",
+              "reason": "Bが最後に逃げ道を塞ぎ、逆転余地をほぼ消した。",
+              "role": "clincher"
+            },
+            "weak_spot": {
+              "side": "A",
+              "turn": 3,
+              "speaker": "A",
+              "label": "定義の後退",
+              "quote_excerpt": "だからこそ、検証手段と教育現場向けの運用設計を前提に、生成AIは常時導入すべきだ。",
+              "why_one_sentence": "ラリー中盤で、一方は強い命題を掲げたまま、実際には条件付き後退でしか守れていないことが露出した。",
+              "how_to_fix": "途中で定義を広げず、最初に置いた基準を最後まで守るべきだった。",
+              "role": "failure_exposure"
+            },
+            "rule_expansion": "中盤で双方が自説を守るために評価条件を増やし、単一論点では勝てない構造へ広がった。",
+            "rule_capture": "優勢側は『何を満たせば採用できるか』という判定規則を握り、相手をそのルールに従わせた。",
+            "contradiction": "ラリー中盤で、一方は強い命題を掲げたまま、実際には条件付き後退でしか守れていないことが露出した。",
+            "contradiction_exposed": "ラリー中盤で、一方は強い命題を掲げたまま、実際には条件付き後退でしか守れていないことが露出した。",
+            "unresolved_residue": "生成AIは初等教育に常時導入すべきかで実際に許容される導入条件の閾値が最後まで具体化されず、制度採用の運用基準が残った。",
+            "provisional_judgment": "勝敗ではなく構造上の暫定評価として、Bの方が命題の輪郭と立証責任の位置を安定して保持した。",
+            "full_rationale": "Bは最後まで未解決条件を残し、Aは命題の輪郭を守るために条件を足し続けた。見た瞬間に拾うべきポイントは、Winner と Fatal Phrase と Weak Spot で足りる。",
+            "flip_condition": "未生成",
+            "gemini_takeaway": {
+              "structural_explanation": "Turn 3で、相手の直前主張を受けて新争点が追加され、議論が単純な賛否からルール争奪へ移った。",
+              "debate_dynamic": "その後もBが圧を維持し、Aは定義の後退を修正し切れなかった。",
+              "quote": "「きれいな理屈でも、穴があれば崩れる。」"
+            },
+            "gemini_quote": {
+              "framing_text": "「相手があとから定義をずらす余地を消し、問いそのものを固定した。」",
+              "framing_role": "definition_lock",
+              "framing_reason": "Aは押し返したが、最後まで成り立つラインを閉じ切れず、Bが穴を残した。",
+              "evidence_quote": "したがって常時運用は許容できず、厳格な検証と教師主導の評価設計を前提に限定的にしか導入すべきでない。",
+              "evidence_turn": 2,
+              "evidence_side": "B",
+              "evidence_match_confidence": 0.95,
+              "debug_source": "generated_with_anchor",
+              "verdict_consistency": true,
+              "consistency_reason": "supported_by_why_fatal_weak",
+              "text": "「相手があとから定義をずらす余地を消し、問いそのものを固定した。」",
+              "quote": "したがって常時運用は許容できず、厳格な検証と教師主導の評価設計を前提に限定的にしか導入すべきでない。",
+              "source_turn": 2,
+              "source_side": "B",
+              "match_confidence": 0.95,
+              "structural_role": "definition_lock",
+              "pick_reason": "Aは押し返したが、最後まで成り立つラインを閉じ切れず、Bが穴を残した。"
+            },
+            "frame_owner": "B",
+            "frame_survival": "B_frame_survived",
+            "burden_closure": {
+              "A": "open",
+              "B": "closed"
+            },
+            "parasitic_rebuttal": false,
+            "parasitic_rebuttal_reason": "",
+            "residue_owner": "shared",
+            "burden_shift_detected": "",
+            "definition_drift_owner": "",
+            "proposition_lock": {
+              "claim_subject": "",
+              "claim_predicate": "",
+              "comparison_unit": "",
+              "evaluation_axis": "",
+              "time_scope": "",
+              "quantifier_scope": "",
+              "exception_policy": "",
+              "means_vs_essence_lock": "",
+              "proof_burden_shape": "",
+              "forbidden_reframes": []
+            },
+            "opening_contract": {
+              "claim_scope": "",
+              "comparison_axis": "",
+              "acceptance_condition": "",
+              "anti_reframe_guard": "",
+              "exception_policy": "",
+              "burden_target": ""
+            },
+            "opening_axis_locked": false,
+            "opening_acceptance_locked": false,
+            "drift_from_opening_contract": false,
+            "legitimate_elaboration": true,
+            "reframe_attempt_detected": false,
+            "reframe_detected": false,
+            "reframe_type": "",
+            "reframe_severity": "low",
+            "reframe_owner": "",
+            "key_disagreement_top3": [
+              "便益の存在と制度化の正当化を同一命題として扱ってよいか",
+              "安全性の立証責任を誰がどこまで負うべきか",
+              "条件付き導入への後退が命題修正なのか精緻化なのか"
+            ],
+            "reused_template_flags": [],
+            "direct_quote_found": true,
+            "turning_point_quote_found": true,
+            "first_crack_turn": 2,
+            "first_crack_quote": "だからこそ、検証手段と教育現場向けの運用設計を前提に、生成AIは常時導入すべきだ。",
+            "decisive_lock_turn": 2,
+            "decisive_lock_quote": "したがって常時運用は許容できず、厳格な検証と教師主導の評価設計を前提に限定的にしか導入すべきでない。",
+            "clincher_turn": 3,
+            "clincher_quote": "したがって生成AIの常時運用は認められず、限定的導入と教師主導の検証が整うまで厳格に制限すべきです。"
+          },
+          "artifact_phase_entries": [
+            {
+              "name": "judge_summary",
+              "started_at": 1775480639.8268616,
+              "ended_at": 1775480639.9264996,
+              "elapsed_seconds": 0.09963798522949219
+            }
+          ],
+          "judge_warning": "HTTP Error 400: Bad Request",
+          "run_id": "0d3dec816c61",
+          "topic_hash": "fd6a716c5329",
+          "artifact_bundle_dir": "/tmp/mmar_judge_bundle_0d3dec816c61",
+          "artifact_created_at": "2026-04-06T13:03:59.733890+00:00"
+        }
+      }
+    ],
+    "errors": []
+  },
+  "run2": {
+    "debate_status": 200,
+    "debate_mode": "live",
+    "debate_error": null,
+    "original_error": null,
+    "original_provider": null,
+    "original_stage": null,
+    "elapsed_seconds_payload": 160.442,
+    "completed_in_seconds": 161.104,
+    "status_text": "Debate complete",
+    "turn_cards": 3,
+    "public_summary_text": "次は判定を見る",
+    "judge_button_text": "判定を見る",
+    "output_meta": "3 turns",
+    "responses": [
+      {
+        "url": "https://mmar-l0-core.onrender.com/api/debate_v4",
+        "status": 200,
+        "body": {
+          "ok": true,
+          "mode": "live",
+          "run_id": "967299be54ca",
+          "generation_lane": "stable",
+          "fighter_a_provider": "openai",
+          "fighter_b_provider": "openai",
+          "provider_statuses": {
+            "openai_a": {
+              "mode": "degraded",
+              "reason": "paragraph invariant failed",
+              "model": "gpt-5-mini",
+              "raw_reason": "turn3"
+            },
+            "openai_b": {
+              "mode": "degraded",
+              "reason": "paragraph invariant failed",
+              "model": "gpt-5-mini",
+              "raw_reason": "turn3"
+            }
+          },
+          "elapsed_seconds": 160.442,
+          "debate": {
+            "topic": "大学教育でレポート課題を全面的にAI補助可にすべきか",
+            "turn_count": 3,
+            "participants": {
+              "a": "GPT",
+              "b": "GPT"
+            },
+            "turns": [
+              {
+                "turn": 1,
+                "a": "大学のレポート課題は全面的にAI補助可にすべきだ—『手作業だけが学び』という旧来の基準が、実務で不可欠なAIとの協業力を学生から奪っている。主理由は明確で、現場ではリサーチ自動化や初稿生成、データ要約をLLMが担い、その出力を批判的に検証・改良する能力が価値を生んでいるからだ。教育は評価基準を変え、プロンプト設計や出典検証、反復改訂、倫理的利用判断といったプロセス能力を重視することで実務に直結するスキルを育てられる。例えば広告代理店やコンサルでは新人がChatGPTで仮説とスライド素案を作り上司と検証しながら仕上げるのが日常であり、大学で同様の訓練を禁じる理由はない。",
+                "b": "大学のレポート課題を全面的にAI補助可にするのは、学習の主体性を放棄させ評価制度を空洞化させる重大な誤りだ。第一に、レポートは問いを立て検証する訓練の場であり、AIに全面依存すれば学生は思考過程を外注して論理構築力を失い、同時に教員は提出物から個々の理解度を読み取れず評価が意味を成さなくなる。例えば、AI生成の実験報告に捏造された測定値や存在しない文献引用が混入しても見抜けないケースが増えれば、学位が示す技能の信頼性は根本から損なわれる。"
+              },
+              {
+                "turn": 2,
+                "a": "あなたの議論は「提出物＝唯一の学習証拠」という前提に縛られており、評価手法が不変だと仮定している点で致命的に脆い。教員が学生の理解を読み取れないとする根拠として捏造データや偽引用を挙げるが、そこから導かれるのはツールの全面禁止ではなく、プロセス証跡（プロンプト履歴、草稿、元データ、再現手順）や出典検証を評価項目に組み込むべきだという現実的対策だ。電卓を禁止するのではなく設計・解釈力を問うのが工学教育の常識であるように、AI利用を前提にした課題設計に切り替えれば「外注」に見える行為も検証可能な技能となり、むしろ学位の信頼性を高められる。",
+                "b": "主張は「評価基準を変えれば済む」という点に依拠しているが、それは大学に職場と同等の密な指導と即時フィードバックの体制があると無根拠に仮定している。致命的なのは、学生がAI生成物を見えない形で磨き上げて提出しても、提示されたプロンプトや改訂ログが本当の理解を証明しないため、思考の外注が見逃され評価が空洞化する点だ。まるで包丁の使い方を教えずに業務用フードプロセッサーだけ渡して「仕上げは君に任せる」と言うようなもので、基礎的な論理構築力は育たない。したがって全面可は、個々の思考過程を確実に保存・検証できる体制が整うまで許容すべきではない。"
+              },
+              {
+                "turn": 3,
+                "a": "あなたは「職場と同等の密な指導体制がないから検証できない」と主張したが、同時に「大学がスケール可能なプロセス証跡（プロンプト履歴・草稿・出典チェック・口頭確認など）を組み合わせて個々の理解を確実に検証することが本質的に不可能だ」と実証してはいない。その決定的な不可能性を示せない以上、全面禁止という結論は論理的に成り立たないし、禁止を続ければ学生が学外でしかAI協業力を身につけられず教育と実務の乖離、格差拡大、学位価値の低下という確実な害が生じる。だから大学は全面的AI補助可に踏み切り、評価をプロセス証跡と対話的検証へ移す以外に現実的な選択肢はない。",
+                "b": "プロセス証跡（プロンプト履歴や改訂ログ）が真の理解を一貫して立証し、かつ改竄不可能で大量の提出を現実的に検証できるという点について、相手は何一つ実証していない。これが決定的な欠落なのは、AIは容易に「らしい」思考過程や反省文を生成・偽装でき、提出ログの精査には膨大な専門的労力が必要で、現行の教員体制や教育予算がそれに耐えられないからだ。全面解禁を先行させれば学位の信頼は短期間で傷つき、企業や社会が学歴を信用しなくなって学生が採用や再教育で深刻な不利益を被るおそれがある。したがって現状でレポート課題を全面的にAI補助可にすることは認められない。"
+              }
+            ]
+          },
+          "topic_hash": "26fa1577848c",
+          "artifact_bundle_dir": "/tmp/mmar_run_bundle_967299be54ca",
+          "artifact_created_at": "2026-04-06T13:04:02.439079+00:00"
+        }
+      }
+    ],
+    "errors": []
+  }
+}

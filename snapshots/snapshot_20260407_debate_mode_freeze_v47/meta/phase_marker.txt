@@ -1,0 +1,8 @@
+PHASE: debate_mode_freeze
+DATE: 2026-04-07
+STATUS: STABLE_BASELINE
+DO NOT MODIFY:
+- scorecard logic
+- draw tiebreak logic
+- blind explanation schema
+NEXT: add battle mode WITHOUT touching debate baseline

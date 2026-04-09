@@ -1,0 +1,2 @@
+GET /mmar/apps/debate/fixtures/public_sora_demo.json 200
+No /api/debate request observed during Run Fixed Debate on canonical 8912.

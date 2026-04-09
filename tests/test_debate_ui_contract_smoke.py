@@ -5,7 +5,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HTML_PATH = ROOT / "mmar" / "apps" / "debate" / "debate.html"
 JS_PATH = ROOT / "mmar" / "apps" / "debate" / "debate.js"
+CSS_PATH = ROOT / "mmar" / "apps" / "debate" / "debate.css"
 FIXTURE_PATH = ROOT / "mmar" / "apps" / "debate" / "fixtures" / "debate_demo.json"
+PUBLIC_SORA_FIXTURE_PATH = ROOT / "mmar" / "apps" / "debate" / "fixtures" / "public_sora_demo.json"
 VIEWER_ARCHIVE_PATH = ROOT / "mmar" / "apps" / "debate" / "fixtures" / "viewer_archive.json"
 SCHEMA_PATH = ROOT / "schemas" / "debate_response.public.json"
 DEV_API_PATH = ROOT / "tools" / "dev_api.py"
@@ -56,6 +58,15 @@ def test_fixture_matches_public_contract_shape():
         assert "最後に" not in turn["a"]
 
 
+def test_public_sora_fixed_fixture_exists():
+    fixture = _load_json(PUBLIC_SORA_FIXTURE_PATH)
+    assert fixture["ok"] is True
+    assert fixture["debate"]["topic"].startswith("本日SORAが撤退")
+    assert fixture["debate"]["turn_count"] == 3
+    assert len(fixture["debate"]["turns"]) == 3
+    assert fixture["provider_statuses"]["openai"]["mode"] == "live"
+
+
 def test_viewer_archive_has_curated_records():
     archive = _load_json(VIEWER_ARCHIVE_PATH)
     assert isinstance(archive, list)
@@ -86,6 +97,26 @@ def test_html_starts_without_structure_result_panel():
     assert 'id="viewer-topic-button"' in html
     assert 'id="archive-search"' in html
     assert 'data-mode-filter="all"' in html
+    assert 'id="turn-count"' in html
+    assert 'type="hidden"' in html
+    assert 'value="3"' in html
+    assert 'data-turn-count-option="3"' in html
+    assert 'data-turn-count-option="5"' in html
+    assert ">3 turns<" in html
+    assert ">5 turns<" in html
+    assert 'class="brand-lockup"' in html
+    assert 'class="brand-signoff"' in html
+    assert 'by Decision-OS' in html
+
+
+def test_backend_surface_policy_no_longer_prompts_meta_leak_phrases():
+    api = _read(ROOT / "tools" / "debate_api.py")
+    html = _read(HTML_PATH)
+
+    assert "At least once per turn include one short everyday punchy line such as 'それは苦しい', '話をずらしてる'" not in api
+    assert "def _naturalize_surface_text" in api
+    assert "def _contains_banned_surface_meta" in api
+    assert "def _naturalize_summary_surfaces" in api
     assert 'data-mode-filter="casual"' in html
     assert 'data-mode-filter="pro"' in html
     assert 'id="ask-shell"' in html
@@ -103,6 +134,8 @@ def test_html_starts_without_structure_result_panel():
     assert 'id="debug-judge-pass1"' in html
     assert 'id="debug-judge-pass2"' in html
     assert 'id="debug-story-align-report"' in html
+    assert 'id="runtime-fingerprint"' in html
+    assert 'id="runtime-diagnostic"' in html
 
 
 def test_js_uses_fixture_fallback_and_public_contract_keys():
@@ -123,17 +156,35 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "summary?.turning_point" in js
     assert "function stringifyTurningPointValue(value)" in js
     assert "function fatalPhraseTextCandidate(value)" in js
+    assert "quote_excerpt" in js
     assert "summary?.gemini_takeaway" in js
     assert "summary?.gemini_quote" in js
+    assert "evidence_turn" in js
+    assert "evidence_side" in js
+    assert "evidence_match_confidence" in js
+    assert "verdict_consistency" in js
+    assert "consistency_reason" in js
+    assert "raw.evidence_quote || raw.quote" in js
+    assert "raw.framing_text || raw.text" in js
     assert "summary?.contradiction_exposed" in js
     assert "normalizeWinner(summary)" in js
     assert "normalizeWeakSpot(summary)" in js
     assert "normalizeFatalPhrase(summary)" in js
+    assert "function formatStructuralRoleLabel(value)" in js
+    assert 'evidenceQuote || framingText ? "transcript_quote" : "backfilled"' in js
     assert "normalizeTurningPoint(summary)" in js
     assert "summary?.provisional_judgment" in js
     assert "summary?.key_disagreement_top3" in js
-    assert 'HISTORY_STORAGE_KEY' in js
+    assert "function historyStorageKey()" in js
+    assert 'return `mmar.debate.history.v1:${host}:${currentModeLabel()}`;' in js
     assert 'localStorage' in js
+    assert 'window.localStorage.getItem(historyStorageKey())' in js
+    assert 'window.localStorage.setItem(historyStorageKey(), JSON.stringify(records));' in js
+    assert "function renderRuntimeFingerprint()" in js
+    assert 'currentHealthInfo = { status: "ok", data, message: "" };' in js
+    assert 'currentHealthInfo = { status: "error", data: null, message: "health unavailable" };' in js
+    assert 'runtimeDiagnosticEl.textContent = reason ? `judge ${reason}${stage ? ` @ ${stage}` : ""}` : "";' in js
+    assert 'renderRuntimeFingerprint();' in js
     assert "function renderArchiveList()" in js
     assert "function toggleArchive(open)" in js
     assert "function filteredArchiveRecords(records, query, modeFilter)" in js
@@ -158,6 +209,8 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert "判定理由が短く返っていません" not in js
     assert 'const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";' in js
     assert 'const READ_ONLY_DEMO = /(^|\\\\.)onrender\\\\.com$/i.test(window.location.hostname);' in js
+    assert "if (VIEWER_MODE) {" in js
+    assert "Static demo fallback is disabled outside viewer mode." in js
     assert 'const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";' in js
     assert "function renderViewerList()" in js
     assert "function loadViewerArchive()" in js
@@ -181,6 +234,50 @@ def test_js_uses_fixture_fallback_and_public_contract_keys():
     assert 'debug_pass1' in js
     assert 'debug_pass2' in js
     assert 'debug_story_align_report' in js
+
+
+def test_js_supports_three_and_five_turn_selection_and_three_turn_clincher_suppression():
+    js = _read(JS_PATH)
+
+    assert 'const turnCountInput = document.querySelector("#turn-count");' in js
+    assert 'const turnCountButtons = [...document.querySelectorAll("[data-turn-count-option]")];' in js
+    assert "function normalizeTurnCount(value)" in js
+    assert "function selectedTurnCount()" in js
+    assert "function setTurnCountSelection(value)" in js
+    assert 'button.dataset.turnCountOption' in js
+    assert 'setTurnCountSelection(selectedTurnCount());' in js
+    assert 'const turnCount = selectedTurnCount();' in js
+    assert 'outputMetaEl.textContent = `${selectedTurnCount()} turns · pending`;' in js
+
+
+def test_public_limited_demo_locks_free_input_to_fixed_case():
+    html = _read(HTML_PATH)
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert 'id="public-fixed-demo-note"' in html
+    assert 'const PUBLIC_LIMITED_DEMO = !VIEWER_MODE && window.location.hostname === "127.0.0.1" && window.location.port === "8912";' in js
+    assert "function shouldUsePublicFixedDemo()" in js
+    assert "return PUBLIC_LIMITED_DEMO;" in js
+    assert 'const PUBLIC_FIXED_CASE = {' in js
+    assert 'if (mode === "public-fixed") {' in js
+    assert 'return `${countText} · fixed demo · fixture`;' in js
+    assert 'fixture_url: "./fixtures/public_sora_demo.json"' in js
+    assert 'document.querySelector("#topic").readOnly = true;' in js
+    assert 'document.querySelector("#side-a").readOnly = true;' in js
+    assert 'document.querySelector("#side-b").readOnly = true;' in js
+    assert 'runButton.textContent = "Run Fixed Debate";' in js
+    assert 'publicFixedDemoLog("run_click_received");' in js
+    assert 'publicFixedDemoLog("public_fixed_demo_branch_entered");' in js
+    assert 'publicFixedDemoLog("fixture_loader_entered");' in js
+    assert 'publicFixedDemoLog("fixture_fetch_succeeded");' in js
+    assert 'const data = await loadPublicFixedDemoResult();' in js
+    assert 'await runPublicFixedDemo();' in js
+    assert 'api_debate_called' in _read(ROOT / "tmp_capture_public_limited_8912.py")
+    assert 'fixture_fetch' in _read(ROOT / "tmp_capture_public_limited_8912.py")
+    assert "body.public-fixed-demo #debate-form .session-box" in css
+    assert 'setTurnCountSelection(preview.turn_count);' in js
+    assert 'const showClincher = turnCount >= 5 && Boolean(clincher.quote);' in js
 
 
 def test_js_preserves_judge_before_after_flow():
@@ -207,6 +304,21 @@ def test_js_preserves_judge_before_after_flow():
     assert 'data-jump-target="fatal"' in js
     assert 'data-jump-target="turning"' in js
     assert 'data-jump-target="weak"' in js
+    assert 'data-jump-target="gemini-quote"' in js
+    assert "function resolveTurnCard(turnNumber)" in js
+    assert "function resolveSpeakerBlock(turnNumber, speaker)" in js
+    assert "function resolveSentenceHighlight(block, quote, fallbackText = \"\")" in js
+    assert "const exact = normalizeSearchText(quote);" in js
+    assert "const loose = normalizeSearchText(fallbackText);" in js
+    assert 'node.classList.add("jump-highlight", "mmar-hit-flash", "mmar-hit-selected")' in js
+    assert 'node.classList.remove("mmar-hit-selected")' in js
+    assert "pulseJumpTarget([block, exactSentence]);" in js
+    assert "pulseJumpTarget(sentence ? [target, sentence] : target);" in js
+    assert "pulseJumpTarget(sentence ? [block, sentence] : block);" in js
+    assert "function jumpToGeminiQuote(summary)" in js
+    assert 'geminiQuote?.quote || ""' in js
+    assert 'geminiQuote?.text || ""' in js
+    assert "turning.quote_excerpt || \"\"" in js
     assert 'Turn ${weakSpot.turn}' in js
     assert 'weakSpot.quote_excerpt' in js
     assert 'weakSpot.how_to_fix' in js
@@ -224,14 +336,20 @@ def test_js_exposes_phase_and_provider_status_ui():
     assert 'stage: "討論継続"' in js
     assert 'stage: "締め"' in js
 
-    assert 'let currentFighters = { a: "openai", b: "anthropic", judge: "gemini" };' in js
+    assert 'let currentFighters = { a: "openai", b: "openai", judge: "judge" };' in js
     assert "formatProviderToken(\"A\", currentFighters.a, providerStatuses)" in js
     assert "formatProviderToken(\"B\", currentFighters.b, providerStatuses)" in js
     assert "formatProviderToken(\"J\", currentFighters.judge, providerStatuses)" in js
     assert "return [countText, ...tokens].join(\" · \");" in js
+    assert 'runtimeFingerprintEl.textContent = `${apiBase} · ${build} · boot ${boot} · ${currentModeLabel()} · ${summarizeHealthEnv(data.env)}`;' in js
     assert "provider_error" in js
-    assert "fallback" in js
+    assert "fallback_generated" in js
+    assert "model_access_error" in js
     assert "mock" in js
+    assert "function classifyProviderIssue(mode, reason, rawReason = \"\")" in js
+    assert "const normalizedCodes = new Set([" in js
+    assert "if (normalizedCodes.has(text)) return text;" in js
+    assert "classifyProviderIssue(mode, info.reason, info.raw_reason)" in js
 
 
 def test_mobile_layout_hooks_exist():
@@ -255,6 +373,16 @@ def test_mobile_layout_hooks_exist():
     assert 'font-size: 20px;' in css
     assert 'text-align: center;' in css
     assert 'body.mobile-ui #analysis-panel.mobile-analysis-collapsed #analysis-content' in css
+    assert ".mmar-hit-flash" in css
+    assert ".mmar-hit-selected" in css
+    assert ".turn-copy-sentence.mmar-hit-selected" in css
+    assert ".summary-role" in css
+    assert ".brand-lockup" in css
+    assert ".brand-signoff" in css
+    assert "body:not(.viewer-mode) .page-shell.reading-mode .input-panel .brand-signoff" in css
+    assert "body:not(.viewer-mode) .page-shell.reading-mode .input-panel h1" in css
+    assert "linear-gradient(180deg, rgba(255, 229, 122, 0.66), rgba(255, 213, 79, 0.52))" in css
+    assert "0 16px 32px rgba(17, 88, 160, 0.14)" in css
 
 
 def test_dev_api_exposes_server_history_routes():
@@ -296,6 +424,7 @@ def test_render_files_exist_for_same_origin_deploy():
 
 def test_js_composes_human_verdict_strip_from_summary():
     js = _read(JS_PATH)
+    css = _read(CSS_PATH)
 
     assert "composeVerdictHeadline(topic, winner)" in js
     assert "composeVerdictSubline(topic, winner, why)" in js
@@ -305,6 +434,14 @@ def test_js_composes_human_verdict_strip_from_summary():
     assert "composeFlipCondition(winner, weakSpot, why)" in js
     assert "normalizeGeminiTakeaway(summary, topic)" in js
     assert "normalizeGeminiQuote(summary)" in js
+    assert 'jumpToGeminiQuote(summary)' in js
+    assert "geminiQuote.evidence_turn" in js
+    assert "geminiQuote.evidence_side" in js
+    assert 'geminiQuote?.evidence_quote || geminiQuote?.quote || ""' in js
+    assert "geminiQuote.framing_role" in js
+    assert "geminiQuote.framing_reason" in js
+    assert "geminiQuote.framing_text" in js
+    assert "gemini-quote-evidence" in js
     assert "looksLikeGenericGeminiQuote" in js
     assert "extractGeminiQuoteConcepts" in js
     assert "Winner ${escapeHtml(winner.side)}" in js
@@ -312,6 +449,8 @@ def test_js_composes_human_verdict_strip_from_summary():
     assert "Flip Condition" in js
     assert "gemini-takeaway-card" in js
     assert "gemini-quote-card" in js
+    assert "gemini-quote-evidence" in css
+    assert "summary-role" in js
     assert "Turn ${fatal.turn} / ${fatal.speaker}" in js
     assert '少なくとも今回は' in js
 
@@ -389,3 +528,148 @@ def test_js_supports_jump_from_judge_cards_to_turn_log():
     assert ".summary-jump-card" in css
     assert ".jump-highlight" in css
     assert "@keyframes jumpPulse" in css
+
+
+def test_reader_mode_controls_and_card_role_labels_exist():
+    html = _read(HTML_PATH)
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert 'id="reader-controls"' in html
+    assert 'id="reader-back-button"' in html
+    assert 'id="reader-next-button"' in html
+    assert "let isReaderMode = false;" in js
+    assert "function clearCurrentResultView()" in js
+    assert "function exitReaderModeToEdit()" in js
+    assert "function startNextMatch()" in js
+    assert "readerControlsEl.hidden = !isReaderMode;" in js
+    assert 'inputPanelEl?.classList.toggle("reader-collapsed", isReaderMode);' in js
+    assert 'readerBackButton?.addEventListener("click", () => {' in js
+    assert 'readerNextButton?.addEventListener("click", () => {' in js
+    assert 'formatCardRoleLabel(summary?.why_role || "verdict_summary")' in js
+    assert 'formatCardRoleLabel(fatal.role || "decisive_lock")' in js
+    assert 'formatCardRoleLabel(turning.role || "frame_shift")' in js
+    assert 'formatCardRoleLabel(weakSpot.role || "failure_exposure")' in js
+    assert 'formatCardRoleLabel(geminiQuote.role || "ai_framing")' in js
+    assert "formatAxisTagLabel" in js
+    assert 'summary?.winner_axis_tag' in js
+    assert 'summary?.why_axis_tag' in js
+    assert 'fatal.axis_tag' in js
+    assert 'turning.axis_tag' in js
+    assert 'weakSpot.axis_tag' in js
+    assert ".reader-controls" in css
+    assert "grid-template-columns: minmax(92px, 124px) minmax(0, 1fr);" in css
+    assert "body:not(.viewer-mode) .page-shell.reading-mode .input-panel #debate-form" in css
+    assert ".summary-kicker" in css
+    assert ".summary-axis-tag" in css
+    assert ".summary-turn-badge" in css
+    assert ".summary-quote" in css
+    assert ".summary-weak-label" in css
+
+
+def test_gemini_ask_ui_uses_non_modal_side_panel_with_references():
+    html = _read(HTML_PATH)
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert 'id="ask-shell" class="history-shell ask-shell"' in html
+    assert 'id="ask-reference-bar"' in html
+    assert 'id="ask-reference-chips"' in html
+    assert 'id="ask-retry-button"' in html
+    assert 'placeholder="例: Turn 2 / A のこの一文が弱い理由は？"' in html
+
+    assert ".ask-shell" in css
+    assert ".ask-shell .history-backdrop" in css
+    assert "display: none;" in css
+    assert ".ask-reference-chips" in css
+    assert ".ask-reference-chip" in css
+    assert ".reference-action" in css
+
+    assert "let currentAskReferences = [];" in js
+    assert "function renderAskReferences()" in js
+    assert "function addAskReference(reference)" in js
+    assert "function removeAskReference(key)" in js
+    assert "function askPayloadReferences()" in js
+    assert "function buildReferenceButtonMarkup(reference)" in js
+    assert 'data-ask-reference-add="1"' in js
+    assert "currentAskMessages.push({ role: \"user\", text: trimmed || \"この参照について見てください。\", references });" in js
+    assert "references," in js
+    assert "summary: record?.judge_json || {}," in js
+    assert "Geminiに接続できませんでした。キー設定を確認して再送してください。" in js
+    assert "askRetryButton?.addEventListener(\"click\"" in js
+
+
+def test_transcript_sentence_references_are_rendered_and_sent():
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert "function splitTranscriptSentences(text)" in js
+    assert 'kind: "sentence"' in js
+    assert 'data-sentence-index="${escapeHtml(index + 1)}"' in js
+    assert 'data-turn="${escapeHtml(turnNumber)}"' in js
+    assert 'data-speaker="${escapeHtml(speaker)}"' in js
+    assert 'class="turn-copy-sentence-wrap"' in js
+    assert 'className: "sentence-reference-action"' in js
+    assert "normalized_text: reference.quote ? normalizeSearchText(reference.quote) : undefined," in js
+    assert 'source_kind: reference.kind === "sentence" ? "transcript" : reference.kind' in js
+    assert ".turn-copy-sentence-wrap" in css
+    assert ".sentence-reference-action" in css
+    assert ".turn-copy-sentence-wrap:hover .sentence-reference-action" in css
+    assert "position: absolute;" in css
+    assert "top: 100%;" in css
+
+
+def test_result_cards_do_not_show_always_visible_add_to_question_buttons():
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert 'title: "Fatal Phrase"' not in js
+    assert 'title: "Turning Point"' not in js
+    assert 'title: "Weak Spot"' not in js
+    assert 'title: "First Crack"' not in js
+    assert 'title: "Gemini Quote"' not in js
+    assert ".summary-card .reference-action" not in css
+    assert ".gemini-quote-card .reference-action" not in css
+
+
+def test_axis_tags_are_deduplicated_and_card_roles_render_differently():
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert "function computeAxisTagVisibility(cards)" in js
+    assert 'fatal: 5,' in js
+    assert 'weak: 4,' in js
+    assert 'turning: 3,' in js
+    assert 'why: 2,' in js
+    assert 'winner: 1,' in js
+    assert "const axisVisibility = computeAxisTagVisibility([" in js
+    assert 'axisVisibility.fatal === "primary"' in js
+    assert 'axisVisibility.turning === "primary"' in js
+    assert 'axisVisibility.weak === "primary"' in js
+    assert 'axisVisibility.why === "primary"' in js
+    assert 'axisVisibility.winner === "primary"' in js
+    assert 'summary-value summary-quote' in js
+    assert 'summary-value summary-weak-label' in js
+    assert 'summary-value summary-turning-copy' in js
+    assert 'summary-value summary-why-copy' in js
+    assert ".summary-turn-badge" in css
+    assert ".summary-quote" in css
+    assert ".summary-weak-label" in css
+
+
+def test_js_supports_first_crack_and_clincher_cards():
+    js = _read(JS_PATH)
+    css = _read(CSS_PATH)
+
+    assert "function normalizeFirstCrack(summary)" in js
+    assert "function normalizeClincher(summary)" in js
+    assert "function jumpToTimelineQuote(item)" in js
+    assert 'data-jump-target="first-crack"' in js
+    assert 'data-jump-target="clincher"' in js
+    assert 'formatCardRoleLabel(firstCrack.role || "first_crack")' in js
+    assert 'formatCardRoleLabel(fatal.role || "decisive_lock")' in js
+    assert 'formatCardRoleLabel(clincher.role || "clincher")' in js
+    assert 'if (target === "first-crack") jumpToTimelineQuote(normalizeFirstCrack(summary));' in js
+    assert 'if (target === "clincher") jumpToTimelineQuote(normalizeClincher(summary));' in js
+    assert ".summary-card.tone-first-crack" in css
+    assert ".summary-card.tone-clincher" in css

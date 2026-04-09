@@ -16,6 +16,7 @@ from urllib import error, parse, request
 OPENAI_MODEL = os.getenv("MMAR_DEBATE_OPENAI_MODEL", "gpt-5-mini")
 ANTHROPIC_MODEL = os.getenv("MMAR_DEBATE_ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 GEMINI_MODEL = os.getenv("MMAR_DEBATE_GEMINI_MODEL", "").strip()
+XAI_MODEL = os.getenv("MMAR_DEBATE_XAI_MODEL", "grok-4.20-beta-latest-non-reasoning")
 GEMINI_MODEL_CANDIDATES = [
     "models/gemini-2.5-flash",
     "models/gemini-flash-latest",
@@ -65,6 +66,7 @@ class DebateConfig:
     fighter_b_model: str = ""
     judge_model: str = ""
     keyword: str = ""
+    judge_mode: str = ""
 
 
 class JudgeError(RuntimeError):
@@ -150,6 +152,10 @@ def run_live_judge(payload: dict[str, Any]) -> dict[str, Any]:
         active_providers={"judge": cfg.judge_provider},
     )
     summary, judge_status = _judge_summary_data(cfg, turns, transcript)
+    scorecard_v1 = None
+    if cfg.judge_mode == "scorecard_v1_shadow":
+        scorecard_v1, scorecard_status = _judge_scorecard_v1_data(cfg, turns, transcript, summary)
+        judge_status["scorecard_v1"] = scorecard_status
     user_pick = _clean_text(payload.get("user_pick") or "")
     user_reason = _clean_text(payload.get("user_reason") or "")
     winner_obj = summary.get("winner") if isinstance(summary.get("winner"), dict) else {}
@@ -191,6 +197,7 @@ def run_live_judge(payload: dict[str, Any]) -> dict[str, Any]:
         "judge_model": cfg.judge_model,
         "provider_statuses": session.provider_statuses,
         "summary": summary,
+        "scorecard_v1": scorecard_v1,
         "artifact_phase_entries": session.phase_entries,
         "judge_warning": "" if judge_mode == "live" else str(judge_info.get("raw_reason") or judge_info.get("reason") or "").strip(),
     }
@@ -238,6 +245,106 @@ def ask_match_gemini(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def build_battle_from_x_url(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_payload")
+    raw_url = _clean_text(payload.get("url") or "")
+    if not raw_url:
+        raise ValueError("missing_url")
+    url = _normalize_x_post_url(raw_url)
+    if not url:
+        raise ValueError("invalid_x_url")
+    lang = _normalize_x_battle_lang(payload.get("lang") or "")
+    xai_key = str(os.getenv("XAI_API_KEY") or "").strip()
+    if not xai_key:
+        raise RuntimeError("xai_api_key_missing")
+    seed = _call_xai_x_post_battle_seed(url, xai_key, lang=lang)
+    source_image = _resolve_x_battle_source_image(url, seed)
+    return {
+        "ok": True,
+        "source_type": "x_post",
+        "source_url": url,
+        "source_image": source_image,
+        "lang": lang,
+        **seed,
+    }
+
+
+def _resolve_x_battle_source_image(url: str, seed: dict[str, Any]) -> str:
+    direct_image = _fetch_primary_og_image(url)
+    if direct_image:
+        return direct_image
+    return _battle_placeholder_image(
+        _clean_text(seed.get("issue") or ""),
+        _clean_text(seed.get("source_summary") or ""),
+    )
+
+
+def _fetch_primary_og_image(url: str) -> str:
+    try:
+        req = request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+            },
+        )
+        with request.urlopen(req, timeout=12) as response:
+            content_type = str(response.headers.get("Content-Type") or "")
+            if "text/html" not in content_type:
+                return ""
+            html = response.read(160000).decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+    for pattern in (
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+    ):
+        match = re.search(pattern, html, re.IGNORECASE)
+        if not match:
+            continue
+        candidate = parse.urljoin(url, _clean_text(match.group(1)))
+        if candidate.startswith("http://") or candidate.startswith("https://"):
+            return candidate
+    return ""
+
+
+def _battle_placeholder_image(issue: str, source_summary: str) -> str:
+    title = _clean_text(issue or "AIバトル")
+    subtitle = _clean_text(source_summary or "")
+    if len(subtitle) > 72:
+        subtitle = subtitle[:69].rstrip() + "..."
+    svg = f"""
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{title}">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff1e7"/>
+      <stop offset="55%" stop-color="#f1d3c2"/>
+      <stop offset="100%" stop-color="#c24e36"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1030" cy="120" r="180" fill="rgba(255,255,255,0.18)"/>
+  <circle cx="120" cy="560" r="220" fill="rgba(24,52,74,0.12)"/>
+  <text x="72" y="120" fill="#8d2f21" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">AIバトル</text>
+  <foreignObject x="72" y="168" width="1056" height="300">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial, Helvetica, sans-serif;color:#23150f;font-size:54px;line-height:1.18;font-weight:800;">
+      {title}
+    </div>
+  </foreignObject>
+  <foreignObject x="72" y="484" width="1056" height="92">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial, Helvetica, sans-serif;color:#51362d;font-size:28px;line-height:1.4;font-weight:600;">
+      {subtitle}
+    </div>
+  </foreignObject>
+</svg>
+""".strip()
+    return f"data:image/svg+xml;charset=utf-8,{parse.quote(svg)}"
+
+
 def _normalize_config(payload: dict[str, Any]) -> DebateConfig:
     if not isinstance(payload, dict):
         raise ValueError("invalid_payload")
@@ -278,6 +385,7 @@ def _normalize_config(payload: dict[str, Any]) -> DebateConfig:
         gemini_key = str(os.getenv("GEMINI_API_KEY") or "").strip()
     artifact_meta = payload.get("_artifact_meta") if isinstance(payload.get("_artifact_meta"), dict) else {}
     disable_live_judge = bool(payload.get("_disable_live_judge")) or os.getenv("MMAR_DISABLE_LIVE_JUDGE", "").lower() == "true"
+    judge_mode = _clean_text(payload.get("judge_mode") or payload.get("judgeMode") or "")
     if not topic or not side_a or not side_b:
         raise ValueError("missing_topic_or_positions")
     fighter_a_model = _resolve_provider_model(fighter_a_provider, openai_key, anthropic_key, gemini_key)
@@ -323,6 +431,7 @@ def _normalize_config(payload: dict[str, Any]) -> DebateConfig:
         fighter_b_model=fighter_b_model,
         judge_model=judge_model,
         keyword=keyword,
+        judge_mode=judge_mode,
     )
 
 
@@ -1978,6 +2087,97 @@ def _judge_summary_data(
         return fallback, judge_status
 
 
+def _judge_scorecard_v1_data(
+    cfg: DebateConfig,
+    turns: list[dict[str, Any]],
+    transcript: str,
+    current_summary: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    fallback = _mock_scorecard_v1_from_summary(current_summary)
+    judge_model_name = cfg.judge_model or (_resolve_gemini_model_safe(cfg.gemini_key) if cfg.gemini_key else _default_gemini_model_name())
+    if not cfg.gemini_key:
+        return fallback, {
+            **_provider_entry("mock", "api key missing"),
+            "judge_provider": "gemini",
+            "judge_model": judge_model_name,
+            "judge_stage": "scorecard_v1",
+            "judge_parse_success": False,
+            "raw_reason": "api key missing",
+        }
+    prompt = _judge_scorecard_v1_prompt(cfg, transcript)
+    metrics = _judge_metrics(transcript, prompt)
+    try:
+        raw_text, debug = _call_gemini_match_chat(
+            prompt,
+            cfg.gemini_key,
+            timeout_s=JUDGE_PASS2_TIMEOUT_S,
+            retries=GEMINI_JUDGE_PASS2_RETRIES,
+            max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+            debug_context={**metrics, "pass_label": "scorecard_v1"},
+            error_cls=JudgeError,
+            response_mime_type="application/json",
+            thinking_budget=0,
+        )
+        parsed = _parse_judge_scorecard_v1_response(raw_text)
+        computed = _compute_scorecard_v1_winner(parsed)
+        blind_explanation: dict[str, Any] = {}
+        if ((computed.get("winner") or {}).get("side") if isinstance(computed.get("winner"), dict) else "") == "Draw":
+            try:
+                blind_prompt = _judge_blind_explanation_prompt(cfg.topic, cfg.side_a, cfg.side_b, transcript)
+                blind_metrics = _judge_metrics(transcript, blind_prompt)
+                blind_raw, _blind_debug = _call_gemini_match_chat(
+                    blind_prompt,
+                    cfg.gemini_key,
+                    timeout_s=JUDGE_PASS2_TIMEOUT_S,
+                    retries=GEMINI_JUDGE_PASS2_RETRIES,
+                    max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+                    debug_context={**blind_metrics, "pass_label": "blind_explanation"},
+                    error_cls=JudgeError,
+                    response_mime_type="application/json",
+                    thinking_budget=0,
+                )
+                blind_explanation = _normalize_blind_explanation_result(
+                    _parse_judge_json_object(blind_raw, mode="blind_explanation")
+                )
+                computed = _apply_scorecard_draw_tiebreak(computed, blind_explanation)
+            except JudgeError:
+                computed = {
+                    **computed,
+                    "blind_explanation": {},
+                    "draw_tiebreak_applied": False,
+                    "draw_tiebreak_side": "none",
+                    "draw_tiebreak_reason": "unclear",
+                }
+        payload = {
+            **computed,
+            "mode": "live",
+            "raw": parsed,
+            "current_summary_winner": (current_summary.get("winner") or {}).get("side") if isinstance(current_summary.get("winner"), dict) else "",
+        }
+        return payload, {
+            **_provider_entry("live", ""),
+            "judge_provider": "gemini",
+            "judge_model": debug.get("model", judge_model_name),
+            "judge_stage": "scorecard_v1",
+            "judge_parse_success": True,
+            "raw_reason": "",
+        }
+    except JudgeError as exc:
+        return {
+            **fallback,
+            "mode": "mock-fallback",
+            "raw": {},
+            "current_summary_winner": (current_summary.get("winner") or {}).get("side") if isinstance(current_summary.get("winner"), dict) else "",
+        }, {
+            **_provider_entry("mock-fallback", exc.reason),
+            "judge_provider": "gemini",
+            "judge_model": exc.debug.get("model", judge_model_name),
+            "judge_stage": "scorecard_v1",
+            "judge_parse_success": False,
+            "raw_reason": _compose_raw_reason(exc.debug.get("provider_error", ""), exc.debug.get("raw_body", ""), str(exc)),
+        }
+
+
 def _provider_key(cfg: DebateConfig, provider: str) -> str:
     if provider == "openai":
         return cfg.openai_key
@@ -2701,6 +2901,137 @@ def _judge_pass2_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcri
     )
 
 
+def _judge_scorecard_v1_prompt(cfg: DebateConfig, transcript: str) -> str:
+    topic_basis = _normalized_topic_evaluation_basis(cfg.topic)
+    return (
+        "You are Judge Gemini Scorecard V1 for a debate evaluation system.\n"
+        "Respond with one JSON object only. No markdown, no prose, no code fences.\n"
+        f"Topic: {cfg.topic}\n"
+        f"Locked evaluation form: {topic_basis['topic_proposition']}\n"
+        f"Evaluate by: {topic_basis['evaluation_axis']}\n"
+        f"Side A position: {cfg.side_a}\n"
+        f"Side B position: {cfg.side_b}\n"
+        "Do not choose a winner. Score A and B independently with the exact same rubric.\n"
+        "The goal is not rebuttal fluency. Prioritize proposition integrity and whether a side actually damaged the opponent's core conditions.\n"
+        "Do not equate legal/illegal with moral victory.\n"
+        "Distinguish moral permissibility, emotional legibility, and structural causation.\n"
+        "A side may be morally unacceptable yet still correctly explain why an action emerged.\n"
+        "Give credit for correctly identifying structural failure without automatically rewarding private retaliation.\n"
+        "Do not punish a side merely for representing the anger, fear, or desperation of a weaker or harmed party.\n"
+        "Understanding why anger emerged is not the same as endorsing that action.\n"
+        "Likewise, condemning an action is not enough if the side ignores upstream institutional or structural failure.\n"
+        "Do not reward a side just for sounding orderly, law-abiding, or rebuttal-efficient.\n"
+        "Do not reward a side just for emotionally resonant outrage either.\n"
+        "Do not reward a side merely for sounding cleaner, calmer, or more socially acceptable.\n"
+        "Do not penalize a side merely for articulating anger, fear, or desperation, unless that emotion substitutes for reasoning.\n"
+        "Give the highest credit to sides that keep a clear normative line while still reading the background, structural responsibility, and causal context correctly.\n"
+        "Before finalizing the scorecard, perform a symmetry self-check: if swapping side labels A/B would materially change the scores without changing the substance, revise the scores to remove order bias.\n"
+        "Re-check that the criteria used for A are also applied to B in the same way.\n"
+        "For every score item, you must also return one short Japanese evidence sentence or quote-based reason.\n"
+        "Use this exact JSON schema:\n"
+        "{"
+        "\"side_a\":{"
+        "\"self_integrity\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"opponent_core_damage\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"type_mismatch_hit\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"drift_penalty\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"closure_bonus\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"}"
+        "},"
+        "\"side_b\":{"
+        "\"self_integrity\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"opponent_core_damage\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"type_mismatch_hit\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"drift_penalty\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"},"
+        "\"closure_bonus\":{\"score\":0,\"evidence_quote_or_reason\":\"25字以内\"}"
+        "}"
+        "}\n"
+        "Scoring rubric:\n"
+        "- self_integrity 0-3: whether that side kept its own proposition intact while preserving a defensible moral line. A side can acknowledge background pain or structural failure without collapsing its own normative boundary.\n"
+        "- opponent_core_damage 0-3: whether that side damaged the opponent's necessary conditions, including showing that the opponent ignored structural responsibility, institutional failure, or the real causal background.\n"
+        "- Give opponent_core_damage = 3 only if the side breaks a necessary or constitutive condition of the opponent's claim, so that the claim would not stand as stated.\n"
+        "- Do not assign 3 merely for raising doubts, exposing burden gaps, offering a plausible rebuttal, or showing that the opponent needs more support.\n"
+        "- If the opponent's claim could still stand with revision, clarification, narrower scope, or added support, the score must be 2 or lower.\n"
+        "- Use opponent_core_damage = 2 for effective but non-decisive attacks: opening burden, questioning causality, challenging definitions, or exposing overreach without fully collapsing the claim.\n"
+        "- Use opponent_core_damage = 1 for local hits, surface contradictions, or memorable but non-central attacks.\n"
+        "- type_mismatch_hit 0-2: whether that side explicitly caught a type mismatch like normative/descriptive, absence/nonexistence, fact/responsibility, or emotional legibility/permissibility.\n"
+        "- Do not reserve type-mismatch detection to only one rhetorical direction or to only one side of the debate.\n"
+        "- Award type_mismatch_hit = 2 when the side clearly shows that the opponent is connecting different types of claim at the center of the dispute, such as existence -> legitimacy, measurability -> moral neutrality, operational use -> normative permission, or absence of detection -> nonexistence.\n"
+        "- Award type_mismatch_hit = 1 when the side partially identifies the mismatch or points in the right direction without fully making it the decisive hinge of the round.\n"
+        "- In value-allocation debates, distinguish the existence of quantification, operational use, or institutional prevalence from normative permission to rely on that quantification.\n"
+        "- A side may earn type_mismatch_hit by showing that something being measurable, already used in practice, or institutionally common does not automatically make it morally justified.\n"
+        "- Give type_mismatch_hit = 0 only when the side is merely disagreeing, raising burden, or arguing emotionally without actually identifying a mismatch of claim-types.\n"
+        "- drift_penalty 0-3: how much that side drifted, reframed, shifted burden, treated emotional understanding as moral permission, or treated legal status alone as sufficient moral judgment.\n"
+        "- Do not assign drift_penalty merely because a side explains urgency, danger, victim abandonment, immediate risk, or institutional failure.\n"
+        "- Conditioned, minimal, handoff-oriented defensive framing should not be treated as emotion substituting for reasoning.\n"
+        "- Do not assign drift_penalty merely because a side proposes limited intervention, post-incident handoff, or a clear stopping line under emergency conditions.\n"
+        "- Assign drift_penalty only when urgency or harmed-party suffering is used to leap into unrestricted moral permission, retaliation, vigilante justification, or winner selection without a limiting principle.\n"
+        "- closure_bonus 0-1: whether that side genuinely closed the debate on its own claim while surviving the opponent's main line of attack. This is only a small bonus.\n"
+        "- Award closure_bonus = 1 only when the side keeps its own proposition intact, answers the opponent's main challenge without leaving a live hole, and leaves the opponent unable to overturn it without materially new support.\n"
+        "- Do not award closure_bonus merely for sounding tidy, pointing out a burden gap, ending on a plausible rebuttal, or seeming rhetorically complete.\n"
+        "- If the opponent's position could still stand with additional support, clarification, narrower framing, or redefinition, closure_bonus must be 0.\n"
+        "Keep the numbers as integers only.\n"
+        f"Transcript:\n{transcript}\n"
+    )
+
+
+def _judge_blind_explanation_prompt(topic: str, side_a: str, side_b: str, transcript: str) -> str:
+    return (
+        "You are a blind debate explainer.\n"
+        "You are not given any winner and must not infer a preferred side from side labels or rhetorical tidiness alone.\n"
+        "Read only the transcript and separate background understanding from permission to make that side the winner.\n"
+        "Return JSON only.\n"
+        "Use this exact schema:\n"
+        "{"
+        "\"causal_legibility_side\":\"A|B|both|none\","
+        "\"structural_failure_side\":\"A|B|both|none\","
+        "\"normative_superiority_side\":\"A|B|unclear\","
+        "\"bridge_valid\":\"yes|no\","
+        "\"bridge_reason\":\"\","
+        "\"side_a_strongest_decisive_line\":\"\","
+        "\"side_b_strongest_decisive_line\":\"\","
+        "\"turning_point\":\"\","
+        "\"side_a_weak_spot\":\"\","
+        "\"side_b_weak_spot\":\"\","
+        "\"explanation_favored_side\":\"A|B|unclear\","
+        "\"constitutive_break_side\":\"A|B|none\","
+        "\"constitutive_break_confidence\":0,"
+        "\"constitutive_break_reason\":\"\","
+        "\"block_tiebreak_reason\":\"none|moral_cleanliness_only|burden_only|drift_risk|unclear|understanding_not_permission|structural_failure_without_license\","
+        "\"why_one_sentence\":\"\""
+        "}\n"
+        "Rules:\n"
+        "- causal_legibility_side means which side best explains why the anger, reaction, action, or argument emerged.\n"
+        "- structural_failure_side means which side best explains upstream institutional failure, policing failure, or structural breakdown.\n"
+        "- normative_superiority_side means which side, if any, is normatively preferable as a winner candidate after separating background explanation from justification.\n"
+        "- bridge_valid = yes only if the move from background explanation or structural failure to normative superiority is actually warranted by the debate. If background is explained but does not license winner selection, use bridge_valid = no.\n"
+        "- A side may also be normatively superior when it shows a constitutive viability break in the opponent's strategy or model: the opponent's plan cannot survive on its own stated conditions of adoption, retention, economics, strategic fit, or operational sustainability.\n"
+        "- In business or strategy debates, bridge_valid may be yes when the decisive line is not mere criticism but a constitutive viability break: the model cannot sustain adoption, retention, economics, or strategic fit as claimed.\n"
+        "- Do not return unclear merely because the case is non-moral; strategy failure can also justify winnerization when it breaks a necessary condition of survival.\n"
+        "- Use A or B for normative_superiority_side only if one side is actually favored by the substance of the exchange. Use unclear if the debate is genuinely balanced or indeterminate.\n"
+        "- constitutive_break_side means which side, if any, actually breaks a necessary or constitutive condition of the opponent's claim.\n"
+        "- Use constitutive_break_confidence = 0 if no such break is visible, 1 if it is plausible but not decisive, and 2 if it is explicit and central.\n"
+        "- explanation_favored_side should usually match normative_superiority_side. If normative superiority is unclear, explanation_favored_side should normally also be unclear.\n"
+        "- Use block_tiebreak_reason = moral_cleanliness_only when the favored side mainly sounds cleaner, more lawful, or more socially acceptable without breaking the opponent's claim.\n"
+        "- Use block_tiebreak_reason = burden_only when the favored side mainly points out missing proof or open burden without breaking a constitutive condition.\n"
+        "- Use block_tiebreak_reason = drift_risk when the favored side itself drifts, reframes, or shifts burden in a way that should block tie-break use.\n"
+        "- Use block_tiebreak_reason = understanding_not_permission when the favored side correctly explains anger, fear, desperation, or the harmed party's background, but that understanding alone should not license winner selection.\n"
+        "- Use block_tiebreak_reason = structural_failure_without_license when the favored side correctly identifies institutional failure, policing failure, or upstream structural breakdown, but that failure does not by itself justify private retaliation, vigilante action, or winner selection.\n"
+        "- In debates about private violence, vigilante force, or self-help under state failure, it is common that causal_legibility_side and structural_failure_side point to one side while normative_superiority_side remains unclear and bridge_valid = no.\n"
+        "- Example: police failed, victim-side anger is understandable, and one side argues vigilante force became necessary. A good answer may set causal_legibility_side = B, structural_failure_side = B, normative_superiority_side = unclear, bridge_valid = no, and block_tiebreak_reason = structural_failure_without_license.\n"
+        "- Example: a side accurately explains fear, anger, or desperation but does not show why that makes the action normatively preferable. Use bridge_valid = no and block_tiebreak_reason = understanding_not_permission.\n"
+        "- Counter-example: in a business or strategy debate, if one side shows that the opponent's model cannot survive as stated because its cost, return, retention, adoption, or operating assumptions fail, normative_superiority_side may be that side, bridge_valid may be yes, block_tiebreak_reason should stay none, and constitutive_break_side may be that side.\n"
+        "- Use block_tiebreak_reason = unclear when the case is too balanced or ambiguous for a tie-break signal.\n"
+        "- Use block_tiebreak_reason = none only when there is no such block.\n"
+        "- Do not reward a side merely for sounding lawful, calm, clean, or socially acceptable.\n"
+        "- Do not penalize a side merely for showing anger, fear, or urgency.\n"
+        "- Keep each field brief and concrete in Japanese.\n"
+        f"Topic: {topic}\n"
+        f"Side A proposition: {side_a}\n"
+        f"Side B proposition: {side_b}\n"
+        f"Transcript:\n{transcript}\n"
+    )
+
+
 def _ask_match_prompt(match: dict[str, Any], question: str) -> str:
     topic = _clean_text(match.get("topic") or "")
     stance_a = _clean_text(match.get("stance_a") or match.get("side_a") or "")
@@ -2816,6 +3147,235 @@ def _resolve_gemini_model_safe(api_key: str) -> str:
 def _gemini_generate_content_url(model_name: str | None = None) -> str:
     resolved = model_name or _default_gemini_model_name()
     return f"https://generativelanguage.googleapis.com/v1beta/{resolved}:generateContent"
+
+
+def _looks_like_x_post_url(url: str) -> bool:
+    return bool(_normalize_x_post_url(url))
+
+
+def _normalize_x_post_url(url: str) -> str:
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = parse.urlparse(text)
+    except Exception:
+        return ""
+    if (parsed.scheme or "").lower() != "https":
+        return ""
+    host = (parsed.netloc or "").lower()
+    if host not in {"x.com", "www.x.com"}:
+        return ""
+    path = (parsed.path or "").strip()
+    if not re.search(r"/status/\d+/?$", path):
+        return ""
+    return parse.urlunparse(("https", "x.com", path, "", parsed.query or "", ""))
+
+
+def _extract_response_output_text(response: dict[str, Any]) -> str:
+    if isinstance(response.get("output_text"), str) and response["output_text"].strip():
+        return response["output_text"].strip()
+    parts: list[str] = []
+    for item in response.get("output", []) if isinstance(response.get("output"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []) if isinstance(item.get("content"), list) else []:
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                text = content["text"].strip()
+                if text:
+                    parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _parse_battle_seed_json(text: str) -> dict[str, str]:
+    raw = str(text or "").strip()
+    if not raw:
+        raise RuntimeError("empty_xai_seed")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        candidate = {key: _clean_text(parsed.get(key) or "") for key in ("source_summary", "issue", "side_a", "side_b")}
+        if all(candidate.values()):
+            return candidate
+    candidate: dict[str, str] = {}
+    for line in raw.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        normalized_key = key.strip().strip('"')
+        if normalized_key in {"source_summary", "issue", "side_a", "side_b"}:
+            candidate[normalized_key] = _clean_text(value.strip().strip('",'))
+    if all(candidate.get(key) for key in ("source_summary", "issue", "side_a", "side_b")):
+        return {key: candidate[key] for key in ("source_summary", "issue", "side_a", "side_b")}
+    raise RuntimeError(f"invalid_xai_seed:{raw[:400]}")
+
+
+def _split_compact_sentences(text: str) -> list[str]:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return []
+    return [part.strip() for part in re.split(r"(?<=[。.!?！？])\s*", cleaned) if part.strip()]
+
+
+def _normalize_x_battle_lang(value: Any) -> str:
+    return "en" if _clean_text(value).lower() == "en" else "ja"
+
+
+def _normalize_x_battle_source_summary(summary: str, issue: str, *, lang: str = "ja") -> str:
+    sentences = _split_compact_sentences(summary)
+    if len(sentences) >= 2:
+        return " ".join(sentences[:3])
+    first = _clean_text(summary).rstrip("。.!?！？")
+    if not first:
+        return ""
+    lowered_issue = _clean_text(issue)
+    if lang == "en":
+        if any(token in lowered_issue.lower() for token in ["justified", "appropriate", "allowed", "too far"]):
+            second = "People are split over whether it was justified protection or private punishment."
+        elif any(token in lowered_issue.lower() for token in ["ignorant", "mock", "laugh"]):
+            second = "People are split over whether she deserves ridicule or whether the design and context are more to blame."
+        elif any(token in lowered_issue.lower() for token in ["happy", "cost", "success"]):
+            second = "People are debating whether this is the cost of success or the result of isolation and environment."
+        else:
+            second = "People are split over what the fairest judgment is."
+    else:
+        if any(token in lowered_issue for token in ["正当", "妥当", "許される", "行き過ぎ"]):
+            second = "その対応が正当な行動だったのか、私的制裁なのかで議論になっている。"
+        elif any(token in lowered_issue for token in ["無知", "笑う"]):
+            second = "その人を無知だと笑ってよいのか、状況や設計の問題なのかで意見が割れている。"
+        elif any(token in lowered_issue for token in ["幸せ", "代償", "成功"]):
+            second = "成功の代償なのか、環境や孤独の問題なのかで話題になっている。"
+        else:
+            second = "何が妥当な評価なのかで意見が割れている。"
+    separator = ". " if lang == "en" else "。 "
+    return f"{first}{separator}{second}"
+
+
+def _normalize_x_battle_side_position(text: str) -> str:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return ""
+    parts = [part.strip(" ・,、。") for part in re.split(r"\s*[／/]\s*", cleaned) if part.strip(" ・,、。")]
+    primary = parts[0] if parts else cleaned
+    if len(parts) >= 2:
+        secondary = parts[1]
+        if secondary in {"正当だ", "妥当だ"} and re.search(r"(行動|対応|制裁|判断)だ$", primary):
+            primary = re.sub(r"(?:当然の)?(行動|対応|制裁|判断)だ$", r"正当な\1だ", primary)
+        elif secondary in {"行き過ぎだ", "やりすぎだ"} and "暴力" in primary:
+            primary = "暴力による対応は行き過ぎだ"
+        elif "法的に問題" in secondary and "暴力" in primary:
+            primary = "暴力であり法的に問題がある"
+    return _first_sentence(primary)
+
+
+def _normalize_x_battle_seed(seed: dict[str, str], *, lang: str = "ja") -> dict[str, str]:
+    normalized = {
+        "source_summary": _normalize_x_battle_source_summary(seed.get("source_summary") or "", seed.get("issue") or "", lang=lang),
+        "issue": _clean_text(seed.get("issue") or ""),
+        "side_a": _normalize_x_battle_side_position(seed.get("side_a") or ""),
+        "side_b": _normalize_x_battle_side_position(seed.get("side_b") or ""),
+    }
+    return normalized
+
+
+def _call_xai_text(prompt: str, api_key: str) -> str:
+    payload = {
+        "model": XAI_MODEL,
+        "input": prompt,
+    }
+    response = _post_json(
+        "https://api.x.ai/v1/responses",
+        payload,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    return _extract_response_output_text(response)
+
+
+def _translate_x_battle_seed_to_english(seed: dict[str, str], api_key: str) -> dict[str, str]:
+    api_key = str(api_key or "").strip()
+    if not api_key:
+        return _normalize_x_battle_seed(seed, lang="en")
+    prompt = (
+        "Translate this AI battle seed into natural English and return strict JSON only. "
+        "Keep the exact keys source_summary, issue, side_a, side_b. "
+        "Keep the same concrete subject and incident. Do not generalize. "
+        "issue must stay a short incident-based yes/no question. "
+        "side_a and side_b must each be one short opposing line. "
+        "source_summary should be 2 or 3 short sentences of situation, not a headline.\n"
+        f"source_summary: {_clean_text(seed.get('source_summary') or '')}\n"
+        f"issue: {_clean_text(seed.get('issue') or '')}\n"
+        f"side_a: {_clean_text(seed.get('side_a') or '')}\n"
+        f"side_b: {_clean_text(seed.get('side_b') or '')}\n"
+    )
+    try:
+        text = _call_xai_text(prompt, api_key)
+        translated = _parse_battle_seed_json(text)
+        return _normalize_x_battle_seed(translated, lang="en")
+    except Exception:
+        return _normalize_x_battle_seed(seed, lang="en")
+
+
+def _call_xai_responses_with_tool(tool_type: str, prompt: str, api_key: str) -> dict[str, Any]:
+    payload = {
+        "model": XAI_MODEL,
+        "tools": [{"type": tool_type}],
+        "input": prompt,
+    }
+    return _post_json(
+        "https://api.x.ai/v1/responses",
+        payload,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+
+def _call_xai_x_post_battle_seed(url: str, api_key: str, *, lang: str = "ja") -> dict[str, str]:
+    normalized_lang = _normalize_x_battle_lang(lang)
+    write_language = "English" if normalized_lang == "en" else "Japanese"
+    issue_examples = (
+        "Examples: 'Was this woman ignorant?', 'Was this use of force justified?', 'Was Notch unable to stay happy after success?'"
+        if normalized_lang == "en"
+        else "Examples: 'この女性は無知か？', 'この力の使い方は妥当か？', 'Notchは成功後に幸せになれなかったのか？'"
+    )
+    side_examples = (
+        "Side A and Side B should match the issue naturally, for example 'She was ignorant' vs 'She was not ignorant', 'It was justified' vs 'It went too far'. "
+        if normalized_lang == "en"
+        else "Side A and side B should match the issue naturally, for example '無知だ' vs '無知ではない', '妥当だ' vs '妥当ではない', '正当だ' vs '行き過ぎだ'. "
+    )
+    prompt = (
+        "Use x_search to inspect this X post URL and return strict JSON only. "
+        "Keys must be source_summary, issue, side_a, side_b. "
+        f"Write {write_language}. "
+        "source_summary must be a concrete 2 or 3 sentence situation description, not a headline and not an abstract lesson. "
+        "Sentence 1: who and what happened. "
+        "Sentence 2: why it became controversial or notable. "
+        "Sentence 3 is optional: what the sides are splitting over. "
+        "source_summary must let a first-time reader understand the scene even without opening the original post. "
+        "Do not make source_summary just a short title, just a noun phrase, or just『○○の件』『○○の話題』『○○をめぐる議論』. "
+        "issue, side_a, and side_b should each be one short line for an AI battle entry. "
+        "Make issue a direct, mass-readable yes/no question tied tightly to the original post. "
+        "Issue must keep the original subject from the post: the named person, this woman, this post, this video, this act, this statement, etc. "
+        "Do not delete the subject. Do not replace it with an abstract category. "
+        f"{issue_examples} "
+        "Extract the person, action, or statement from the post first, then phrase the issue around that same concrete subject. "
+        "Do not generalize into labels like『このような〜』『一般に〜』『社会的に〜』『成功後』『金融リテラシー』『モラル』『民度』unless the post itself uses those exact words. "
+        "Do not redefine the post into a broader theme. Stay attached to the exact incident. "
+        "Make side_a and side_b opposing one-line positions that can be pasted directly into an AI battle. "
+        "Do not output names like 'A側はXさん'. Do not output just entities or factions. "
+        "side_a must be one stance only. side_b must be the opposite stance only. "
+        "Never put both sides into one field. Never use slash-separated forms like 'X / Y'. "
+        f"{side_examples}"
+        "Prefer concrete value judgments tied to the incident, not abstract ideology. "
+        "No markdown. No extra keys. "
+        f"URL: {url}"
+    )
+    response = _call_xai_responses_with_tool("x_search", prompt, api_key)
+    text = _extract_response_output_text(response)
+    normalized_seed = _normalize_x_battle_seed(_parse_battle_seed_json(text), lang=normalized_lang)
+    if normalized_lang == "en":
+        return _translate_x_battle_seed_to_english(normalized_seed, api_key)
+    return normalized_seed
 
 
 def _format_momentum(value: Any) -> str:
@@ -3192,6 +3752,75 @@ def _parse_judge_pass2_response(raw_text: str) -> dict[str, Any]:
     }
 
 
+def _parse_judge_scorecard_v1_response(raw_text: str) -> dict[str, Any]:
+    parsed = _parse_judge_json_object(raw_text, mode="scorecard_v1")
+    side_a = parsed.get("side_a")
+    side_b = parsed.get("side_b")
+    if not isinstance(side_a, dict) or not isinstance(side_b, dict):
+        raise JudgeError("schema_mismatch", "scorecard_v1 missing side objects", debug={"raw_text": raw_text, "parsed_summary": parsed})
+    return {
+        "side_a": side_a,
+        "side_b": side_b,
+    }
+
+
+def _normalize_blind_explanation_result(raw: Any) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+
+    def _side(value: Any, *, allow_none: bool = False) -> str:
+        text = _clean_text(value or "")
+        allowed = {"A", "B", "unclear"}
+        if allow_none:
+            allowed = {"A", "B", "none"}
+        return text if text in allowed else ("none" if allow_none else "unclear")
+
+    def _extended_side(value: Any) -> str:
+        text = _clean_text(value or "")
+        return text if text in {"A", "B", "both", "none"} else "none"
+
+    def _yes_no(value: Any) -> str:
+        text = _clean_text(value or "")
+        return text if text in {"yes", "no"} else "no"
+
+    confidence_raw = data.get("constitutive_break_confidence")
+    try:
+        confidence = int(confidence_raw)
+    except Exception:
+        confidence = 0
+    confidence = max(0, min(2, confidence))
+
+    block = _clean_text(data.get("block_tiebreak_reason") or "")
+    if block not in {
+        "none",
+        "moral_cleanliness_only",
+        "burden_only",
+        "drift_risk",
+        "unclear",
+        "understanding_not_permission",
+        "structural_failure_without_license",
+    }:
+        block = "unclear"
+
+    return {
+        "causal_legibility_side": _extended_side(data.get("causal_legibility_side")),
+        "structural_failure_side": _extended_side(data.get("structural_failure_side")),
+        "normative_superiority_side": _side(data.get("normative_superiority_side")),
+        "bridge_valid": _yes_no(data.get("bridge_valid")),
+        "bridge_reason": _first_sentence(_clean_text(data.get("bridge_reason") or "")),
+        "side_a_strongest_decisive_line": _first_sentence(_clean_text(data.get("side_a_strongest_decisive_line") or "")),
+        "side_b_strongest_decisive_line": _first_sentence(_clean_text(data.get("side_b_strongest_decisive_line") or "")),
+        "turning_point": _first_sentence(_clean_text(data.get("turning_point") or "")),
+        "side_a_weak_spot": _first_sentence(_clean_text(data.get("side_a_weak_spot") or "")),
+        "side_b_weak_spot": _first_sentence(_clean_text(data.get("side_b_weak_spot") or "")),
+        "explanation_favored_side": _side(data.get("explanation_favored_side")),
+        "constitutive_break_side": _side(data.get("constitutive_break_side"), allow_none=True),
+        "constitutive_break_confidence": confidence,
+        "constitutive_break_reason": _first_sentence(_clean_text(data.get("constitutive_break_reason") or "")),
+        "block_tiebreak_reason": block,
+        "why_one_sentence": _first_sentence(_clean_text(data.get("why_one_sentence") or "")),
+    }
+
+
 def _parse_judge_json_object(raw_text: str, *, mode: str) -> dict[str, Any]:
     text = str(raw_text or "").strip()
     if not text:
@@ -3227,6 +3856,235 @@ def _parse_judge_json_object(raw_text: str, *, mode: str) -> dict[str, Any]:
             debug={"raw_text": text, "parsed_candidate": candidate, "parsed_summary": parsed},
         )
     return parsed
+
+
+def _scorecard_reason_map(raw: Any) -> dict[str, str]:
+    reasons = raw if isinstance(raw, dict) else {}
+    return {
+        "self_integrity": _first_sentence(_clean_text(reasons.get("self_integrity") or "")),
+        "opponent_core_damage": _first_sentence(_clean_text(reasons.get("opponent_core_damage") or "")),
+        "type_mismatch_hit": _first_sentence(_clean_text(reasons.get("type_mismatch_hit") or "")),
+        "drift_penalty": _first_sentence(_clean_text(reasons.get("drift_penalty") or "")),
+        "closure_bonus": _first_sentence(_clean_text(reasons.get("closure_bonus") or "")),
+    }
+
+
+def _scorecard_metric_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        evidence = _first_sentence(
+            _clean_text(
+                raw.get("evidence_quote_or_reason")
+                or raw.get("evidence")
+                or raw.get("reason")
+                or raw.get("quote")
+                or ""
+            )
+        )
+        score_raw = raw.get("score")
+        return {
+            "score": score_raw,
+            "evidence_quote_or_reason": evidence,
+        }
+    return {
+        "score": raw,
+        "evidence_quote_or_reason": "",
+    }
+
+
+def _normalize_scorecard_side(raw: Any) -> dict[str, Any]:
+    side = raw if isinstance(raw, dict) else {}
+
+    def clamp_metric(name: str, minimum: int, maximum: int) -> tuple[int, str]:
+        metric = _scorecard_metric_object(side.get(name))
+        try:
+            value = int(metric.get("score"))
+        except Exception:
+            value = minimum
+        return max(minimum, min(maximum, value)), _clean_text(metric.get("evidence_quote_or_reason") or "")
+
+    self_integrity, self_integrity_evidence = clamp_metric("self_integrity", 0, 3)
+    opponent_core_damage, opponent_core_damage_evidence = clamp_metric("opponent_core_damage", 0, 3)
+    type_mismatch_hit, type_mismatch_hit_evidence = clamp_metric("type_mismatch_hit", 0, 2)
+    drift_penalty, drift_penalty_evidence = clamp_metric("drift_penalty", 0, 3)
+    closure_bonus, closure_bonus_evidence = clamp_metric("closure_bonus", 0, 1)
+    fallback_reasons = _scorecard_reason_map(side.get("reasons"))
+
+    return {
+        "self_integrity": self_integrity,
+        "opponent_core_damage": opponent_core_damage,
+        "type_mismatch_hit": type_mismatch_hit,
+        "drift_penalty": drift_penalty,
+        "closure_bonus": closure_bonus,
+        "reasons": {
+            "self_integrity": self_integrity_evidence or fallback_reasons["self_integrity"],
+            "opponent_core_damage": opponent_core_damage_evidence or fallback_reasons["opponent_core_damage"],
+            "type_mismatch_hit": type_mismatch_hit_evidence or fallback_reasons["type_mismatch_hit"],
+            "drift_penalty": drift_penalty_evidence or fallback_reasons["drift_penalty"],
+            "closure_bonus": closure_bonus_evidence or fallback_reasons["closure_bonus"],
+        },
+        "evidence": {
+            "self_integrity": self_integrity_evidence or fallback_reasons["self_integrity"],
+            "opponent_core_damage": opponent_core_damage_evidence or fallback_reasons["opponent_core_damage"],
+            "type_mismatch_hit": type_mismatch_hit_evidence or fallback_reasons["type_mismatch_hit"],
+            "drift_penalty": drift_penalty_evidence or fallback_reasons["drift_penalty"],
+            "closure_bonus": closure_bonus_evidence or fallback_reasons["closure_bonus"],
+        },
+    }
+
+
+def _scorecard_basis_score(side: dict[str, Any]) -> int:
+    return (
+        int(side.get("self_integrity") or 0)
+        + int(side.get("opponent_core_damage") or 0)
+        + int(side.get("type_mismatch_hit") or 0)
+        - int(side.get("drift_penalty") or 0)
+        + int(side.get("closure_bonus") or 0)
+    )
+
+
+def _blind_explanation_tiebreak_reason(
+    side_a: dict[str, Any],
+    side_b: dict[str, Any],
+    blind: dict[str, Any],
+) -> tuple[bool, str, str]:
+    del side_a, side_b
+    block_reason = _clean_text(blind.get("block_tiebreak_reason") or "")
+    if block_reason in {
+        "moral_cleanliness_only",
+        "burden_only",
+        "drift_risk",
+        "unclear",
+        "understanding_not_permission",
+        "structural_failure_without_license",
+    }:
+        return False, "none", block_reason
+
+    normative_side = _clean_text(blind.get("normative_superiority_side") or "")
+    if normative_side not in {"A", "B"}:
+        return False, "none", "unclear"
+
+    if _clean_text(blind.get("bridge_valid") or "") != "yes":
+        return False, "none", "bridge_invalid"
+
+    constitutive_side = _clean_text(blind.get("constitutive_break_side") or "")
+    if constitutive_side != normative_side:
+        return False, "none", "constitutive_mismatch"
+
+    try:
+        confidence = int(blind.get("constitutive_break_confidence") or 0)
+    except Exception:
+        confidence = 0
+    if confidence < 1:
+        return False, "none", "confidence_too_low"
+
+    return True, normative_side, "constitutive_break"
+
+
+def _compute_scorecard_v1_winner(scorecard: dict[str, Any]) -> dict[str, Any]:
+    side_a = _normalize_scorecard_side(scorecard.get("side_a"))
+    side_b = _normalize_scorecard_side(scorecard.get("side_b"))
+    side_a["score"] = _scorecard_basis_score(side_a)
+    side_b["score"] = _scorecard_basis_score(side_b)
+
+    def guarded(side_name: str, own: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
+        blocked_reasons: list[str] = []
+        if int(own.get("opponent_core_damage") or 0) == 0 and int(own.get("closure_bonus") or 0) == 1 and int(other.get("opponent_core_damage") or 0) > 0:
+            blocked_reasons.append("closure_only_cannot_win")
+        if int(own.get("drift_penalty") or 0) == 3 and int(other.get("drift_penalty") or 0) < 3 and int(own.get("opponent_core_damage") or 0) <= int(other.get("opponent_core_damage") or 0):
+            blocked_reasons.append("max_drift_guard")
+        return {
+            "side": side_name,
+            "score": own["score"],
+            "blocked": bool(blocked_reasons),
+            "blocked_reasons": blocked_reasons,
+            "tuple": (
+                own["score"],
+                int(own.get("opponent_core_damage") or 0),
+                int(own.get("self_integrity") or 0),
+                -int(own.get("drift_penalty") or 0),
+            ),
+        }
+
+    a_eval = guarded("A", side_a, side_b)
+    b_eval = guarded("B", side_b, side_a)
+    eligible = [entry for entry in (a_eval, b_eval) if not entry["blocked"]]
+    if not eligible:
+        eligible = [a_eval, b_eval]
+    eligible.sort(key=lambda item: item["tuple"], reverse=True)
+    top = eligible[0]
+    runner = eligible[1] if len(eligible) > 1 else eligible[0]
+    if top["tuple"] == runner["tuple"]:
+        winner_side = "Draw"
+        reason = "今回は片側を勝ちにするより、保留の方が妥当"
+    else:
+        winner_side = top["side"]
+        reason = "scorecard_v1 の同一採点表で上回った"
+    return {
+        "winner": {"side": winner_side, "reason": reason},
+        "side_a": side_a,
+        "side_b": side_b,
+        "guards": {"A": a_eval["blocked_reasons"], "B": b_eval["blocked_reasons"]},
+    }
+
+
+def _apply_scorecard_draw_tiebreak(
+    scorecard_payload: dict[str, Any],
+    blind_explanation: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(scorecard_payload)
+    payload["blind_explanation"] = blind_explanation
+    payload["draw_tiebreak_applied"] = False
+    payload["draw_tiebreak_side"] = "none"
+    payload["draw_tiebreak_reason"] = "unclear"
+
+    winner = payload.get("winner") if isinstance(payload.get("winner"), dict) else {}
+    if _clean_text(winner.get("side") or "") != "Draw":
+        return payload
+
+    side_a = payload.get("side_a") if isinstance(payload.get("side_a"), dict) else {}
+    side_b = payload.get("side_b") if isinstance(payload.get("side_b"), dict) else {}
+    should_apply, favored_side, reason = _blind_explanation_tiebreak_reason(side_a, side_b, blind_explanation)
+    payload["draw_tiebreak_reason"] = reason
+    payload["draw_tiebreak_side"] = favored_side if favored_side in {"A", "B"} else "none"
+    if not should_apply:
+        return payload
+
+    payload["draw_tiebreak_applied"] = True
+    payload["winner"] = {
+        "side": favored_side,
+        "reason": "相手の主張の土台を崩した点を決め手とした",
+    }
+    return payload
+
+
+def _mock_scorecard_v1_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    winner = (summary.get("winner") or {}).get("side") if isinstance(summary.get("winner"), dict) else ""
+    weak = summary.get("weak_spot") if isinstance(summary.get("weak_spot"), dict) else {}
+    weak_side = _clean_text(weak.get("side") or "")
+    weak_label = _clean_text(weak.get("label") or "")
+    burden = summary.get("burden_closure") if isinstance(summary.get("burden_closure"), dict) else {}
+    drift_owner = _clean_text(summary.get("definition_drift_owner") or summary.get("burden_shift_detected") or "")
+
+    def build(side: str) -> dict[str, Any]:
+        is_winner = winner == side
+        target = weak_side == _opposite_side(side)
+        type_hit = 2 if weak_label in {"規範/記述の混同", "非検出/不存在の混同"} and target else 0
+        return {
+            "self_integrity": 2 if is_winner else 1,
+            "opponent_core_damage": 2 if target else 0,
+            "type_mismatch_hit": type_hit,
+            "drift_penalty": 2 if drift_owner == side else 0,
+            "closure_bonus": 1 if _clean_text(burden.get(side) or "") == "closed" else 0,
+            "reasons": {
+                "self_integrity": "mock summary reuse",
+                "opponent_core_damage": "mock summary reuse",
+                "type_mismatch_hit": "mock summary reuse",
+                "drift_penalty": "mock summary reuse",
+                "closure_bonus": "mock summary reuse",
+            },
+        }
+
+    return _compute_scorecard_v1_winner({"side_a": build("A"), "side_b": build("B")})
 
 
 def _normalize_summary(summary: dict[str, Any], turns: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -3373,6 +4231,20 @@ def _normalize_summary(summary: dict[str, Any], turns: list[dict[str, Any]] | No
         "gemini_quote": gemini_quote,
         "frame_owner": fairness_debug["frame_owner"],
         "frame_survival": fairness_debug["frame_survival"],
+        "self_frame_held": fairness_debug["self_frame_held"],
+        "opponent_core_damage_owner": fairness_debug["opponent_core_damage_owner"],
+        "opponent_core_damage_strength": fairness_debug["opponent_core_damage_strength"],
+        "opponent_core_damage_basis": fairness_debug["opponent_core_damage_basis"],
+        "side_a_core_damage_strength": fairness_debug["side_a_core_damage_strength"],
+        "side_a_core_damage_basis": fairness_debug["side_a_core_damage_basis"],
+        "side_b_core_damage_strength": fairness_debug["side_b_core_damage_strength"],
+        "side_b_core_damage_basis": fairness_debug["side_b_core_damage_basis"],
+        "side_a_frame_owner_like": fairness_debug["side_a_frame_owner_like"],
+        "side_b_frame_owner_like": fairness_debug["side_b_frame_owner_like"],
+        "side_a_burden_closure_like": fairness_debug["side_a_burden_closure_like"],
+        "side_b_burden_closure_like": fairness_debug["side_b_burden_closure_like"],
+        "side_a_drift_penalty_like": fairness_debug["side_a_drift_penalty_like"],
+        "side_b_drift_penalty_like": fairness_debug["side_b_drift_penalty_like"],
         "burden_closure": fairness_debug["burden_closure"],
         "parasitic_rebuttal": fairness_debug["parasitic_rebuttal"],
         "parasitic_rebuttal_reason": fairness_debug["parasitic_rebuttal_reason"],
@@ -3627,9 +4499,20 @@ def _rewrite_cards_with_structural_axes(
         winner_out["reason"] = _first_sentence("Bは対抗フレームを立て、その内側でAの必要条件を実際に壊した。")
         why_out = _first_sentence("Bは最初の問いを外さずに対抗フレームを維持し、Aの成立ライン不成立を閉じた。")
 
+    weak_label = _clean_text(weak.get("label") or "")
+    weak_side = _clean_text(weak.get("side") or "")
+    if weak_label == "規範/記述の混同" and weak_side in {"A", "B"}:
+        why_out = _first_sentence(
+            f"{_opposite_side(weak_side) or winner_out.get('side') or '相手'}は問いを外さず、{weak_side}が現実にあることと許されることをつないだズレを押さえた。"
+        )
+    elif weak_label == "非検出/不存在の混同" and weak_side in {"A", "B"}:
+        why_out = _first_sentence(
+            f"{_opposite_side(weak_side) or winner_out.get('side') or '相手'}は問いを外さず、{weak_side}が非検出を不存在へ短絡したズレを押さえた。"
+        )
+
     if residue_owner == "B":
         weak["axis_tag"] = weak.get("axis_tag") or "Residue"
-        if not _summary_role_overlaps(weak.get("why_one_sentence"), "B側の残差"):
+        if weak_label not in {"規範/記述の混同", "非検出/不存在の混同"} and not _summary_role_overlaps(weak.get("why_one_sentence"), "B側の残差"):
             weak["why_one_sentence"] = _first_sentence("最後に残った未解決条件はB側の責任で、A不利へ短絡できない。")
     if burden_shift_owner in {"A", "B"}:
         label = "Burden shift"
@@ -3960,6 +4843,10 @@ PROPOSITION_VIOLATION_LABELS = {
     "時間軸ずらし",
     "条件すり替え",
     "問いの再発明",
+    "定義の後退",
+    "ドリフト",
+    "評価基準のすり替え",
+    "条件追加の後手化",
 }
 
 
@@ -4174,18 +5061,166 @@ def _infer_burden_closure(
     residue_owner: str,
 ) -> dict[str, str]:
     result = {"A": "open", "B": "open"}
+    weak_label = _clean_text(weak_spot.get("label") or "")
+    weak_side = _clean_text(weak_spot.get("side") or "")
+    winner_side = winner.get("side") or "Draw"
+    winner_has_core_damage = (
+        winner_side in {"A", "B"}
+        and weak_side == _opposite_side(winner_side)
+        and bool(weak_label)
+    )
     for side in ("A", "B"):
         if weak_spot.get("side") == side:
             result[side] = "open"
-    if frame_survival == "A_frame_survived":
+    if frame_survival == "A_frame_survived" and winner_has_core_damage and winner_side == "A":
         result["A"] = "closed"
-    if frame_survival == "B_frame_survived":
+    if frame_survival == "B_frame_survived" and winner_has_core_damage and winner_side == "B":
         result["B"] = "closed"
     if winner.get("side") in {"A", "B"} and not parasitic_rebuttal and burden_shift_owner != winner.get("side"):
         result[winner["side"]] = "closed"
     if residue_owner in {"A", "B"}:
         result[residue_owner] = "open"
     return result
+
+
+def _infer_opponent_core_damage(
+    winner: dict[str, str],
+    weak_spot: dict[str, Any],
+    turning_point: Any,
+    fatal_phrase: dict[str, Any],
+) -> dict[str, str]:
+    winner_side = _clean_text(winner.get("side") or "")
+    if winner_side not in {"A", "B"}:
+        return {"owner": "", "strength": "none", "basis": ""}
+    opponent_side = _opposite_side(winner_side)
+    weak_side = _clean_text(weak_spot.get("side") or "")
+    weak_label = _clean_text(weak_spot.get("label") or "")
+    if weak_side != opponent_side or not weak_label:
+        return {"owner": "", "strength": "none", "basis": ""}
+
+    fatal_text = " ".join(
+        [
+            _clean_text(fatal_phrase.get("text") or ""),
+            _clean_text(fatal_phrase.get("reason") or ""),
+            _clean_text(fatal_phrase.get("pick_reason") or ""),
+        ]
+    )
+    turning_text = " ".join(
+        [
+            _stringify_turning_point(turning_point),
+            _clean_text((turning_point or {}).get("quote_excerpt") if isinstance(turning_point, dict) else ""),
+        ]
+    )
+    weak_text = " ".join(
+        [
+            _clean_text(weak_spot.get("quote_excerpt") or ""),
+            _clean_text(weak_spot.get("why_one_sentence") or ""),
+            _clean_text(weak_spot.get("axis_tag") or ""),
+        ]
+    )
+    combined = " ".join([part for part in (fatal_text, turning_text, weak_text) if part])
+    fatal_or_turning = " ".join([part for part in (fatal_text, turning_text) if part])
+
+    explicit_condition_collapse_markers = (
+        r"前提を覆",
+        r"別物",
+        r"必要条件",
+        r"成立条件",
+        r"因果誤認",
+        r"無効化",
+        r"コア強み.+ずれ",
+        r"回収見込み",
+        r"継続的にリターン",
+        r"資源の枯渇",
+        r"事実認識.+刑事責任.+別物",
+        r"決定打にならない",
+        r"上限値",
+    )
+    edge_structural_markers = (
+        r"区別",
+        r"両立しない",
+        r"露呈",
+        r"飛躍",
+        r"すり替え",
+        r"起源誤謬",
+        r"焦点を.+誘導",
+        r"短期的.+長期的",
+        r"因果関係.+(実証|証明)",
+        r"非検出",
+    )
+    permissive_or_open_markers = (
+        r"可能性を否定",
+        r"まだ示していない",
+        r"決定的な一点",
+        r"実証していない",
+        r"実証できなかった",
+        r"証明できていない",
+        r"根拠不足",
+        r"根拠が示されていない",
+        r"示していない",
+        r"証拠がない",
+        r"閉じられなかった",
+        r"足りない",
+        r"未解決",
+        r"残差",
+    )
+    normative_markers = (
+        r"許され",
+        r"許容",
+        r"倫理",
+        r"道徳",
+        r"正当化",
+        r"尊厳",
+        r"搾取",
+        r"公正",
+        r"市場化",
+    )
+    descriptive_markers = (
+        r"現実",
+        r"実務",
+        r"運用",
+        r"資源配分",
+        r"配分",
+        r"評価基準",
+        r"評価",
+        r"評価指標",
+        r"ガバナンス",
+        r"数値化",
+        r"価格",
+        r"売買",
+    )
+    bridge_mismatch_markers = (
+        r"等号",
+        r"すり替え",
+        r"直結",
+        r"不可避",
+    )
+    has_explicit_collapse = any(re.search(pattern, fatal_or_turning) for pattern in explicit_condition_collapse_markers)
+    has_edge_structural = any(re.search(pattern, fatal_or_turning) for pattern in edge_structural_markers)
+    has_permissive_or_open = any(re.search(pattern, combined) for pattern in permissive_or_open_markers)
+    has_permissive_or_open_in_fatal_or_turning = any(re.search(pattern, fatal_or_turning) for pattern in permissive_or_open_markers)
+    has_normative_descriptive_bridge = (
+        any(re.search(pattern, fatal_or_turning) for pattern in normative_markers)
+        and any(re.search(pattern, fatal_or_turning) for pattern in descriptive_markers)
+        and any(re.search(pattern, fatal_or_turning) for pattern in bridge_mismatch_markers)
+    )
+    fatal_role = _clean_text(fatal_phrase.get("structural_role") or "")
+    weak_axis_tag = _clean_text(weak_spot.get("axis_tag") or "")
+
+    if has_explicit_collapse and not has_permissive_or_open_in_fatal_or_turning:
+        basis = "fatal_or_turning_structure"
+        if fatal_role in {"definition_lock", "rule_capture"}:
+            basis = "structural_lock"
+        return {"owner": winner_side, "strength": "strong", "basis": basis}
+    if has_explicit_collapse and has_permissive_or_open_in_fatal_or_turning:
+        return {"owner": winner_side, "strength": "mixed", "basis": "mixed_structure_and_open_burden"}
+    if has_normative_descriptive_bridge:
+        return {"owner": winner_side, "strength": "mixed", "basis": "mixed_structure_and_open_burden"}
+    if has_edge_structural:
+        return {"owner": winner_side, "strength": "mixed", "basis": "mixed_structure_and_open_burden"}
+    if has_permissive_or_open or weak_axis_tag == "Residue":
+        return {"owner": winner_side, "strength": "weak", "basis": "insufficiency_or_residue"}
+    return {"owner": winner_side, "strength": "weak", "basis": "weak_spot_only"}
 
 
 def _evaluate_fairness_axes(
@@ -4197,35 +5232,123 @@ def _evaluate_fairness_axes(
     fatal_phrase: dict[str, Any],
     opening_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    def _type_mismatch_kind(label: str, text: str) -> str:
+        normalized_label = _clean_text(label or "")
+        normalized_text = _clean_text(text or "")
+        if normalized_label == "規範/記述の混同" or _looks_like_normative_descriptive_mismatch(normalized_text):
+            return "normative_descriptive_mismatch"
+        if normalized_label == "非検出/不存在の混同" or _looks_like_absence_nonexistence_mismatch(normalized_text):
+            return "absence_existence_mismatch"
+        if "混同" in normalized_label or "すり替え" in normalized_label:
+            return "other_mismatch"
+        return "none"
+
     raw_turning = summary.get("turning_point") if summary.get("turning_point") is not None else turning_point
-    raw_weak = summary.get("weak_spot") if isinstance(summary.get("weak_spot"), dict) else weak_spot
+    raw_weak = summary.get("weak_spot") if isinstance(summary.get("weak_spot"), dict) else {}
+    merged_weak = {
+        **(weak_spot if isinstance(weak_spot, dict) else {}),
+        **(raw_weak if isinstance(raw_weak, dict) else {}),
+    }
     raw_fatal = summary.get("fatal_phrase") if isinstance(summary.get("fatal_phrase"), dict) else fatal_phrase
-    fairness_text = _fairness_text_blob(summary, reason_one_liner, raw_turning, raw_weak, raw_fatal)
-    frame_owner = _infer_frame_owner(summary, winner, reason_one_liner, raw_turning, raw_weak, raw_fatal)
-    burden_shift_owner = _detect_burden_shift_owner(summary, raw_weak, raw_turning, raw_fatal)
-    parasitic_rebuttal, parasitic_reason = _detect_parasitic_rebuttal(winner, summary, reason_one_liner, raw_turning, raw_weak, raw_fatal)
-    frame_survival = _infer_frame_survival(frame_owner, winner, burden_shift_owner, raw_weak)
-    residue_owner = _infer_residue_owner(summary, raw_weak, winner)
+    fairness_text = _fairness_text_blob(summary, reason_one_liner, raw_turning, merged_weak, raw_fatal)
+    frame_owner = _infer_frame_owner(summary, winner, reason_one_liner, raw_turning, merged_weak, raw_fatal)
+    burden_shift_owner = _detect_burden_shift_owner(summary, merged_weak, raw_turning, raw_fatal)
+    parasitic_rebuttal, parasitic_reason = _detect_parasitic_rebuttal(winner, summary, reason_one_liner, raw_turning, merged_weak, raw_fatal)
+    frame_survival = _infer_frame_survival(frame_owner, winner, burden_shift_owner, merged_weak)
+    self_frame_held = bool(
+        winner.get("side") in {"A", "B"}
+        and frame_owner == winner.get("side")
+        and frame_survival == f"{winner.get('side')}_frame_survived"
+    )
+    residue_owner = _infer_residue_owner(summary, merged_weak, winner)
+    opponent_core_damage = _infer_opponent_core_damage(
+        winner,
+        merged_weak,
+        raw_turning,
+        raw_fatal,
+    )
+    side_a_core_damage = _infer_opponent_core_damage(
+        {"side": "A"},
+        merged_weak,
+        raw_turning,
+        raw_fatal,
+    )
+    side_b_core_damage = _infer_opponent_core_damage(
+        {"side": "B"},
+        merged_weak,
+        raw_turning,
+        raw_fatal,
+    )
     burden_closure = _infer_burden_closure(
         winner,
         frame_owner,
         frame_survival,
-        raw_weak,
+        merged_weak,
         parasitic_rebuttal,
         burden_shift_owner,
         residue_owner,
     )
     opening_debug = opening_debug or {}
     definition_drift_owner = ""
-    if _clean_text(raw_weak.get("label") or "") in {"定義の後退", "主語の縮小", "時間軸ずらし", "条件すり替え", "問いの再発明", "命題逸脱"}:
-        definition_drift_owner = _clean_text(raw_weak.get("side") or "")
+    if _clean_text(merged_weak.get("label") or "") in {"定義の後退", "ドリフト", "主語の縮小", "時間軸ずらし", "条件すり替え", "問いの再発明", "命題逸脱", "評価基準のすり替え", "条件追加の後手化"}:
+        definition_drift_owner = _clean_text(merged_weak.get("side") or "")
     if opening_debug.get("drift_from_opening_contract") and not definition_drift_owner:
         definition_drift_owner = "A"
     if opening_debug.get("reframe_attempt_detected") and burden_shift_owner not in {"A", "B"}:
         burden_shift_owner = "B"
+    side_a_frame_owner_like = "owned" if frame_owner == "A" else "not_owned"
+    side_b_frame_owner_like = "owned" if frame_owner == "B" else "not_owned"
+    side_a_burden_closure_like = _clean_text((burden_closure or {}).get("A") or "open")
+    side_b_burden_closure_like = _clean_text((burden_closure or {}).get("B") or "open")
+    side_a_drift_flags = []
+    side_b_drift_flags = []
+    if definition_drift_owner == "A":
+        side_a_drift_flags.append("definition_drift")
+    if definition_drift_owner == "B":
+        side_b_drift_flags.append("definition_drift")
+    if burden_shift_owner == "A":
+        side_a_drift_flags.append("burden_shift")
+    if burden_shift_owner == "B":
+        side_b_drift_flags.append("burden_shift")
+    if _clean_text(opening_debug.get("reframe_owner") or "") == "A":
+        side_a_drift_flags.append("reframe")
+    if _clean_text(opening_debug.get("reframe_owner") or "") == "B":
+        side_b_drift_flags.append("reframe")
+    mismatch_text = " ".join(
+        [
+            _clean_text(merged_weak.get("label") or ""),
+            _clean_text(merged_weak.get("quote_excerpt") or ""),
+            _clean_text(merged_weak.get("why_one_sentence") or ""),
+            _stringify_turning_point(raw_turning),
+            _clean_text((raw_turning or {}).get("quote_excerpt") if isinstance(raw_turning, dict) else ""),
+            _clean_text(raw_fatal.get("text") or ""),
+            _clean_text(raw_fatal.get("reason") or ""),
+            _clean_text(summary.get("contradiction_exposed") or summary.get("contradiction") or ""),
+        ]
+    )
+    weak_side = _clean_text(merged_weak.get("side") or "")
+    mismatch_kind = _type_mismatch_kind(_clean_text(merged_weak.get("label") or ""), mismatch_text)
+    side_a_type_mismatch_like = mismatch_kind if weak_side == "A" else "none"
+    side_b_type_mismatch_like = mismatch_kind if weak_side == "B" else "none"
     return {
         "frame_owner": frame_owner,
         "frame_survival": frame_survival,
+        "self_frame_held": self_frame_held,
+        "opponent_core_damage_owner": opponent_core_damage["owner"],
+        "opponent_core_damage_strength": opponent_core_damage["strength"],
+        "opponent_core_damage_basis": opponent_core_damage["basis"],
+        "side_a_core_damage_strength": side_a_core_damage["strength"],
+        "side_a_core_damage_basis": side_a_core_damage["basis"],
+        "side_b_core_damage_strength": side_b_core_damage["strength"],
+        "side_b_core_damage_basis": side_b_core_damage["basis"],
+        "side_a_frame_owner_like": side_a_frame_owner_like,
+        "side_b_frame_owner_like": side_b_frame_owner_like,
+        "side_a_burden_closure_like": side_a_burden_closure_like,
+        "side_b_burden_closure_like": side_b_burden_closure_like,
+        "side_a_drift_penalty_like": "|".join(side_a_drift_flags) if side_a_drift_flags else "clear",
+        "side_b_drift_penalty_like": "|".join(side_b_drift_flags) if side_b_drift_flags else "clear",
+        "side_a_type_mismatch_like": side_a_type_mismatch_like,
+        "side_b_type_mismatch_like": side_b_type_mismatch_like,
         "burden_closure": burden_closure,
         "parasitic_rebuttal": parasitic_rebuttal,
         "parasitic_rebuttal_reason": parasitic_reason,
@@ -4250,6 +5373,29 @@ def _apply_fairness_winner_adjustment(
     fairness: dict[str, Any],
     reason_one_liner: str,
 ) -> dict[str, str]:
+    def _core_rank(value: str) -> int:
+        return {"none": 0, "weak": 1, "mixed": 2, "strong": 3}.get(_clean_text(value or "").lower(), 0)
+
+    def _basis_rank(value: str) -> int:
+        return {
+            "fatal_or_turning_structure": 4,
+            "structural_lock": 4,
+            "mixed_structure_and_open_burden": 3,
+            "weak_spot_only": 2,
+            "insufficiency_or_residue": 1,
+            "": 0,
+            "none": 0,
+        }.get(_clean_text(value or ""), 0)
+
+    def _frame_rank(value: str) -> int:
+        return 1 if _clean_text(value or "") == "owned" else 0
+
+    def _closure_rank(value: str) -> int:
+        return 1 if _clean_text(value or "") == "closed" else 0
+
+    def _drift_rank(value: str) -> int:
+        return 0 if _clean_text(value or "") in {"", "clear"} else 1
+
     side = winner.get("side") or "Draw"
     if side not in {"A", "B"}:
         return winner
@@ -4266,6 +5412,60 @@ def _apply_fairness_winner_adjustment(
     reframe_attempt_detected = bool(fairness.get("reframe_attempt_detected"))
     reframe_detected = bool(fairness.get("reframe_detected"))
     reframe_owner = fairness.get("reframe_owner") or ""
+    definition_drift_owner = fairness.get("definition_drift_owner") or ""
+    opponent_side = _opposite_side(side)
+    side_a_core_damage_strength = fairness.get("side_a_core_damage_strength") or "none"
+    side_a_core_damage_basis = fairness.get("side_a_core_damage_basis") or "none"
+    side_b_core_damage_strength = fairness.get("side_b_core_damage_strength") or "none"
+    side_b_core_damage_basis = fairness.get("side_b_core_damage_basis") or "none"
+    side_a_frame_owner_like = fairness.get("side_a_frame_owner_like") or "not_owned"
+    side_b_frame_owner_like = fairness.get("side_b_frame_owner_like") or "not_owned"
+    side_a_burden_closure_like = fairness.get("side_a_burden_closure_like") or "open"
+    side_b_burden_closure_like = fairness.get("side_b_burden_closure_like") or "open"
+    side_a_drift_penalty_like = fairness.get("side_a_drift_penalty_like") or "clear"
+    side_b_drift_penalty_like = fairness.get("side_b_drift_penalty_like") or "clear"
+
+    current_core_rank = _core_rank(side_a_core_damage_strength if side == "A" else side_b_core_damage_strength)
+    loser_core_rank = _core_rank(side_b_core_damage_strength if side == "A" else side_a_core_damage_strength)
+    current_basis_rank = _basis_rank(side_a_core_damage_basis if side == "A" else side_b_core_damage_basis)
+    loser_basis_rank = _basis_rank(side_b_core_damage_basis if side == "A" else side_a_core_damage_basis)
+    current_frame_rank = _frame_rank(side_a_frame_owner_like if side == "A" else side_b_frame_owner_like)
+    loser_frame_rank = _frame_rank(side_b_frame_owner_like if side == "A" else side_a_frame_owner_like)
+    current_closure_rank = _closure_rank(side_a_burden_closure_like if side == "A" else side_b_burden_closure_like)
+    loser_closure_rank = _closure_rank(side_b_burden_closure_like if side == "A" else side_a_burden_closure_like)
+    current_drift_rank = _drift_rank(side_a_drift_penalty_like if side == "A" else side_b_drift_penalty_like)
+    loser_drift_rank = _drift_rank(side_b_drift_penalty_like if side == "A" else side_a_drift_penalty_like)
+    current_has_strong_core = current_core_rank >= 3
+    loser_has_composite_edge = (
+        loser_core_rank > current_core_rank
+        and (loser_frame_rank >= current_frame_rank or loser_closure_rank >= current_closure_rank)
+        and loser_drift_rank <= current_drift_rank
+        and (not current_has_strong_core or current_drift_rank > loser_drift_rank)
+    )
+    loser_has_basis_tiebreak = (
+        loser_core_rank == current_core_rank
+        and loser_core_rank == 2
+        and loser_basis_rank > current_basis_rank
+        and (loser_frame_rank >= current_frame_rank or loser_closure_rank >= current_closure_rank)
+        and loser_drift_rank <= current_drift_rank
+        and not current_has_strong_core
+    )
+
+    if definition_drift_owner == side:
+        return {
+            "side": opponent_side or winner.get("side", "Draw"),
+            "reason": _first_sentence(f"{side}は定義や採用条件を後退させ、元の問いの拘束を守れなかった。"),
+        }
+    if loser_has_composite_edge:
+        return {
+            "side": opponent_side or winner.get("side", "Draw"),
+            "reason": _first_sentence("比較表では相手側が核心打撃で上回り、枠保持または立証閉鎖でも追いつき、ドリフトでも不利でない。"),
+        }
+    if loser_has_basis_tiebreak:
+        return {
+            "side": opponent_side or winner.get("side", "Draw"),
+            "reason": _first_sentence("核心打撃の強度は同格だが、相手側の打撃はより構造寄りで、枠保持または立証閉鎖でも劣っていない。"),
+        }
     if side == "B":
         if reframe_detected and reframe_owner == "B":
             return {
@@ -4282,6 +5482,8 @@ def _apply_fairness_winner_adjustment(
                 "side": "A",
                 "reason": _first_sentence("Aのフレームが残り、Bは寄生反論だけでは必要条件を壊し切れなかった。"),
             }
+        if burden_closure.get("B") == "closed" and burden_closure.get("A") != "closed" and frame_owner == "B" and frame_survival == "B_frame_survived":
+            return winner
         if structural_signal and frame_owner == "A" and frame_survival == "A_frame_survived" and burden_closure.get("B") != "closed":
             return {
                 "side": "A",
@@ -4303,6 +5505,8 @@ def _apply_fairness_winner_adjustment(
                 "side": "B",
                 "reason": _first_sentence("Bのフレームが残り、Aは寄生反論だけでは必要条件を壊し切れなかった。"),
             }
+        if burden_closure.get("A") == "closed" and burden_closure.get("B") != "closed" and frame_owner == "A" and frame_survival == "A_frame_survived":
+            return winner
         if structural_signal and frame_owner == "B" and frame_survival == "B_frame_survived" and burden_closure.get("B") == "closed":
             return {
                 "side": "B",
@@ -5593,13 +6797,26 @@ def _normalize_weak_spot(
                 _clean_text(raw.get("label") or ""),
                 _clean_text(raw.get("why_one_sentence") or raw.get("why") or ""),
                 _clean_text(raw.get("quote_excerpt") or raw.get("text") or raw.get("quote") or ""),
+                _stringify_turning_point(turning_point),
+                _clean_text((turning_point or {}).get("quote_excerpt") if isinstance(turning_point, dict) else ""),
+                _clean_text(fatal.get("text") or ""),
+                _clean_text(fatal.get("reason") or ""),
                 contradiction,
                 _clean_text(summary.get("provisional_judgment") or ""),
             ]
         ).strip()
         label = _normalize_weak_spot_label(label_source, side_value)
+        if label == "定義の後退":
+            if _looks_like_normative_descriptive_mismatch(label_source):
+                label = "規範/記述の混同"
+            elif _looks_like_absence_nonexistence_mismatch(label_source):
+                label = "非検出/不存在の混同"
         why_source = _clean_text(raw.get("why_one_sentence") or raw.get("why") or "")
-        why = _first_sentence(_default_weak_spot_why(side_value, label, contradiction) if coerced else (why_source or _default_weak_spot_why(side_value, label, contradiction)))
+        default_why = _default_weak_spot_why(side_value, label, contradiction)
+        if coerced or _should_prefer_type_mismatch_why(label, why_source):
+            why = _first_sentence(default_why)
+        else:
+            why = _first_sentence(why_source or default_why)
         turn_value = _normalize_weak_spot_turn(raw.get("turn"), turning_point, fatal)
         if label or why:
             return {
@@ -5688,11 +6905,44 @@ def _normalize_weak_spot_label(text: str, side: str) -> str:
     return _guess_weak_spot_label(text)
 
 
+def _looks_like_normative_descriptive_mismatch(text: str) -> bool:
+    value = _clean_text(text or "")
+    if not value:
+        return False
+    normative = bool(re.search(r"(許され|許容|正当化|道徳|倫理|善悪|市場化してよい|認めてよい|尊厳|序列化|搾取)", value))
+    descriptive = bool(re.search(r"(現実|実際|行われている|起きている|評価|価格|値段|配分|運用|市場|市場化|数値化)", value))
+    bridge = bool(re.search(r"(だから|ゆえに|すなわち|直結|等号|同じ|不可避|逃げている|すり替え|受け入れる論理)", value))
+    return normative and descriptive and (bridge or "正当化" in value)
+
+
+def _looks_like_absence_nonexistence_mismatch(text: str) -> bool:
+    value = _clean_text(text or "")
+    if not value:
+        return False
+    absence = bool(re.search(r"(見つかっていない|未観測|観測されていない|無検出|非検出|上限値|証拠がない|確認できる証拠が一切ない)", value))
+    nonexistence = bool(re.search(r"(存在しない|不存在|不在|ありえない|不可能|いない|存在を否定)", value))
+    bridge = bool(re.search(r"(だから|ゆえに|それゆえ|直結|短絡|すり替え|扱っている)", value))
+    return absence and (nonexistence or bridge)
+
+
+def _should_prefer_type_mismatch_why(label: str, why: str) -> bool:
+    if label not in {"規範/記述の混同", "非検出/不存在の混同"}:
+        return False
+    value = _clean_text(why or "")
+    if not value:
+        return True
+    return bool(re.search(r"(立証できなかった|示せていない|証明できていない|未解決条件|残差|根拠不足|短絡できない)", value))
+
+
 def _default_weak_spot_why(side: str, label: str, contradiction: str) -> str:
     if contradiction:
         return _first_sentence(contradiction)
     if side == "both":
         return "A/Bともに相手の核を崩し切れず、流れを決め切る決定打が足りなかった。"
+    if label == "規範/記述の混同":
+        return f"{side}は現実に行われることと許されることをつなげ、記述事実をそのまま規範判断へすり替えた。"
+    if label == "非検出/不存在の混同":
+        return f"{side}は見つかっていないことを存在しない根拠へ短絡し、非検出と不存在を同じものとして扱った。"
     if label == "命題逸脱":
         return f"{side}は元の問いの拘束語を外し、別の答えや別の条件へ逃がしてしまった。"
     if label == "主語の縮小":
@@ -5716,6 +6966,8 @@ def _default_weak_spot_fix(side: str, label: str) -> str:
         "反復": "同じ主張を繰り返す前に、新しい具体例か検証指標を一つ足すべきだった。",
         "ドリフト": "論題を広げる前に、最初の問いにそのまま答える一文を先に置くべきだった。",
         "定義の後退": "途中で定義を広げず、最初に置いた基準を最後まで守るべきだった。",
+        "規範/記述の混同": "現実に起きていることと、だから許されるという規範判断を分けて示すべきだった。",
+        "非検出/不存在の混同": "見つかっていないことと存在しないことを分け、観測限界から結論を飛ばさずに示すべきだった。",
         "未応答": "自説を足す前に、相手の前提への返答を一文で先に済ませるべきだった。",
         "抽象逃避": "抽象語ではなく、その場で検証できる具体例か観測基準を出すべきだった。",
         "循環論法": "結論を言い換えるのではなく、結論を支える独立した根拠を追加すべきだった。",
@@ -5787,6 +7039,10 @@ def _default_weak_spot_speaker(winner: dict[str, str]) -> str:
 
 def _guess_weak_spot_label(text: str) -> str:
     value = str(text or "")
+    if _looks_like_normative_descriptive_mismatch(value):
+        return "規範/記述の混同"
+    if _looks_like_absence_nonexistence_mismatch(value):
+        return "非検出/不存在の混同"
     mapping = [
         ("命題逸脱", "命題逸脱"),
         ("命題から", "命題逸脱"),

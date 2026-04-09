@@ -112,6 +112,17 @@ button:disabled {
 
 .admin-run-topic {
   font-weight: 700;
+}
+
+.admin-run-topic-row,
+.admin-detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-run-topic-row {
+  justify-content: space-between;
   margin-bottom: 6px;
 }
 
@@ -192,6 +203,22 @@ button:disabled {
   color: #fffaf2;
   font-size: 12px;
   padding: 4px 10px;
+}
+
+.admin-mode-badge {
+  border: 1px solid transparent;
+}
+
+.admin-mode-badge-debate {
+  background: rgba(35, 83, 168, 0.12);
+  border-color: rgba(35, 83, 168, 0.2);
+  color: #1d4d8f;
+}
+
+.admin-mode-badge-battle {
+  background: rgba(177, 57, 34, 0.14);
+  border-color: rgba(177, 57, 34, 0.22);
+  color: #9c2f20;
 }
 
 .empty-state {

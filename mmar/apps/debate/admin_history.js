@@ -1,6 +1,7 @@
 const runListEl = document.querySelector("#admin-run-list");
 const detailMetaEl = document.querySelector("#admin-detail-meta");
 const detailBodyEl = document.querySelector("#admin-detail-json");
+const detailModeBadgeEl = document.querySelector("#admin-detail-mode-badge");
 const promoteButton = document.querySelector("#admin-promote");
 const removeButton = document.querySelector("#admin-remove");
 const refreshButton = document.querySelector("#admin-refresh");
@@ -43,6 +44,19 @@ function excerpt(run) {
   return "";
 }
 
+function normalizeExperienceMode(run) {
+  return String(run?.experience_mode || "").trim().toLowerCase() === "battle" ? "battle" : "debate";
+}
+
+function experienceModeLabel(run) {
+  return normalizeExperienceMode(run) === "battle" ? "AIバトル" : "討論";
+}
+
+function experienceModeBadgeMarkup(run) {
+  const mode = normalizeExperienceMode(run);
+  return `<span class="admin-badge admin-mode-badge admin-mode-badge-${escapeHtml(mode)}">${escapeHtml(experienceModeLabel(run))}</span>`;
+}
+
 function renderRuns() {
   if (!runs.length) {
     runListEl.classList.add("empty");
@@ -52,7 +66,10 @@ function renderRuns() {
   runListEl.classList.remove("empty");
   runListEl.innerHTML = runs.map((run) => `
     <button type="button" class="admin-run-item${run.session_id === activeSessionId ? " is-active" : ""}" data-session-id="${escapeHtml(run.session_id)}">
-      <div class="admin-run-topic">${escapeHtml(run.topic || "(no topic)")}</div>
+      <div class="admin-run-topic-row">
+        <div class="admin-run-topic">${escapeHtml(run.topic || "(no topic)")}</div>
+        ${experienceModeBadgeMarkup(run)}
+      </div>
       <div class="admin-run-meta">${escapeHtml(run.created_at || "")} / ${escapeHtml(run.status || "")} / ${escapeHtml(`${run.turn_count || 0} turns`)}</div>
       <div class="admin-run-snippet">${escapeHtml(excerpt(run) || "No excerpt yet.")}</div>
       <div class="admin-run-badges">${run.curated ? '<span class="admin-badge">Curated</span>' : ""}</div>
@@ -104,11 +121,18 @@ function renderDetail(run) {
   if (!run) {
     detailMetaEl.textContent = "Select a run.";
     detailBodyEl.innerHTML = "Select a run.";
+    if (detailModeBadgeEl) detailModeBadgeEl.hidden = true;
     promoteButton.disabled = true;
     removeButton.disabled = true;
     return;
   }
   const turnCount = run.turn_count || getTurns(run).length || 0;
+  if (detailModeBadgeEl) {
+    const mode = normalizeExperienceMode(run);
+    detailModeBadgeEl.textContent = experienceModeLabel(run);
+    detailModeBadgeEl.className = `admin-badge admin-mode-badge admin-mode-badge-${mode}`;
+    detailModeBadgeEl.hidden = false;
+  }
   detailMetaEl.textContent = `${run.created_at || ""} / ${run.status || ""} / ${turnCount} turns / ${run.session_id || ""}`;
   detailBodyEl.innerHTML = `
     <section class="admin-section">

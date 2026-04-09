@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from debate_api import _call_gemini, ask_match_gemini, run_debate, run_live_judge
+    from debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, run_debate, run_live_judge
     from debate_core_v2 import run_debate_v2
     from debate_core_v3 import run_debate_v3
     from debate_core_v4 import run_debate_v4
@@ -33,7 +33,7 @@ try:
         save_run_record,
     )
 except ModuleNotFoundError:
-    from tools.debate_api import _call_gemini, ask_match_gemini, run_debate, run_live_judge
+    from tools.debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
     from tools.debate_core_v4 import run_debate_v4
@@ -92,6 +92,15 @@ ADMIN_PASSWORD = str(
     or "shin-admin"
 ).strip()
 ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
+
+
+def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
+    raw = str(exc or "").strip().lower()
+    if raw in {"missing_url", "invalid_x_url"}:
+        return 400, "invalid_x_url"
+    if raw == "invalid_payload":
+        return 400, "invalid_payload"
+    return 502, "battle_source_unavailable"
 
 
 def _topic_hash(topic: str) -> str:
@@ -383,6 +392,12 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "topic": str(record.get("topic") or debate_result.get("topic") or ""),
         "stance_a": str(record.get("stance_a") or debate_result.get("stance_a") or ""),
         "stance_b": str(record.get("stance_b") or debate_result.get("stance_b") or ""),
+        "experience_mode": str(record.get("experience_mode") or debate_result.get("experience_mode") or "debate"),
+        "battle_lang": str(record.get("battle_lang") or debate_result.get("battle_lang") or "ja"),
+        "source_type": str(record.get("source_type") or debate_result.get("source_type") or ""),
+        "source_url": str(record.get("source_url") or debate_result.get("source_url") or ""),
+        "source_image": str(record.get("source_image") or debate_result.get("source_image") or ""),
+        "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or ""),
         "turn_count": turn_count,
         "raw_turns": raw_turns,
         "display_turns": display_turns or raw_turns or transcript,
@@ -455,8 +470,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/history/list":
             query = parse_qs(parsed_url.query or "")
             sort = str(query.get("sort", ["recent"])[0] or "recent")
+            requested_lang = str(query.get("lang", [""])[0] or "").strip().lower()
             items = [_flatten_saved_record(item, curated=True) for item in list_history_records(sort=sort)]
+            if requested_lang in {"ja", "en"}:
+                items = [
+                    item for item in items
+                    if str(item.get("experience_mode") or "").strip().lower() == "battle"
+                    and str(item.get("battle_lang") or "ja").strip().lower() == requested_lang
+                ]
             self._send_json(200, {"ok": True, "items": items})
+            return
+        if path.startswith("/api/battle/"):
+            record_id = path.removeprefix("/api/battle/").strip()
+            record = get_run_record(record_id)
+            if not record:
+                self._send_json(404, {"ok": False, "error": "not found"})
+                return
+            self._send_json(200, {"ok": True, "record": _flatten_saved_record(record, curated=bool(get_history_record(record_id)))})
             return
         if path.startswith("/api/history/"):
             record_id = path.removeprefix("/api/history/").strip()
@@ -509,6 +539,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path.startswith("/battle/"):
+            battle_page = REPO / "mmar" / "apps" / "debate" / "debate.html"
+            body = battle_page.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Build-SHA", GIT_SHA)
+            _cors_headers(self)
+            self.end_headers()
+            self.wfile.write(body)
+            return
         static_path = _safe_static_path(path)
         if static_path:
             body = static_path.read_bytes()
@@ -533,6 +575,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/debate_v3",
             "/api/debate_v4",
             "/api/ask_match",
+            "/api/battle_from_x_url",
             "/api/history/save",
             "/api/provider_preflight",
             "/api/judge",
@@ -541,7 +584,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/logout",
             "/api/admin/history/add",
             "/api/admin/history/remove",
-        } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/"):
+        } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/") and not path.startswith("/api/battle/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
 
@@ -588,7 +631,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/runs/save":
                 saved = save_run_record(payload)
-                self._send_json(200, {"ok": True, **saved})
+                debate_result = payload.get("debate_result") if isinstance(payload.get("debate_result"), dict) else {}
+                run_json = payload.get("run_json") if isinstance(payload.get("run_json"), dict) else {}
+                experience_mode = str(
+                    payload.get("experience_mode")
+                    or run_json.get("experience_mode")
+                    or debate_result.get("experience_mode")
+                    or ""
+                ).strip().lower()
+                history_item = None
+                if experience_mode == "battle":
+                    session_id = str(saved.get("saved_id") or payload.get("session_id") or payload.get("run_id") or "").strip()
+                    if session_id:
+                        promoted = promote_run_to_history(session_id)
+                        if promoted:
+                            history_item = _flatten_saved_record(promoted, curated=True)
+                self._send_json(200, {"ok": True, **saved, "history_item": history_item})
                 return
             if path == "/api/admin/history/add":
                 if not _admin_session(self):
@@ -699,6 +757,15 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 )
                 self._send_json(status, response_payload)
+                return
+            if path == "/api/battle_from_x_url":
+                try:
+                    result = build_battle_from_x_url(payload)
+                except Exception as exc:
+                    status, error_code = _public_battle_from_x_error(exc)
+                    self._send_json(status, {"ok": False, "error": error_code})
+                    return
+                self._send_json(200, result)
                 return
             if path in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4"}:
                 if path != "/api/debate_v4" and os.getenv("READ_ONLY_DEMO", "").lower() == "true":
@@ -1032,6 +1099,14 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._send_json(200, {"ok": True, "item": record})
                 return
+            if path.startswith("/api/battle/") and path.endswith("/view"):
+                record_id = path.removeprefix("/api/battle/").removesuffix("/view").strip()
+                record = increment_history_metric(record_id, "views")
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=True)})
+                return
             if path.startswith("/api/history/like/"):
                 record_id = path.removeprefix("/api/history/like/").strip()
                 record = increment_history_metric(record_id, "likes")
@@ -1073,6 +1148,7 @@ def main() -> int:
     print(f"[dev_api] GET  /admin/login")
     print(f"[dev_api] GET  /admin/history")
     print(f"[dev_api] POST /api/debate")
+    print(f"[dev_api] POST /api/battle_from_x_url")
     print(f"[dev_api] POST /api/ask_match")
     print(f"[dev_api] POST /api/history/save")
     print(f"[dev_api] POST /api/runs/save")

@@ -1,0 +1,2 @@
+Normative judge baseline frozen on 2026-04-07.
+From this point, work moves from bias patching to final surface check and public precheck.
