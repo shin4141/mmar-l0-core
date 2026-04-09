@@ -37,6 +37,7 @@ GEMINI_JUDGE_DEBUG_PATH = Path(os.getenv("MMAR_GEMINI_JUDGE_DEBUG_PATH", "/tmp/m
 ASK_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_ASK_TIMEOUT_S", "90"))
 GEMINI_ASK_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_ASK_MAX_OUTPUT_TOKENS", "2048"))
 GEMINI_ASK_RETRIES = int(os.getenv("MMAR_DEBATE_ASK_RETRIES", "1"))
+GEMINI_LOCALIZE_RETRIES = int(os.getenv("MMAR_DEBATE_GEMINI_LOCALIZE_RETRIES", "2"))
 
 
 @dataclass
@@ -422,6 +423,39 @@ def _deep_overlay_strings(base: Any, overlay: Any) -> Any:
     return base
 
 
+def _call_gemini_localize(prompt: str, api_key: str) -> str:
+    models: list[str] = []
+    preferred = _resolve_gemini_model_safe(api_key)
+    if preferred:
+        models.append(preferred)
+    for candidate in GEMINI_MODEL_CANDIDATES:
+        if candidate and candidate not in models:
+            models.append(candidate)
+    last_error: Exception | None = None
+    for model_name in models or [_default_gemini_model_name()]:
+        for attempt in range(GEMINI_LOCALIZE_RETRIES + 1):
+            try:
+                return _call_gemini(prompt, api_key, model_name=model_name)
+            except Exception as exc:
+                last_error = exc
+                message = str(exc)
+                transient = (
+                    "http_error:503" in message
+                    or "UNAVAILABLE" in message
+                    or "network_error" in message
+                    or message == "timeout"
+                )
+                if transient and attempt < GEMINI_LOCALIZE_RETRIES:
+                    time.sleep(1.0 + attempt)
+                    continue
+                if transient:
+                    break
+                raise
+    if last_error:
+        raise last_error
+    raise RuntimeError("localize_unavailable")
+
+
 def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[str, Any]:
     normalized_lang = _normalize_localized_view_lang(lang)
     normalized_record = dict(record or {})
@@ -438,7 +472,7 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
     if not gemini_key:
         raise RuntimeError("localize_unavailable")
     seed = _battle_localization_seed(normalized_record)
-    raw = _call_gemini(_battle_localize_prompt(seed, lang=normalized_lang), gemini_key, model_name=_resolve_gemini_model_safe(gemini_key))
+    raw = _call_gemini_localize(_battle_localize_prompt(seed, lang=normalized_lang), gemini_key)
     parsed = _parse_json_response(raw, {})
     if not isinstance(parsed, dict) or not (parsed.get("issue") or parsed.get("summary")):
         raise RuntimeError("localize_unavailable")
