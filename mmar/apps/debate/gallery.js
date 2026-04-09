@@ -77,19 +77,27 @@ function buildPlaceholderImage(issue = "") {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+function localizedViewForRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  const views = record.localized_views;
+  if (!views || typeof views !== "object" || Array.isArray(views)) return null;
+  const langView = views[currentLang];
+  return langView && typeof langView === "object" && !Array.isArray(langView) ? langView : null;
+}
+
 function sortRecords(records) {
   return [...records].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 }
 
 function buildCardMarkup(record) {
-  const issue = String(record.topic || "").trim() || galleryCopy().badge;
+  const localized = localizedViewForRecord(record);
+  const issue = String(localized?.issue || record.topic || "").trim() || galleryCopy().badge;
   const image = String(record.source_image || "").trim() || buildPlaceholderImage(issue);
   const id = String(record.id || record.run_id || "").trim();
   if (!id) {
     return "";
   }
-  const recordLang = String(record?.battle_lang || "").trim().toLowerCase() === "en" ? "en" : currentLang;
-  const href = recordLang === "en"
+  const href = currentLang === "en"
     ? `/battle/${encodeURIComponent(id)}?lang=en`
     : `/battle/${encodeURIComponent(id)}`;
   return `
@@ -110,9 +118,7 @@ function renderGallery(records) {
   const allBattleRecords = records.filter((record) =>
     normalizeExperienceMode(record?.experience_mode) === "battle"
   );
-  const langMatchedRecords = allBattleRecords.filter((record) =>
-    normalizeBattleLang(record?.battle_lang || record?.lang || "ja") === currentLang
-  );
+  const langMatchedRecords = allBattleRecords;
   const battleRecords = sortRecords(langMatchedRecords);
   window.__MMAR_GALLERY_DEBUG__ = {
     rawFetchedCount,
@@ -145,8 +151,7 @@ function renderGallery(records) {
 async function loadGallery() {
   galleryGridEl.innerHTML = `<div class="gallery-empty">${escapeHtml(galleryCopy().loading)}</div>`;
   try {
-    const query = new URLSearchParams({ lang: currentLang });
-    const response = await fetch(endpointUrl(`/api/history/list?${query.toString()}`), { method: "GET" });
+    const response = await fetch(endpointUrl("/api/history/list"), { method: "GET" });
     const data = await response.json();
     if (!response.ok || !data?.ok || !Array.isArray(data.items)) {
       throw new Error("history_list_failed");

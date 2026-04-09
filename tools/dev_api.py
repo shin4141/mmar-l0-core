@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, run_debate, run_live_judge
+    from debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from debate_core_v2 import run_debate_v2
     from debate_core_v3 import run_debate_v3
     from debate_core_v4 import run_debate_v4
@@ -33,7 +33,7 @@ try:
         save_run_record,
     )
 except ModuleNotFoundError:
-    from tools.debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, run_debate, run_live_judge
+    from tools.debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
     from tools.debate_core_v4 import run_debate_v4
@@ -398,6 +398,8 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "source_url": str(record.get("source_url") or debate_result.get("source_url") or ""),
         "source_image": str(record.get("source_image") or debate_result.get("source_image") or ""),
         "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or ""),
+        "canonical_lang": str(record.get("canonical_lang") or debate_result.get("canonical_lang") or "ja"),
+        "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else {},
         "turn_count": turn_count,
         "raw_turns": raw_turns,
         "display_turns": display_turns or raw_turns or transcript,
@@ -470,7 +472,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/history/list":
             query = parse_qs(parsed_url.query or "")
             sort = str(query.get("sort", ["recent"])[0] or "recent")
-            requested_lang = str(query.get("lang", [""])[0] or "").strip().lower()
             items = [_flatten_saved_record(item, curated=True) for item in list_history_records(sort=sort)]
             if not items:
                 items = [
@@ -482,15 +483,34 @@ class Handler(BaseHTTPRequestHandler):
                         or ""
                     ).strip().lower() == "battle"
                 ]
-            if requested_lang in {"ja", "en"}:
-                items = [
-                    item for item in items
-                    if str(item.get("experience_mode") or "").strip().lower() == "battle"
-                    and str(item.get("battle_lang") or "ja").strip().lower() == requested_lang
-                ]
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/battle/"):
+            if path.endswith("/localize"):
+                record_id = path.removeprefix("/api/battle/").removesuffix("/localize").strip()
+                record = get_run_record(record_id)
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                query = parse_qs(parsed_url.query or "")
+                requested_lang = str(query.get("lang", ["en"])[0] or "en").strip().lower()
+                try:
+                    localized = localize_battle_record(record, lang=requested_lang)
+                except Exception:
+                    self._send_json(502, {"ok": False, "error": "localize_unavailable"})
+                    return
+                saved = save_run_record(localized.get("record") or record)
+                refreshed = get_run_record(record_id) or saved.get("record") or record
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "record": _flatten_saved_record(refreshed, curated=bool(get_history_record(record_id))),
+                        "localized_view": localized.get("localized_view") or {},
+                        "cache_hit": bool(localized.get("cache_hit")),
+                    },
+                )
+                return
             record_id = path.removeprefix("/api/battle/").strip()
             record = get_run_record(record_id)
             if not record:

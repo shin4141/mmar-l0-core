@@ -149,6 +149,7 @@ let battleSourceCardEl = null;
 let battleSourceSummaryEl = null;
 let battleSourceLinkEl = null;
 let battleXBuildInFlight = false;
+let currentLocalizedViewFetchToken = 0;
 
 function normalizeBattleLang(value) {
   return String(value || "").trim().toLowerCase() === "en" ? "en" : "ja";
@@ -537,6 +538,9 @@ function setBattleLanguage(lang, options = {}) {
     if (currentResult) refreshOutput();
     else renderBattleSourceCard();
   }
+  if (currentExperienceMode === "battle" && currentBattleLang === "en" && (currentLoadedRecord || currentResult)) {
+    void ensureLocalizedViewForCurrentBattle().catch(() => {});
+  }
 }
 
 function applyExperienceMode(mode) {
@@ -665,14 +669,14 @@ function renderBattleSourceCard() {
   if (!battleSourceCardEl || !battleSourceSummaryEl || !battleSourceLinkEl) return;
   const source = currentBattleSource;
   const safeSourceUrl = sanitizeExternalUrl(source?.source_url, { xOnly: true });
-  const visible = Boolean(source && source.source_summary && safeSourceUrl);
+  const visible = Boolean(source && currentBattleSourceSummary() && safeSourceUrl);
   battleSourceCardEl.hidden = !visible || !isBattleMode();
   if (!visible) {
     battleSourceSummaryEl.textContent = "";
     safeSetExternalHref(battleSourceLinkEl, "", { xOnly: true });
     return;
   }
-  battleSourceSummaryEl.textContent = `${battleCopy().sourcePrefix}: ${source.source_summary}`;
+  battleSourceSummaryEl.textContent = `${battleCopy().sourcePrefix}: ${currentBattleSourceSummary()}`;
   safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
 }
 
@@ -693,6 +697,84 @@ function buildBattleGalleryUrl() {
   const url = new URL("/mmar/apps/debate/gallery.html", window.location.origin);
   if (currentBattleLang === "en") url.searchParams.set("lang", "en");
   return url.toString();
+}
+
+function normalizeLocalizedViews(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const normalized = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const lang = normalizeBattleLang(key);
+    if (value && typeof value === "object" && !Array.isArray(value)) normalized[lang] = value;
+  }
+  return normalized;
+}
+
+function currentLocalizedBattleView() {
+  if (!isBattleMode() || currentBattleLang !== "en") return null;
+  const loadedViews = normalizeLocalizedViews(currentLoadedRecord?.localized_views);
+  if (loadedViews.en) return loadedViews.en;
+  const resultViews = normalizeLocalizedViews(currentResult?.localized_views);
+  if (resultViews.en) return resultViews.en;
+  return null;
+}
+
+function mergeLocalizedSummary(base, overlay) {
+  if (!overlay || typeof overlay !== "object" || Array.isArray(overlay)) return base || {};
+  const source = base && typeof base === "object" && !Array.isArray(base) ? base : {};
+  const merged = { ...source };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      merged[key] = mergeLocalizedSummary(source[key], value);
+    } else if (typeof value === "string") {
+      merged[key] = value.trim() ? value : source[key];
+    } else if (value !== undefined && value !== null && value !== "") {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function summaryForDisplay(summary) {
+  const localized = currentLocalizedBattleView();
+  if (!localized?.summary) return summary || {};
+  return mergeLocalizedSummary(summary || {}, localized.summary);
+}
+
+function currentBattleSourceSummary() {
+  const localized = currentLocalizedBattleView();
+  if (localized?.source_summary) return String(localized.source_summary).trim();
+  return String(currentBattleSource?.source_summary || "").trim();
+}
+
+async function fetchLocalizedBattleView(recordId, lang = currentBattleLang) {
+  const requestedLang = normalizeBattleLang(lang);
+  const response = await fetch(endpointUrl(`/api/battle/${encodeURIComponent(recordId)}/localize?lang=${requestedLang}`), { method: "GET" });
+  const data = await parseResponse(response);
+  if (!response.ok || !data?.ok || !data?.record) {
+    throw new Error(normalizeApiError("battle_localize", response.status, data));
+  }
+  return data;
+}
+
+async function ensureLocalizedViewForCurrentBattle() {
+  if (!isBattleMode() || currentBattleLang !== "en") return null;
+  const localized = currentLocalizedBattleView();
+  if (localized?.status === "ready") return localized;
+  const recordId = currentBattleShareId();
+  if (!recordId) return null;
+  const fetchToken = ++currentLocalizedViewFetchToken;
+  const data = await fetchLocalizedBattleView(recordId, "en");
+  if (fetchToken !== currentLocalizedViewFetchToken) return null;
+  const normalized = normalizeSavedRecordForPreview(data.record);
+  currentLoadedRecord = normalized;
+  currentRecordId = normalized.id || currentRecordId;
+  if (currentResult && currentResult.debate) {
+    currentResult.localized_views = normalized.localized_views || {};
+  }
+  renderBattleSourceCard();
+  refreshOutput();
+  syncShareButton();
+  return data.localized_view || null;
 }
 
 function syncShareButton() {
@@ -2000,7 +2082,9 @@ function normalizeSavedRecordForPreview(record) {
   return {
     ...record,
     experience_mode: recordExperienceMode(record),
+    canonical_lang: normalizeBattleLang(record.canonical_lang || "ja"),
     battle_lang: normalizeBattleLang(record.battle_lang || record.lang || "ja"),
+    localized_views: normalizeLocalizedViews(record.localized_views),
     run_id: record.run_id || "",
     topic_hash: record.topic_hash || "",
     keyword: normalizeKeyword(record.keyword || ""),
@@ -2105,7 +2189,9 @@ function buildBattleRecord(result, payload) {
     source_url: payload?.source_url || "",
     source_image: payload?.source_image || "",
     source_summary: payload?.source_summary || "",
+    canonical_lang: "ja",
     battle_lang: normalizeBattleLang(payload?.battle_lang || currentBattleLang),
+    localized_views: normalizeLocalizedViews(currentLoadedRecord?.localized_views),
     turn_count: debate.turn_count || payload?.turn_count || 0,
     mode: payload?.mode || "casual",
     experience_mode: currentExperienceMode,
@@ -2164,7 +2250,9 @@ function buildRunRecord(result, payload, status = "debate_complete") {
       elapsed_seconds: record.elapsed_seconds,
       source_mode: record.source_mode,
       experience_mode: record.experience_mode,
+      canonical_lang: record.canonical_lang,
       battle_lang: record.battle_lang,
+      localized_views: record.localized_views,
       source_type: record.source_type,
       source_url: record.source_url,
       source_summary: record.source_summary,
@@ -2215,8 +2303,10 @@ function battleWinnerLabel(result = currentResult) {
 }
 
 function currentBattleIssue() {
+  const localized = currentLocalizedBattleView();
   return String(
-    currentResult?.debate?.topic
+    localized?.issue
+      || currentResult?.debate?.topic
       || currentPayload?.topic
       || currentLoadedRecord?.topic
       || currentBattleSource?.issue
@@ -2741,6 +2831,7 @@ function buildResultFromRecord(record) {
       display_turns: preview.display_turns,
       summary: preview.judge_json,
     },
+    localized_views: preview.localized_views || {},
   };
 }
 
@@ -2819,6 +2910,9 @@ function loadRecordIntoView(record, options = {}) {
   setStatus("ok", "Structure revealed");
   toggleHistory(false);
   toggleArchive(false);
+  if (experienceMode === "battle" && resolvedBattleLang === "en") {
+    void ensureLocalizedViewForCurrentBattle().catch(() => {});
+  }
 }
 
 async function sendAskQuestion(question) {
@@ -3148,6 +3242,7 @@ function renderSummary(summary) {
   ensureGeminiQuote();
   ensureAnalysisPanel();
   syncMobileAnalysisPanel();
+  const localized = currentLocalizedBattleView();
   const winner = normalizeWinner(summary);
   const fatal = normalizeFatalPhrase(summary);
   const firstCrack = normalizeFirstCrack(summary);
@@ -3157,23 +3252,32 @@ function renderSummary(summary) {
   const turnCount = Number(currentResult?.debate?.turn_count || currentPayload?.turn_count || selectedTurnCount());
   const showClincher = turnCount >= 5 && Boolean(clincher.quote);
   const confidence = summary?.confidence || "Medium";
-  const why = summary?.reason_one_liner || winner.reason;
+  const why = localized?.summary?.reason_one_liner || summary?.reason_one_liner || winner.reason;
   const topic = currentResult?.debate?.topic || "";
   const battleIssue = currentBattleIssue() || topic;
   const battleLabels = battleCopy();
-  const headline = composeVerdictHeadline(topic, winner);
-  const subline = composeVerdictSubline(topic, winner, why);
+  const headline = localized?.summary?.verdict_headline || composeVerdictHeadline(topic, winner);
+  const subline = localized?.summary?.verdict_subline || composeVerdictSubline(topic, winner, why);
   const momentum = normalizeMomentum(summary, winner, confidence);
-  const flipCondition = composeFlipCondition(winner, weakSpot, why);
+  const flipCondition = localized?.summary?.flip_condition || composeFlipCondition(winner, weakSpot, why);
   const takeaway = normalizeGeminiTakeaway(summary, topic);
   const geminiQuote = normalizeGeminiQuote(summary);
+  const displayFatalQuote = localized?.summary?.fatal_phrase?.quote || fatal.quote;
+  const displayFatalReason = localized?.summary?.fatal_phrase?.reason || fatal.why;
+  const displayTurningSummary = localized?.summary?.turning_point?.summary || turning.summary;
+  const displayWeakLabel = localized?.summary?.weak_spot?.label || weakSpot.label;
+  const displayWeakQuote = localized?.summary?.weak_spot?.quote_excerpt || weakSpot.quote_excerpt;
+  const displayFirstCrackQuote = localized?.summary?.first_crack?.quote || firstCrack.quote;
+  const displayFirstCrackReason = localized?.summary?.first_crack?.reason || firstCrack.reason;
+  const displayClincherQuote = localized?.summary?.clincher?.quote || clincher.quote;
+  const displayClincherReason = localized?.summary?.clincher?.reason || clincher.reason;
   const safeBattleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
-  const battleSourceMarkup = isBattleMode() && currentBattleSource?.source_summary && currentBattleSource?.source_url
+  const battleSourceMarkup = isBattleMode() && currentBattleSourceSummary() && currentBattleSource?.source_url
     ? `
       <article class="summary-card summary-card-source">
         <div class="summary-label">${escapeHtml(battleLabels.sourceLabel)}</div>
         <div class="summary-kicker">Source</div>
-        <div class="summary-value summary-source-copy">${escapeHtml(currentBattleSource.source_summary)}</div>
+        <div class="summary-value summary-source-copy">${escapeHtml(currentBattleSourceSummary())}</div>
         <div class="summary-subvalue">${safeBattleSourceUrl ? `<a class="summary-source-link" href="${escapeHtml(safeBattleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleLabels.sourceLink)}</a>` : ""}</div>
       </article>
     `
@@ -3268,20 +3372,20 @@ function renderSummary(summary) {
         <div class="summary-label">${escapeHtml(battleLabels.winnerLabel)}</div>
         <div class="summary-kicker">Battle Result</div>
         <div class="summary-value summary-emphasis">${escapeHtml(winner.side)}</div>
-        <div class="summary-subvalue summary-winner-reason">${escapeHtml(winner.reason)}</div>
+        <div class="summary-subvalue summary-winner-reason">${escapeHtml(localized?.summary?.winner?.reason || winner.reason)}</div>
       </article>
       <button type="button" class="summary-card tone-fatal summary-jump-card" data-jump-target="fatal">
         <div class="summary-label">${escapeHtml(battleLabels.decisiveLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(fatal.role || "decisive_lock"))}</div>
         <div class="summary-meta summary-turn-badge">${escapeHtml(`Turn ${fatal.turn} / ${fatal.speaker}`)}</div>
-        <div class="summary-value summary-quote">${escapeHtml(fatal.quote)}</div>
-        <div class="summary-subvalue summary-reason">${escapeHtml(fatal.why)}</div>
+        <div class="summary-value summary-quote">${escapeHtml(displayFatalQuote)}</div>
+        <div class="summary-subvalue summary-reason">${escapeHtml(displayFatalReason)}</div>
       </button>
       <button type="button" class="summary-card tone-turning summary-jump-card" data-jump-target="turning">
         <div class="summary-label">${escapeHtml(battleLabels.turningLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(turning.role || "frame_shift"))}</div>
         <div class="summary-meta summary-turn-badge">${escapeHtml(turning.turn)}</div>
-        <div class="summary-value summary-turning-copy">${escapeHtml(turning.summary)}</div>
+        <div class="summary-value summary-turning-copy">${escapeHtml(displayTurningSummary)}</div>
       </button>
       <article class="summary-card summary-card-why">
         <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
@@ -3294,15 +3398,15 @@ function renderSummary(summary) {
         <div class="summary-label">${escapeHtml(battleLabels.weakLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
         <div class="summary-meta">${escapeHtml(`${weakSpot.side} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
-        <div class="summary-value summary-weak-label">${escapeHtml(weakSpot.label)}</div>
-        <div class="summary-subvalue summary-quote">${escapeHtml(`「${weakSpot.quote_excerpt}」`)}</div>
+        <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
+        <div class="summary-subvalue summary-quote">${escapeHtml(`「${displayWeakQuote}」`)}</div>
       </button>
       <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
         <div class="summary-label">最初のヒビ</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
         <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
-        <div class="summary-value">${escapeHtml(firstCrack.quote || "まだ最初のヒビは特定されていない。")}</div>
-        <div class="summary-subvalue">${escapeHtml(firstCrack.reason || "どこで最初の傷が入ったかを追う。")}</div>
+        <div class="summary-value">${escapeHtml(displayFirstCrackQuote || "まだ最初のヒビは特定されていない。")}</div>
+        <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || "どこで最初の傷が入ったかを追う。")}</div>
       </button>
       <article class="summary-card summary-card-confidence">
         <div class="summary-label">判定の強さ</div>
@@ -3313,15 +3417,15 @@ function renderSummary(summary) {
           <div class="summary-label">最後の押し込み</div>
           <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(clincher.role || "clincher"))}</div>
           <div class="summary-meta">${escapeHtml(`Turn ${clincher.turn} / ${clincher.speaker || "?"}`)}</div>
-          <div class="summary-value">${escapeHtml(clincher.quote)}</div>
-          <div class="summary-subvalue">${escapeHtml(clincher.reason)}</div>
+          <div class="summary-value">${escapeHtml(displayClincherQuote)}</div>
+          <div class="summary-subvalue">${escapeHtml(displayClincherReason)}</div>
         </button>
       ` : ""}
     `;
     detailPanelEl.innerHTML = `
       <details class="analysis-details" open>
         <summary>詳細を見る</summary>
-        <div class="analysis-detail-copy">${escapeHtml(fullRationale || "詳しい判定メモはまだありません。")}</div>
+        <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || "詳しい判定メモはまだありません。")}</div>
       </details>
     `;
     return;
@@ -3657,10 +3761,11 @@ function refreshOutput() {
   if (!currentResult) return;
   const debate = currentResult.debate || {};
   const turns = getDisplayTurns(debate);
+  const displaySummary = summaryForDisplay(debate.summary || {});
   const mode = currentResult.mode || "unknown";
-  const providerStatuses = providerStatusesForDisplay(currentResult.provider_statuses || {}, debate.summary || {});
+  const providerStatuses = providerStatusesForDisplay(currentResult.provider_statuses || {}, displaySummary);
   topicDisplayEl.textContent = formatTopicDisplay(
-    debate.topic || currentPayload?.topic || "",
+    isBattleMode() ? currentBattleIssue() : (debate.topic || currentPayload?.topic || ""),
     currentPayload?.keyword || currentLoadedRecord?.keyword || "",
   );
   outputMetaEl.textContent = buildOutputMeta(
@@ -3673,11 +3778,11 @@ function refreshOutput() {
   outputMetaEl.hidden = false;
   outputMetaEl.style.display = "";
   renderRuntimeFingerprint();
-  renderTurns(turns, debate.summary || {}, !analysisHidden);
+  renderTurns(turns, displaySummary, !analysisHidden);
   syncDetailLikeButton();
 
   if (analysisHidden) {
-    renderPublicSummary(debate.summary || {});
+    renderPublicSummary(displaySummary);
     judgeButton.hidden = false;
     judgeButton.disabled = false;
     setHint("");
@@ -3687,7 +3792,7 @@ function refreshOutput() {
   clearPublicSummary();
   judgeButton.hidden = false;
   judgeButton.disabled = true;
-  renderSummary(debate.summary || {});
+  renderSummary(displaySummary);
   setHint(buildAbnormalHint(providerStatuses));
 }
 
@@ -4092,7 +4197,17 @@ async function runDebate(event) {
     setStatus("ok", "Debate complete");
     setHint("");
     setRunMetaForResult("Completed in", data.elapsed_seconds, data.mode, data.provider_statuses || {});
-    void autosaveCurrentRun("debate_complete");
+    const savePromise = autosaveCurrentRun("debate_complete");
+    if (isBattleMode() && currentBattleLang === "en") {
+      void savePromise.then((saved) => {
+        if (saved) {
+          const normalized = normalizeSavedRecordForPreview(saved);
+          currentLoadedRecord = normalized;
+          currentRecordId = normalized.id || currentRecordId;
+        }
+        return ensureLocalizedViewForCurrentBattle();
+      }).catch(() => {});
+    }
   } catch (error) {
     if (VIEWER_MODE) {
       const fallback = await loadStaticFixture();

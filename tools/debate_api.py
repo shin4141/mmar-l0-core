@@ -270,6 +270,174 @@ def build_battle_from_x_url(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_localized_view_lang(value: Any) -> str:
+    return "en" if _clean_text(value).lower() == "en" else "ja"
+
+
+def _record_source_summary(record: dict[str, Any]) -> str:
+    debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    return _clean_text(record.get("source_summary") or debate_result.get("source_summary") or "")
+
+
+def _record_summary_dict(record: dict[str, Any]) -> dict[str, Any]:
+    top_level = record.get("judge_json") if isinstance(record.get("judge_json"), dict) else {}
+    if top_level:
+        return top_level
+    debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    nested = debate_result.get("summary") if isinstance(debate_result.get("summary"), dict) else {}
+    if nested:
+        return nested
+    judge_result = record.get("judge_result") if isinstance(record.get("judge_result"), dict) else {}
+    return judge_result if isinstance(judge_result, dict) else {}
+
+
+def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
+    summary = _record_summary_dict(record)
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else {}
+    fatal = summary.get("fatal_phrase") if isinstance(summary.get("fatal_phrase"), dict) else {}
+    turning = summary.get("turning_point") if isinstance(summary.get("turning_point"), dict) else {}
+    weak = summary.get("weak_spot") if isinstance(summary.get("weak_spot"), dict) else {}
+    first_crack = summary.get("first_crack") if isinstance(summary.get("first_crack"), dict) else {}
+    clincher = summary.get("clincher") if isinstance(summary.get("clincher"), dict) else {}
+    takeaway = summary.get("gemini_takeaway") if isinstance(summary.get("gemini_takeaway"), dict) else {}
+    gemini_quote = summary.get("gemini_quote") if isinstance(summary.get("gemini_quote"), dict) else {}
+    debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    return {
+        "issue": _clean_text(record.get("topic") or debate_result.get("topic") or ""),
+        "side_a": _clean_text(record.get("stance_a") or record.get("side_a") or debate_result.get("stance_a") or ""),
+        "side_b": _clean_text(record.get("stance_b") or record.get("side_b") or debate_result.get("stance_b") or ""),
+        "source_summary": _record_source_summary(record),
+        "summary": {
+            "winner": {
+                "side": _clean_text(winner.get("side") or summary.get("winner") or ""),
+                "reason": _clean_text(winner.get("reason") or ""),
+            },
+            "reason_one_liner": _clean_text(summary.get("reason_one_liner") or ""),
+            "confidence": _clean_text(summary.get("confidence") or ""),
+            "flip_condition": _clean_text(summary.get("flip_condition") or ""),
+            "provisional_judgment": _clean_text(summary.get("provisional_judgment") or ""),
+            "full_rationale": _clean_text(summary.get("full_rationale") or ""),
+            "turning_point": {
+                "turn": turning.get("turn") if isinstance(turning.get("turn"), (int, float, str)) else "",
+                "summary": _clean_text(turning.get("summary") or summary.get("turning_point") or ""),
+                "quote_excerpt": _clean_text(turning.get("quote_excerpt") or ""),
+            },
+            "fatal_phrase": {
+                "turn": fatal.get("turn") if isinstance(fatal.get("turn"), (int, float, str)) else "",
+                "speaker": _clean_text(fatal.get("speaker") or ""),
+                "quote": _clean_text(fatal.get("quote") or fatal.get("text") or ""),
+                "reason": _clean_text(fatal.get("reason") or ""),
+            },
+            "weak_spot": {
+                "side": _clean_text(weak.get("side") or ""),
+                "turn": weak.get("turn") if isinstance(weak.get("turn"), (int, float, str)) else "",
+                "speaker": _clean_text(weak.get("speaker") or ""),
+                "label": _clean_text(weak.get("label") or ""),
+                "quote_excerpt": _clean_text(weak.get("quote_excerpt") or ""),
+                "why_one_sentence": _clean_text(weak.get("why_one_sentence") or ""),
+            },
+            "first_crack": {
+                "turn": first_crack.get("turn") if isinstance(first_crack.get("turn"), (int, float, str)) else "",
+                "speaker": _clean_text(first_crack.get("speaker") or ""),
+                "quote": _clean_text(first_crack.get("quote") or ""),
+                "reason": _clean_text(first_crack.get("reason") or ""),
+            },
+            "clincher": {
+                "turn": clincher.get("turn") if isinstance(clincher.get("turn"), (int, float, str)) else "",
+                "speaker": _clean_text(clincher.get("speaker") or ""),
+                "quote": _clean_text(clincher.get("quote") or ""),
+                "reason": _clean_text(clincher.get("reason") or ""),
+            },
+            "gemini_takeaway": {
+                "structural_explanation": _clean_text(takeaway.get("structural_explanation") or ""),
+                "debate_dynamic": _clean_text(takeaway.get("debate_dynamic") or ""),
+                "quote": _clean_text(takeaway.get("quote") or ""),
+            },
+            "gemini_quote": {
+                "text": _clean_text(gemini_quote.get("text") or ""),
+                "framing_text": _clean_text(gemini_quote.get("framing_text") or ""),
+                "evidence_quote": _clean_text(gemini_quote.get("evidence_quote") or ""),
+                "framing_reason": _clean_text(gemini_quote.get("framing_reason") or ""),
+                "pick_reason": _clean_text(gemini_quote.get("pick_reason") or ""),
+                "evidence_turn": gemini_quote.get("evidence_turn") if isinstance(gemini_quote.get("evidence_turn"), (int, float, str)) else "",
+                "evidence_side": _clean_text(gemini_quote.get("evidence_side") or ""),
+            },
+        },
+    }
+
+
+def _battle_localize_prompt(seed: dict[str, Any], *, lang: str) -> str:
+    language = "English" if lang == "en" else "Japanese"
+    return (
+        "Translate this canonical AI battle record into a localized battle view and return strict JSON only.\n"
+        f"Write {language}.\n"
+        "This is not a new debate. Do not change the winner, turn numbers, speakers, or structure.\n"
+        "Do not add new analysis. Do not generalize. Keep the same incident and subject.\n"
+        "Translate only user-facing text fields so the battle can be shown in a localized viewer.\n"
+        "Keep the exact top-level keys: issue, side_a, side_b, source_summary, summary.\n"
+        "Inside summary, keep the exact keys already provided. Preserve winner.side as A, B, or Draw.\n"
+        "If a field is a structural token or empty, keep it as-is.\n"
+        "Return JSON only.\n\n"
+        + json.dumps(seed, ensure_ascii=False, indent=2)
+    )
+
+
+def _deep_overlay_strings(base: Any, overlay: Any) -> Any:
+    if isinstance(base, dict) and isinstance(overlay, dict):
+        merged = dict(base)
+        for key, value in overlay.items():
+            merged[key] = _deep_overlay_strings(base.get(key), value)
+        return merged
+    if isinstance(overlay, str):
+        cleaned = _clean_text(overlay)
+        return cleaned if cleaned else base
+    if overlay not in (None, "", []):
+        return overlay
+    return base
+
+
+def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[str, Any]:
+    normalized_lang = _normalize_localized_view_lang(lang)
+    normalized_record = dict(record or {})
+    normalized_record["canonical_lang"] = "ja"
+    existing_views = normalized_record.get("localized_views") if isinstance(normalized_record.get("localized_views"), dict) else {}
+    if normalized_lang in existing_views and isinstance(existing_views.get(normalized_lang), dict):
+        view = dict(existing_views.get(normalized_lang) or {})
+        if str(view.get("status") or "").strip().lower() == "ready":
+            normalized_record["localized_views"] = existing_views
+            return {"record": normalized_record, "localized_view": view, "cache_hit": True}
+    if normalized_lang != "en":
+        return {"record": normalized_record, "localized_view": {}, "cache_hit": True}
+    gemini_key = str(os.getenv("GEMINI_API_KEY") or "").strip()
+    if not gemini_key:
+        raise RuntimeError("localize_unavailable")
+    seed = _battle_localization_seed(normalized_record)
+    raw = _call_gemini(_battle_localize_prompt(seed, lang=normalized_lang), gemini_key, model_name=_resolve_gemini_model_safe(gemini_key))
+    parsed = _parse_json_response(raw, {})
+    if not isinstance(parsed, dict) or not (parsed.get("issue") or parsed.get("summary")):
+        raise RuntimeError("localize_unavailable")
+    overlay = {
+        "issue": _clean_text(parsed.get("issue") or ""),
+        "side_a": _clean_text(parsed.get("side_a") or ""),
+        "side_b": _clean_text(parsed.get("side_b") or ""),
+        "source_summary": _clean_text(parsed.get("source_summary") or ""),
+        "summary": parsed.get("summary") if isinstance(parsed.get("summary"), dict) else {},
+    }
+    localized_view = {
+        "status": "ready",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "issue": overlay["issue"] or seed["issue"],
+        "side_a": overlay["side_a"] or seed["side_a"],
+        "side_b": overlay["side_b"] or seed["side_b"],
+        "source_summary": overlay["source_summary"] or seed["source_summary"],
+        "summary": _deep_overlay_strings(seed.get("summary") or {}, overlay.get("summary") or {}),
+    }
+    next_views = dict(existing_views)
+    next_views[normalized_lang] = localized_view
+    normalized_record["localized_views"] = next_views
+    return {"record": normalized_record, "localized_view": localized_view, "cache_hit": False}
+
+
 def _resolve_x_battle_source_image(url: str, seed: dict[str, Any]) -> str:
     direct_image = _fetch_primary_og_image(url)
     if direct_image:
