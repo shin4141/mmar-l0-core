@@ -1,0 +1,3 @@
+PHASE: public_gallery_restore_precheck
+DATE: 2026-04-09
+STATUS: PRE_FIX_SNAPSHOT

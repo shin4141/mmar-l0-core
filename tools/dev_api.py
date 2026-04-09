@@ -472,6 +472,16 @@ class Handler(BaseHTTPRequestHandler):
             sort = str(query.get("sort", ["recent"])[0] or "recent")
             requested_lang = str(query.get("lang", [""])[0] or "").strip().lower()
             items = [_flatten_saved_record(item, curated=True) for item in list_history_records(sort=sort)]
+            if not items:
+                items = [
+                    _flatten_saved_record(item, curated=False)
+                    for item in list_run_records(limit=200)
+                    if str(
+                        item.get("experience_mode")
+                        or ((item.get("debate_result") or {}).get("experience_mode"))
+                        or ""
+                    ).strip().lower() == "battle"
+                ]
             if requested_lang in {"ja", "en"}:
                 items = [
                     item for item in items
