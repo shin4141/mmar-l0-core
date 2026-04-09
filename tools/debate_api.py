@@ -77,6 +77,12 @@ class JudgeError(RuntimeError):
         self.debug = debug or {}
 
 
+class LocalizeError(RuntimeError):
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason or "localize_unavailable"
+
+
 def _compose_raw_reason(*parts: Any) -> str:
     values = [str(part).strip() for part in parts if str(part or "").strip()]
     return " | ".join(values)
@@ -456,6 +462,25 @@ def _call_gemini_localize(prompt: str, api_key: str) -> str:
     raise RuntimeError("localize_unavailable")
 
 
+def _localize_seed_missing_fields(seed: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for key in ("issue", "side_a", "side_b"):
+        if not _clean_text(seed.get(key) or ""):
+            missing.append(key)
+    return missing
+
+
+def _classify_localize_failure(exc: Exception) -> str:
+    message = str(exc or "")
+    if isinstance(exc, LocalizeError):
+        return exc.reason
+    if "http_error:503" in message or "UNAVAILABLE" in message:
+        return "provider_503"
+    if message == "timeout" or "timed out" in message.lower():
+        return "timeout"
+    return "localize_unavailable"
+
+
 def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[str, Any]:
     normalized_lang = _normalize_localized_view_lang(lang)
     normalized_record = dict(record or {})
@@ -470,12 +495,18 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
         return {"record": normalized_record, "localized_view": {}, "cache_hit": True}
     gemini_key = str(os.getenv("GEMINI_API_KEY") or "").strip()
     if not gemini_key:
-        raise RuntimeError("localize_unavailable")
+        raise LocalizeError("provider_503", "gemini_api_key_missing")
     seed = _battle_localization_seed(normalized_record)
-    raw = _call_gemini_localize(_battle_localize_prompt(seed, lang=normalized_lang), gemini_key)
+    missing_fields = _localize_seed_missing_fields(seed)
+    if missing_fields:
+        raise LocalizeError("seed_missing", ",".join(missing_fields))
+    try:
+        raw = _call_gemini_localize(_battle_localize_prompt(seed, lang=normalized_lang), gemini_key)
+    except Exception as exc:
+        raise LocalizeError(_classify_localize_failure(exc), str(exc)) from exc
     parsed = _parse_json_response(raw, {})
     if not isinstance(parsed, dict) or not (parsed.get("issue") or parsed.get("summary")):
-        raise RuntimeError("localize_unavailable")
+        raise LocalizeError("empty_translation", "missing_issue_or_summary")
     overlay = {
         "issue": _clean_text(parsed.get("issue") or ""),
         "side_a": _clean_text(parsed.get("side_a") or ""),

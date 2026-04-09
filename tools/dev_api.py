@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
+    from debate_api import _call_gemini, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from debate_core_v2 import run_debate_v2
     from debate_core_v3 import run_debate_v3
     from debate_core_v4 import run_debate_v4
@@ -33,7 +33,7 @@ try:
         save_run_record,
     )
 except ModuleNotFoundError:
-    from tools.debate_api import _call_gemini, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
+    from tools.debate_api import _call_gemini, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
     from tools.debate_core_v4 import run_debate_v4
@@ -503,10 +503,15 @@ class Handler(BaseHTTPRequestHandler):
                 requested_lang = str(query.get("lang", ["en"])[0] or "en").strip().lower()
                 try:
                     localized = localize_battle_record(record, lang=requested_lang)
-                except Exception:
-                    self._send_json(502, {"ok": False, "error": "localize_unavailable"})
+                except Exception as exc:
+                    reason = exc.reason if isinstance(exc, LocalizeError) else "localize_unavailable"
+                    self._send_json(502, {"ok": False, "error": "localize_unavailable", "reason": reason})
                     return
-                saved = save_run_record(localized.get("record") or record)
+                try:
+                    saved = save_run_record(localized.get("record") or record)
+                except Exception:
+                    self._send_json(502, {"ok": False, "error": "localize_unavailable", "reason": "save_failed"})
+                    return
                 refreshed = get_run_record(record_id) or saved.get("record") or record
                 self._send_json(
                     200,
