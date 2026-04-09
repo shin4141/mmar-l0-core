@@ -6,15 +6,8 @@
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
-      let storedLang = "";
-      try {
-        storedLang = String(window.localStorage.getItem("mmar_lang") || "").trim().toLowerCase();
-      } catch {}
-      const lang = String(params.get("lang") || storedLang || "").trim().toLowerCase() === "en" ? "en" : "ja";
+      const lang = String(params.get("lang") || "").trim().toLowerCase() === "en" ? "en" : "ja";
       window.__MMAR_INITIAL_LANG = lang;
-      try {
-        window.localStorage.setItem("mmar_lang", lang);
-      } catch {}
       document.documentElement.lang = lang;
       if (lang === "en") document.documentElement.setAttribute("data-first-paint-pending", "1");
     })();
@@ -23,7 +16,7 @@
     html[data-first-paint-pending="1"] body { visibility: hidden; }
   </style>
   <title>VerdAIct | AI Battle Gallery</title>
-  <link rel="stylesheet" href="./gallery.css?v=20260409a" />
+  <link rel="stylesheet" href="./gallery.css?v=20260409b" />
 </head>
 <body>
   <main class="gallery-shell">
@@ -65,6 +58,6 @@
     </section>
   </main>
 
-  <script type="module" src="./gallery.js?v=20260409a"></script>
+  <script type="module" src="./gallery.js?v=20260409b"></script>
 </body>
 </html>

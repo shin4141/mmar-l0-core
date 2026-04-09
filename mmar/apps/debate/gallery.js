@@ -4,14 +4,7 @@ const galleryTitleEl = document.querySelector("#gallery-title");
 const galleryCopyEl = document.querySelector("#gallery-copy");
 const galleryCreateLinkEl = document.querySelector("#gallery-create-link");
 const queryParams = new URLSearchParams(window.location.search);
-const storedGalleryLang = (() => {
-  try {
-    return String(window.localStorage.getItem("mmar_lang") || "").trim().toLowerCase();
-  } catch {
-    return "";
-  }
-})();
-const currentLang = String(queryParams.get("lang") || storedGalleryLang || "").trim().toLowerCase() === "en" ? "en" : "ja";
+const currentLang = String(queryParams.get("lang") || "").trim().toLowerCase() === "en" ? "en" : "ja";
 
 const GALLERY_COPY = {
   ja: {
@@ -120,7 +113,7 @@ function renderGallery(records) {
   const langMatchedRecords = allBattleRecords.filter((record) =>
     normalizeBattleLang(record?.battle_lang || record?.lang || "ja") === currentLang
   );
-  const battleRecords = sortRecords(allBattleRecords);
+  const battleRecords = sortRecords(langMatchedRecords);
   window.__MMAR_GALLERY_DEBUG__ = {
     rawFetchedCount,
     battleFilteredCount: allBattleRecords.length,
@@ -166,9 +159,6 @@ async function loadGallery() {
 
 function applyGalleryLanguage() {
   const copy = galleryCopy();
-  try {
-    window.localStorage.setItem("mmar_lang", currentLang);
-  } catch {}
   if (galleryTitleEl) galleryTitleEl.textContent = copy.title;
   if (galleryCopyEl) galleryCopyEl.textContent = copy.copy;
   if (galleryCreateLinkEl) {
