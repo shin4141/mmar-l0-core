@@ -95,12 +95,57 @@ ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
 
 
 def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
-    raw = str(exc or "").strip().lower()
-    if raw in {"missing_url", "invalid_x_url"}:
-        return 400, "invalid_x_url"
-    if raw == "invalid_payload":
-        return 400, "invalid_payload"
-    return 502, "battle_source_unavailable"
+    reason = _classify_x_import_reason(exc)
+    if reason in {"invalid_x_url", "invalid_payload"}:
+        return 400, reason
+    if reason == "missing_xai_key":
+        return 503, reason
+    if reason == "provider_401":
+        return 502, reason
+    if reason == "provider_403":
+        return 502, reason
+    if reason == "provider_429":
+        return 502, reason
+    if reason == "provider_5xx":
+        return 502, reason
+    if reason == "timeout":
+        return 504, reason
+    return 502, reason
+
+
+def _classify_x_import_reason(exc: Exception) -> str:
+    raw = str(exc or "").strip()
+    normalized = raw.lower()
+    if normalized in {"missing_url", "invalid_x_url"}:
+        return "invalid_x_url"
+    if normalized == "invalid_payload":
+        return "invalid_payload"
+    if normalized == "xai_api_key_missing":
+        return "missing_xai_key"
+    if normalized == "empty_xai_seed":
+        return "empty_extraction"
+    if normalized.startswith("invalid_xai_seed:"):
+        return "parse_failed"
+    if normalized.startswith("network_error:"):
+        return "x_fetch_failed"
+    if normalized == "timeout" or "timed out" in normalized:
+        return "timeout"
+    if normalized.startswith("http_error:401:"):
+        return "provider_401"
+    if normalized.startswith("http_error:403:"):
+        return "provider_403"
+    if normalized.startswith("http_error:429:"):
+        return "provider_429"
+    if normalized.startswith("http_error:"):
+        try:
+            status = int(normalized.split(":", 2)[1])
+        except Exception:
+            status = 0
+        if 500 <= status <= 599:
+            return "provider_5xx"
+        if status:
+            return f"provider_{status}"
+    return "battle_source_unavailable"
 
 
 def _topic_hash(topic: str) -> str:
@@ -468,6 +513,7 @@ class Handler(BaseHTTPRequestHandler):
                         "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
                         "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
                         "GEMINI_API_KEY": bool(os.getenv("GEMINI_API_KEY")),
+                        "XAI_API_KEY": bool(os.getenv("XAI_API_KEY")),
                     },
                 },
             )
@@ -805,7 +851,7 @@ class Handler(BaseHTTPRequestHandler):
                     result = build_battle_from_x_url(payload)
                 except Exception as exc:
                     status, error_code = _public_battle_from_x_error(exc)
-                    self._send_json(status, {"ok": False, "error": error_code})
+                    self._send_json(status, {"ok": False, "error": error_code, "reason": error_code})
                     return
                 self._send_json(200, result)
                 return

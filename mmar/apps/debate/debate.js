@@ -3978,13 +3978,56 @@ function explainHttpError(endpointLabel, status) {
 
 function normalizeApiError(endpointLabel, status, data) {
   const raw = String(data?.error || "").trim();
+  const reason = String(data?.reason || "").trim();
   const normalized = raw.toLowerCase();
+  const normalizedReason = reason.toLowerCase();
+  const publicReason = (() => {
+    const code = normalizedReason || normalized;
+    if (code === "invalid_x_url") {
+      return currentBattleLang === "en" ? "Only X post URLs are supported." : "Xの投稿URLだけ使えます";
+    }
+    if (code === "missing_xai_key") {
+      return currentBattleLang === "en" ? "X import is not configured on this preview." : "この preview では X import が未設定です";
+    }
+    if (code === "x_fetch_failed") {
+      return currentBattleLang === "en" ? "Could not fetch that X post. Try another post URL." : "そのX投稿を取得できませんでした。別の投稿URLで試してください";
+    }
+    if (code === "provider_401") {
+      return currentBattleLang === "en" ? "The X provider key was rejected." : "X provider のキーが拒否されました";
+    }
+    if (code === "provider_403") {
+      return currentBattleLang === "en" ? "The X provider rejected this request." : "X provider にリクエストを拒否されました";
+    }
+    if (code === "provider_429") {
+      return currentBattleLang === "en" ? "The X provider is rate-limiting right now." : "X provider 側でレート制限されています";
+    }
+    if (code === "provider_5xx") {
+      return currentBattleLang === "en" ? "The X provider is temporarily unavailable." : "X provider が一時的に不安定です";
+    }
+    if (code === "timeout") {
+      return currentBattleLang === "en" ? "The X provider took too long to respond." : "X provider の応答がタイムアウトしました";
+    }
+    if (code === "parse_failed") {
+      return currentBattleLang === "en" ? "The post was fetched but could not be turned into a battle seed." : "投稿は読めましたが battle seed に変換できませんでした";
+    }
+    if (code === "empty_extraction") {
+      return currentBattleLang === "en" ? "The post did not return enough material to build a battle." : "battle 化に十分な抽出結果が返りませんでした";
+    }
+    return "";
+  })();
+  const debugReasonSuffix = publicFacingOperationalHint(
+    reason ? ` [reason=${reason}]` : "",
+    "",
+  );
   if (normalized === "invalid_x_url") {
     return currentBattleLang === "en" ? "Only X post URLs are supported." : "Xの投稿URLだけ使えます";
   }
   if (normalized === "battle_source_unavailable" || normalized === "internal_error") {
-    return currentBattleLang === "en" ? "Could not read that post. Try another X post URL." : "読み込みに失敗しました。別のX投稿URLで試してください";
+    const fallback = currentBattleLang === "en" ? "Could not read that post. Try another X post URL." : "読み込みに失敗しました。別のX投稿URLで試してください";
+    const message = publicReason || fallback;
+    return `${message}${debugReasonSuffix}`;
   }
+  if (publicReason) return `${publicReason}${debugReasonSuffix}`;
   if (normalized === "invalid_fighter_provider") return "The selected model combination is not available.";
   if (normalized === "invalid_judge_provider") return "The selected judge model is not available.";
   if (normalized === "provider_error") return "The selected model could not be reached.";
