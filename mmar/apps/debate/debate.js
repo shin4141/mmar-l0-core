@@ -162,13 +162,20 @@ function storedBattleLang() {
   }
 }
 
+function resolveRequestedBattleLang(params = queryParams, options = {}) {
+  const { mode = REQUESTED_EXPERIENCE_MODE } = options;
+  if (params?.has("lang")) return normalizeBattleLang(params.get("lang") || "");
+  if (mode === "battle") return storedBattleLang();
+  return "ja";
+}
+
 const queryParams = new URLSearchParams(window.location.search);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
 const BETA_MODE = queryParams.get("beta") === "1";
 const REQUESTED_EXPERIENCE_MODE = queryParams.get("mode") === "battle" ? "battle" : "debate";
 const REQUESTED_FOCUS = String(queryParams.get("focus") || "").trim().toLowerCase();
 const REQUESTED_BATTLE_LANG_EXPLICIT = queryParams.has("lang");
-const REQUESTED_BATTLE_LANG = normalizeBattleLang(queryParams.get("lang") || (REQUESTED_EXPERIENCE_MODE === "battle" ? storedBattleLang() : "ja"));
+const REQUESTED_BATTLE_LANG = resolveRequestedBattleLang(queryParams, { mode: REQUESTED_EXPERIENCE_MODE });
 const READ_ONLY_DEMO = false;
 const PUBLIC_LIMITED_DEMO = false;
 const VIEWER_ARCHIVE_URL = "./fixtures/viewer_archive.json";
@@ -2899,15 +2906,10 @@ function syncViewerReadOnlyControls() {
 function loadRecordIntoView(record, options = {}) {
   if (!record) return;
   const { saved = false } = options;
-  const rawBattleLang = String(record?.battle_lang || record?.lang || "").trim();
   const preview = normalizeSavedRecordForPreview(record);
   const experienceMode = preview.experience_mode === "battle" ? "battle" : "debate";
   const resolvedBattleLang = experienceMode === "battle"
-    ? normalizeBattleLang(
-        REQUESTED_BATTLE_LANG_EXPLICIT
-          ? REQUESTED_BATTLE_LANG
-          : (rawBattleLang || REQUESTED_BATTLE_LANG || "ja")
-      )
+    ? resolveRequestedBattleLang(queryParams, { mode: experienceMode })
     : "ja";
   setBattleLanguage(resolvedBattleLang, { refresh: false });
   applyExperienceMode(experienceMode);

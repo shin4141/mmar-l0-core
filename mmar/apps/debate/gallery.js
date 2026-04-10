@@ -4,7 +4,25 @@ const galleryTitleEl = document.querySelector("#gallery-title");
 const galleryCopyEl = document.querySelector("#gallery-copy");
 const galleryCreateLinkEl = document.querySelector("#gallery-create-link");
 const queryParams = new URLSearchParams(window.location.search);
-const currentLang = String(queryParams.get("lang") || "").trim().toLowerCase() === "en" ? "en" : "ja";
+
+function normalizeBattleLang(value) {
+  return String(value || "").trim().toLowerCase() === "en" ? "en" : "ja";
+}
+
+function storedBattleLang() {
+  try {
+    return normalizeBattleLang(window.localStorage.getItem("mmar_lang") || "");
+  } catch {
+    return "ja";
+  }
+}
+
+function resolveGalleryLang(params = queryParams) {
+  if (params?.has("lang")) return normalizeBattleLang(params.get("lang") || "");
+  return storedBattleLang();
+}
+
+const currentLang = resolveGalleryLang(queryParams);
 
 const GALLERY_COPY = {
   ja: {
@@ -48,10 +66,6 @@ function escapeHtml(value) {
 
 function normalizeExperienceMode(value) {
   return String(value || "").trim().toLowerCase() === "battle" ? "battle" : "debate";
-}
-
-function normalizeBattleLang(value) {
-  return String(value || "").trim().toLowerCase() === "en" ? "en" : "ja";
 }
 
 function buildPlaceholderImage(issue = "") {
