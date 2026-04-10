@@ -57,17 +57,6 @@
           <button id="battle-lang-en-button" type="button" class="battle-lang-button" data-battle-lang="en" aria-pressed="false">English</button>
         </div>
       </section>
-      <section id="battle-presets" class="battle-presets" hidden>
-        <div class="battle-presets-head">
-          <div id="battle-presets-eyebrow" class="eyebrow">Quick Start</div>
-          <p id="battle-presets-copy">クリック1回で問いを入れて、そのままバトル開始できます。</p>
-        </div>
-        <div class="battle-preset-list">
-          <button type="button" class="battle-preset-button" data-battle-preset-ja="この発言、どっちが正しい？" data-battle-preset-en="Who is right in this post?">この発言、どっちが正しい？</button>
-          <button type="button" class="battle-preset-button" data-battle-preset-ja="このニュース、誰が悪い？" data-battle-preset-en="Who is at fault in this story?">このニュース、誰が悪い？</button>
-          <button type="button" class="battle-preset-button" data-battle-preset-ja="これ、あり？なし？" data-battle-preset-en="Is this okay or not?">これ、あり？なし？</button>
-        </div>
-      </section>
       <template id="battle-x-source-template">
         <section id="battle-x-source" class="battle-x-source">
           <div class="battle-x-source-head">
@@ -82,11 +71,12 @@
             <button id="battle-x-build-button" type="button" class="secondary-button">Xからバトル作成</button>
           </div>
           <div id="battle-x-source-error" class="inline-hint" hidden></div>
-          <div id="battle-source-card" class="battle-source-card" hidden>
+          <div id="battle-source-card" class="battle-source-card">
             <div class="battle-source-card-head">
               <span id="battle-source-label" class="battle-source-label">元ネタ</span>
               <a id="battle-source-link" href="#" target="_blank" rel="noreferrer noopener">元URLを開く</a>
             </div>
+            <div id="battle-source-placeholder" class="battle-source-placeholder">Xの投稿URLを入れると元ネタを表示します。</div>
             <div id="battle-source-summary" class="battle-source-summary"></div>
           </div>
         </section>
@@ -110,7 +100,6 @@
           setText("mode-debate-button", "Debate");
           setText("mode-battle-button", "AI Battle");
           setText("battle-lang-switch-label", "Language");
-          setText("battle-presets-copy", "Drop in a topic with one click and start the battle right away.");
           setText("battle-x-import-copy", "Paste an X post URL to start an AI battle.");
           setText("battle-x-url-label", "X post URL");
           setPlaceholder("battle-x-url", "Paste an X post URL");
@@ -127,7 +116,6 @@
           const debateBtn = document.getElementById("mode-debate-button");
           const battleBtn = document.getElementById("mode-battle-button");
           const langSwitch = document.getElementById("battle-lang-switch");
-          const presets = document.getElementById("battle-presets");
           if (debateBtn) {
             debateBtn.classList.remove("is-active");
             debateBtn.setAttribute("aria-pressed", "false");
@@ -137,7 +125,6 @@
             battleBtn.setAttribute("aria-pressed", "true");
           }
           if (langSwitch) langSwitch.hidden = false;
-          if (presets) presets.hidden = false;
           document.body.classList.add("battle-mode");
         })();
       </script>

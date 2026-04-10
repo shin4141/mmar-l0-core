@@ -10,11 +10,9 @@ const brandSignoffEl = document.querySelector("#brand-signoff");
 const battleLangSwitchEl = document.querySelector("#battle-lang-switch");
 const battleLangSwitchLabelEl = document.querySelector("#battle-lang-switch-label");
 const battleLangButtons = [...document.querySelectorAll("[data-battle-lang]")];
-const battlePresetsEl = document.querySelector("#battle-presets");
 const battleXSourceSlotEl = document.querySelector("#battle-x-source-slot");
 const battleXSourceTemplateEl = document.querySelector("#battle-x-source-template");
 const modeButtons = [...document.querySelectorAll("[data-experience-mode]")];
-const battlePresetButtons = [...document.querySelectorAll("[data-battle-preset-ja]")];
 const saveButton = document.querySelector("#save-button");
 const historyButton = document.querySelector("#history-button");
 const archiveButton = document.querySelector("#archive-button");
@@ -148,6 +146,7 @@ let battleXSourceErrorEl = null;
 let battleSourceCardEl = null;
 let battleSourceSummaryEl = null;
 let battleSourceLinkEl = null;
+let battleSourcePlaceholderEl = null;
 let battleXBuildInFlight = false;
 let currentLocalizedViewFetchToken = 0;
 
@@ -214,8 +213,6 @@ const BATTLE_LANG_COPY = {
     runLabel: "バトル開始",
     judgeLabel: "勝敗を見る",
     langLabel: "言語",
-    presetsEyebrow: "Quick Start",
-    presetsCopy: "クリック1回で問いを入れて、そのままバトル開始できます。",
     xImportEyebrow: "X Import",
     xImportCopy: "Xの投稿URLを貼るだけでAIバトル開始",
     xUrlLabel: "Xの投稿URL",
@@ -224,6 +221,7 @@ const BATTLE_LANG_COPY = {
     sourceLabel: "元ネタ",
     sourcePrefix: "元ネタ",
     sourceLink: "元URLを開く",
+    sourcePlaceholder: "Xの投稿URLを入れると元ネタを表示します。",
     shareCopyLabel: "共有リンクコピー",
     shareXLabel: "Xで共有",
     issueLabel: "AIバトル:",
@@ -263,8 +261,6 @@ const BATTLE_LANG_COPY = {
     runLabel: "Start Battle",
     judgeLabel: "See Result",
     langLabel: "Language",
-    presetsEyebrow: "Quick Start",
-    presetsCopy: "Drop in a topic with one click and start the battle right away.",
     xImportEyebrow: "X Import",
     xImportCopy: "Paste an X post URL to start an AI battle.",
     xUrlLabel: "X post URL",
@@ -273,6 +269,7 @@ const BATTLE_LANG_COPY = {
     sourceLabel: "Source",
     sourcePrefix: "Source",
     sourceLink: "Open original",
+    sourcePlaceholder: "Paste an X post URL to load the source.",
     shareCopyLabel: "Copy share link",
     shareXLabel: "Share on X",
     issueLabel: "AI Battle:",
@@ -488,16 +485,6 @@ function applyBattleLanguageText() {
   const copy = battleCopy();
   if (battleLangSwitchLabelEl) battleLangSwitchLabelEl.textContent = copy.langLabel;
   if (battleLangSwitchEl) battleLangSwitchEl.hidden = currentExperienceMode !== "battle";
-  const presetsEyebrowEl = document.querySelector("#battle-presets-eyebrow");
-  const presetsCopyEl = document.querySelector("#battle-presets-copy");
-  if (presetsEyebrowEl) presetsEyebrowEl.textContent = copy.presetsEyebrow;
-  if (presetsCopyEl) presetsCopyEl.textContent = copy.presetsCopy;
-  battlePresetButtons.forEach((button) => {
-    const label = currentBattleLang === "en"
-      ? String(button.dataset.battlePresetEn || button.textContent || "").trim()
-      : String(button.dataset.battlePresetJa || button.textContent || "").trim();
-    button.textContent = label;
-  });
   const xImportEyebrowEl = document.querySelector("#battle-x-import-eyebrow");
   const xImportCopyEl = document.querySelector("#battle-x-import-copy");
   const xUrlLabelEl = document.querySelector("#battle-x-url-label");
@@ -509,6 +496,7 @@ function applyBattleLanguageText() {
   if (battleXBuildButton) battleXBuildButton.textContent = copy.xBuildLabel;
   if (sourceLabelEl) sourceLabelEl.textContent = copy.sourceLabel;
   if (battleSourceLinkEl) battleSourceLinkEl.textContent = copy.sourceLink;
+  if (battleSourcePlaceholderEl) battleSourcePlaceholderEl.textContent = copy.sourcePlaceholder;
   if (shareBattleButton) shareBattleButton.textContent = copy.shareCopyLabel;
   if (shareBattleXButton) shareBattleXButton.textContent = copy.shareXLabel;
   setBattleLangButtonState();
@@ -560,9 +548,6 @@ function applyExperienceMode(mode) {
     runButton.textContent = copy.runLabel;
   }
   judgeButton.textContent = copy.judgeLabel;
-  if (battlePresetsEl) {
-    battlePresetsEl.hidden = currentExperienceMode !== "battle";
-  }
   renderBattleXSourceSection();
   applyBattleLanguageText();
   applyFormShellCopy();
@@ -587,6 +572,7 @@ function syncBattleXSourceRefs() {
   battleSourceCardEl = document.querySelector("#battle-source-card");
   battleSourceSummaryEl = document.querySelector("#battle-source-summary");
   battleSourceLinkEl = document.querySelector("#battle-source-link");
+  battleSourcePlaceholderEl = document.querySelector("#battle-source-placeholder");
 }
 
 function mountBattleXSourceSection() {
@@ -646,39 +632,30 @@ function syncArchiveModeFilterButtons() {
   }
 }
 
-function applyBattlePreset(topic) {
-  const topicInput = document.querySelector("#topic");
-  const sideAInput = document.querySelector("#side-a");
-  const sideBInput = document.querySelector("#side-b");
-  if (!topicInput || !sideAInput || !sideBInput) return;
-  const presetTopic = String(topic || "").trim();
-  if (!presetTopic) return;
-  const positions = generatedPositionsFromTopic(presetTopic);
-  topicInput.value = presetTopic;
-  sideAInput.value = positions.a;
-  sideBInput.value = positions.b;
-  clearBattleXSourceError();
-  currentBattleSource = null;
-  renderBattleSourceCard();
-  if (keywordInput) keywordInput.value = "";
-  if (!runButton.disabled) {
-    form.requestSubmit();
-  }
-}
-
 function renderBattleSourceCard() {
-  if (!battleSourceCardEl || !battleSourceSummaryEl || !battleSourceLinkEl) return;
+  if (!battleSourceCardEl || !battleSourceSummaryEl || !battleSourceLinkEl || !battleSourcePlaceholderEl) return;
   const source = currentBattleSource;
   const safeSourceUrl = sanitizeExternalUrl(source?.source_url, { xOnly: true });
   const visible = Boolean(source && currentBattleSourceSummary() && safeSourceUrl);
-  battleSourceCardEl.hidden = !visible || !isBattleMode();
-  if (!visible) {
+  battleSourceCardEl.hidden = !isBattleMode();
+  if (!isBattleMode()) {
     battleSourceSummaryEl.textContent = "";
+    battleSourcePlaceholderEl.hidden = true;
     safeSetExternalHref(battleSourceLinkEl, "", { xOnly: true });
+    battleSourceLinkEl.hidden = true;
     return;
   }
+  if (!visible) {
+    battleSourceSummaryEl.textContent = "";
+    battleSourcePlaceholderEl.hidden = false;
+    safeSetExternalHref(battleSourceLinkEl, "", { xOnly: true });
+    battleSourceLinkEl.hidden = true;
+    return;
+  }
+  battleSourcePlaceholderEl.hidden = true;
   battleSourceSummaryEl.textContent = `${battleCopy().sourcePrefix}: ${currentBattleSourceSummary()}`;
   safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
+  battleSourceLinkEl.hidden = false;
 }
 
 function currentBattleShareId() {
@@ -4475,15 +4452,6 @@ modeButtons.forEach((button) => {
 battleLangButtons.forEach((button) => {
   button.addEventListener("click", () => {
     setBattleLanguage(button.dataset.battleLang || "ja");
-  });
-});
-
-battlePresetButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const topic = currentBattleLang === "en"
-      ? button.dataset.battlePresetEn || ""
-      : button.dataset.battlePresetJa || "";
-    applyBattlePreset(topic);
   });
 });
 

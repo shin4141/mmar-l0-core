@@ -174,39 +174,6 @@ body.viewer-mode .input-panel {
   color: #fff7f0;
 }
 
-.battle-presets {
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 14px;
-  background:
-    linear-gradient(135deg, rgba(177, 57, 34, 0.1), rgba(24, 52, 74, 0.06)),
-    rgba(255, 255, 255, 0.54);
-}
-
-.battle-presets-head {
-  display: grid;
-  gap: 6px;
-}
-
-.battle-preset-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.battle-preset-button {
-  border: 1px solid rgba(96, 31, 21, 0.16);
-  border-radius: 999px;
-  padding: 10px 14px;
-  background: #fff7f0;
-  color: var(--text);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 10px 24px rgba(77, 23, 15, 0.08);
-}
-
 .battle-lang-switch {
   display: flex;
   align-items: center;
@@ -246,10 +213,6 @@ body.viewer-mode .input-panel {
   background: var(--text);
   border-color: var(--text);
   color: #fff7f0;
-}
-
-body.battle-mode .battle-preset-button {
-  background: #fff3ea;
 }
 
 .battle-x-source {
@@ -304,6 +267,8 @@ body.battle-mode .battle-x-source {
   border-radius: 16px;
   padding: 12px 14px;
   background: rgba(255, 251, 247, 0.88);
+  min-height: 132px;
+  align-content: start;
 }
 
 .battle-source-card-head {
@@ -335,6 +300,12 @@ body.battle-mode .battle-x-source {
 .battle-source-summary {
   color: var(--text);
   font-size: 0.96rem;
+  line-height: 1.5;
+}
+
+.battle-source-placeholder {
+  color: var(--muted);
+  font-size: 0.94rem;
   line-height: 1.5;
 }
 
