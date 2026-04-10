@@ -323,6 +323,55 @@ function battleCopy() {
   return BATTLE_LANG_COPY[currentBattleLang] || BATTLE_LANG_COPY.ja;
 }
 
+function isEnglishBattleView() {
+  return isBattleMode() && currentBattleLang === "en";
+}
+
+function battleLocaleText(jaText, enText) {
+  return isEnglishBattleView() ? enText : jaText;
+}
+
+function battleSummaryCopy() {
+  return {
+    winnerPill: battleLocaleText("Winner", "Winner"),
+    momentumLabel: battleLocaleText("Momentum Bar", "Momentum Bar"),
+    momentumNote: battleLocaleText("この判定は真偽ではなく、この命題での押し込みです。", "This measures who controlled the proposition, not who proved objective truth."),
+    flipConditionLabel: battleLocaleText("Flip Condition", "Flip Condition"),
+    geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Gemini Takeaway"),
+    geminiQuoteLabel: battleLocaleText("Gemini Quote", "Gemini Quote"),
+    askTitle: battleLocaleText("この試合についてGeminiに聞く", "Ask Gemini About This Match"),
+    askButton: battleLocaleText("この試合をGeminiに聞く", "Ask Gemini About This Match"),
+    askHint: battleLocaleText("この試合について Gemini に質問できます。なぜ負けたか、何を足せば戻るかを聞けます。", "Ask Gemini why one side lost, what could have flipped the result, or which rule decided the match."),
+    sourceKicker: battleLocaleText("Source", "Source"),
+    battleResultKicker: battleLocaleText("Battle Result", "Battle Result"),
+    firstCrackLabel: battleLocaleText("最初のヒビ", "First Crack"),
+    firstCrackEmptyQuote: battleLocaleText("まだ最初のヒビは特定されていない。", "The first crack has not been identified yet."),
+    firstCrackEmptyReason: battleLocaleText("どこで最初の傷が入ったかを追う。", "Track where the first visible weakness opened."),
+    confidenceLabel: battleLocaleText("判定の強さ", "Confidence"),
+    clincherLabel: battleLocaleText("最後の押し込み", "Clincher"),
+    detailSummary: battleLocaleText("詳細を見る", "Read Full Rationale"),
+    detailEmpty: battleLocaleText("詳しい判定メモはまだありません。", "No detailed judge notes yet."),
+    judgeNotesTitle: battleLocaleText("Judge Notes", "Judge Notes"),
+    analysisOpen: battleLocaleText("▼ 分析を見る", "▼ View Analysis"),
+    analysisClose: battleLocaleText("▲ 分析を閉じる", "▲ Hide Analysis"),
+    turnOneStage: battleLocaleText("主張", "Opening"),
+    turnTwoStage: battleLocaleText("反論", "Rebuttal"),
+    turnThreeStage: battleLocaleText("討論開始", "Rally Begins"),
+    finalStage: battleLocaleText("締め", "Closing"),
+    continueStage: battleLocaleText("討論継続", "Rally Continues"),
+    sideALabel: battleLocaleText("先攻", "Side A"),
+    sideBLabel: battleLocaleText("後攻", "Side B"),
+  };
+}
+
+function formatBattleSideLabel(side) {
+  const normalized = String(side || "").trim().toUpperCase();
+  if (normalized === "A") return isEnglishBattleView() ? "Side A" : "A";
+  if (normalized === "B") return isEnglishBattleView() ? "Side B" : "B";
+  if (normalized === "DRAW") return battleLocaleText("保留", "Draw");
+  return normalized || battleLocaleText("保留", "Draw");
+}
+
 function clearBattleXSourceError() {
   setBattleXSourceError("");
 }
@@ -1473,33 +1522,57 @@ function formatCardRoleLabel(value) {
 
 function formatStructuralRoleLabel(value) {
   const role = String(value || "").trim();
-  const labels = {
-    rule_capture: "ルール奪取",
-    definition_lock: "定義固定",
-    category_reframe: "カテゴリ再定義",
-    burden_shift: "立証責任固定",
-    counterexample_land: "反例着地",
-    drift_exposure: "条件後退露出",
-    decisive_frame: "決定枠確定",
-  };
+  const labels = isEnglishBattleView()
+    ? {
+        rule_capture: "Rule capture",
+        definition_lock: "Definition lock",
+        category_reframe: "Category reframe",
+        burden_shift: "Burden lock",
+        counterexample_land: "Counterexample landed",
+        drift_exposure: "Retreat exposed",
+        decisive_frame: "Decisive frame",
+      }
+    : {
+        rule_capture: "ルール奪取",
+        definition_lock: "定義固定",
+        category_reframe: "カテゴリ再定義",
+        burden_shift: "立証責任固定",
+        counterexample_land: "反例着地",
+        drift_exposure: "条件後退露出",
+        decisive_frame: "決定枠確定",
+      };
   return labels[role] || "";
 }
 
 function formatAxisTagLabel(value) {
   const role = String(value || "").trim();
-  const labels = {
-    "Means for essence": "手段→本質ずらし",
-    "Exception escape": "例外逃避",
-    "Generalization shift": "一般化ずらし",
-    "Time shift": "時間軸ずらし",
-    "Proof threshold shift": "立証閾値ずらし",
-    "Axis shift": "比較軸ずらし",
-    "Scope substitution": "問いの再発明",
-    "Contract drift": "Contract drift",
-    "Frame survival": "Frame survival",
-    "Burden shift": "Burden shift",
-    "Residue": "残差責任",
-  };
+  const labels = isEnglishBattleView()
+    ? {
+        "Means for essence": "Means for essence",
+        "Exception escape": "Exception escape",
+        "Generalization shift": "Generalization shift",
+        "Time shift": "Time shift",
+        "Proof threshold shift": "Proof threshold shift",
+        "Axis shift": "Axis shift",
+        "Scope substitution": "Scope substitution",
+        "Contract drift": "Contract drift",
+        "Frame survival": "Frame survival",
+        "Burden shift": "Burden shift",
+        "Residue": "Residue",
+      }
+    : {
+        "Means for essence": "手段→本質ずらし",
+        "Exception escape": "例外逃避",
+        "Generalization shift": "一般化ずらし",
+        "Time shift": "時間軸ずらし",
+        "Proof threshold shift": "立証閾値ずらし",
+        "Axis shift": "比較軸ずらし",
+        "Scope substitution": "問いの再発明",
+        "Contract drift": "Contract drift",
+        "Frame survival": "Frame survival",
+        "Burden shift": "Burden shift",
+        "Residue": "残差責任",
+      };
   return labels[role] || role;
 }
 
@@ -1653,7 +1726,9 @@ function normalizeGeminiTakeaway(summary, topic = "") {
 function normalizeTakeawayQuote(value) {
   const quote = String(value || "").trim();
   if (!quote) return "";
-  return quote.startsWith("「") ? quote : `「${quote.replace(/^「|」$/g, "")}」`;
+  const stripped = quote.replace(/^["“”'「」]+|["“”'「」]+$/g, "");
+  if (isEnglishBattleView()) return `"${stripped}"`;
+  return `「${stripped}」`;
 }
 
 function normalizeGeminiQuote(summary) {
@@ -3225,6 +3300,7 @@ function renderSummary(summary) {
   ensureAnalysisPanel();
   syncMobileAnalysisPanel();
   const localized = currentLocalizedBattleView();
+  const uiCopy = battleSummaryCopy();
   const winner = normalizeWinner(summary);
   const fatal = normalizeFatalPhrase(summary);
   const firstCrack = normalizeFirstCrack(summary);
@@ -3238,10 +3314,12 @@ function renderSummary(summary) {
   const topic = currentResult?.debate?.topic || "";
   const battleIssue = currentBattleIssue() || topic;
   const battleLabels = battleCopy();
-  const headline = localized?.summary?.verdict_headline || composeVerdictHeadline(topic, winner);
-  const subline = localized?.summary?.verdict_subline || composeVerdictSubline(topic, winner, why);
+  const headline = localized?.summary?.verdict_headline || (isEnglishBattleView() ? `${formatBattleSideLabel(winner.side)} has the edge` : composeVerdictHeadline(topic, winner));
+  const subline = localized?.summary?.verdict_subline || (isEnglishBattleView() ? why : composeVerdictSubline(topic, winner, why));
   const momentum = normalizeMomentum(summary, winner, confidence);
-  const flipCondition = localized?.summary?.flip_condition || composeFlipCondition(winner, weakSpot, why);
+  const flipCondition = localized?.summary?.flip_condition || (isEnglishBattleView()
+    ? `${formatBattleSideLabel(winner.side === "A" ? "B" : winner.side === "B" ? "A" : "Draw")} needed a concrete example or a tighter definition to remove "${weakSpot.label || "key weakness"}". ${weakSpot?.how_to_fix || weakSpot?.why_one_sentence || why || ""}`.trim()
+    : composeFlipCondition(winner, weakSpot, why));
   const takeaway = normalizeGeminiTakeaway(summary, topic);
   const geminiQuote = normalizeGeminiQuote(summary);
   const displayFatalQuote = localized?.summary?.fatal_phrase?.quote || fatal.quote;
@@ -3258,7 +3336,7 @@ function renderSummary(summary) {
     ? `
       <article class="summary-card summary-card-source">
         <div class="summary-label">${escapeHtml(battleLabels.sourceLabel)}</div>
-        <div class="summary-kicker">Source</div>
+        <div class="summary-kicker">${escapeHtml(uiCopy.sourceKicker)}</div>
         <div class="summary-value summary-source-copy">${escapeHtml(currentBattleSourceSummary())}</div>
         <div class="summary-subvalue">${safeBattleSourceUrl ? `<a class="summary-source-link" href="${escapeHtml(safeBattleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleLabels.sourceLink)}</a>` : ""}</div>
       </article>
@@ -3282,7 +3360,7 @@ function renderSummary(summary) {
   const unresolvedResidue = normalizeDetailList(summary?.unresolved_residue);
   const fullRationale = summary?.full_rationale || summary?.provisional_judgment || "";
   const askHint = shouldShowAskHint()
-    ? "この試合について Gemini に質問できます。なぜ負けたか、何を足せば戻るかを聞けます。"
+    ? uiCopy.askHint
     : "";
   destroyExpansionIntro();
 
@@ -3290,7 +3368,7 @@ function renderSummary(summary) {
     <article class="verdict-strip-card">
       <div class="verdict-strip-main">${escapeHtml(headline)}</div>
       <div class="verdict-strip-meta">
-        <span class="verdict-pill">Winner ${escapeHtml(winner.side)}</span>
+        <span class="verdict-pill">${escapeHtml(uiCopy.winnerPill)} ${escapeHtml(formatBattleSideLabel(winner.side))}</span>
         <span class="verdict-pill">${escapeHtml(confidence)}</span>
       </div>
       <div class="verdict-strip-subline">${escapeHtml(subline)}</div>
@@ -3299,22 +3377,22 @@ function renderSummary(summary) {
         <section class="momentum-card">
           <div class="momentum-head">
             <span>A ${escapeHtml(momentum.a)}</span>
-            <span>Momentum Bar</span>
+            <span>${escapeHtml(uiCopy.momentumLabel)}</span>
             <span>B ${escapeHtml(momentum.b)}</span>
           </div>
           <div class="momentum-bar" aria-label="momentum bar">
             <div class="momentum-fill momentum-fill-a" style="width:${escapeHtml(momentum.a)}%"></div>
             <div class="momentum-fill momentum-fill-b" style="width:${escapeHtml(momentum.b)}%"></div>
           </div>
-          <div class="momentum-note">この判定は真偽ではなく、この命題での押し込みです。</div>
+          <div class="momentum-note">${escapeHtml(uiCopy.momentumNote)}</div>
         </section>
         <section class="flip-card">
-          <div class="summary-label">Flip Condition</div>
+          <div class="summary-label">${escapeHtml(uiCopy.flipConditionLabel)}</div>
           <div class="flip-copy">${escapeHtml(flipCondition)}</div>
         </section>
       </div>
       <section class="gemini-takeaway-card">
-        <div class="summary-label">Gemini Takeaway</div>
+        <div class="summary-label">${escapeHtml(uiCopy.geminiTakeawayLabel)}</div>
         <div class="gemini-takeaway-line">${escapeHtml(takeaway.structural_explanation)}</div>
         <div class="gemini-takeaway-line">${escapeHtml(takeaway.debate_dynamic)}</div>
         <div class="gemini-takeaway-quote">${escapeHtml(takeaway.quote)}</div>
@@ -3322,17 +3400,17 @@ function renderSummary(summary) {
       ${PUBLIC_ASK_DISABLED ? "" : `
       <div class="verdict-strip-actions">
         <div class="ask-cta-copy">
-          <div class="ask-cta-title">この試合についてGeminiに聞く</div>
+          <div class="ask-cta-title">${escapeHtml(uiCopy.askTitle)}</div>
           ${askHint ? `<div class="ask-cta-hint">${escapeHtml(askHint)}</div>` : ""}
         </div>
-        <button type="button" id="ask-match-button" class="secondary-button ask-cta-button">この試合をGeminiに聞く</button>
+        <button type="button" id="ask-match-button" class="secondary-button ask-cta-button">${escapeHtml(uiCopy.askButton)}</button>
       </div>`}
     </article>
   `;
 
   geminiQuoteEl.innerHTML = `
     <article class="gemini-quote-card summary-jump-card" data-jump-target="gemini-quote" title="${escapeHtml(geminiQuote.framing_reason || geminiQuote.pick_reason || "")}">
-      <div class="summary-label">Gemini Quote</div>
+      <div class="summary-label">${escapeHtml(uiCopy.geminiQuoteLabel)}</div>
       <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(geminiQuote.role || "ai_framing"))}</div>
       ${geminiQuote.framing_role || geminiQuote.structural_role ? `<div class="summary-role">${escapeHtml(formatStructuralRoleLabel(geminiQuote.framing_role || geminiQuote.structural_role))}</div>` : ""}
       <div class="gemini-quote-copy">${escapeHtml(geminiQuote.framing_text || geminiQuote.text)}</div>
@@ -3352,8 +3430,8 @@ function renderSummary(summary) {
       ${battleSourceMarkup}
       <article class="summary-card summary-card-verdict tone-winner">
         <div class="summary-label">${escapeHtml(battleLabels.winnerLabel)}</div>
-        <div class="summary-kicker">Battle Result</div>
-        <div class="summary-value summary-emphasis">${escapeHtml(winner.side)}</div>
+        <div class="summary-kicker">${escapeHtml(uiCopy.battleResultKicker)}</div>
+        <div class="summary-value summary-emphasis">${escapeHtml(formatBattleSideLabel(winner.side))}</div>
         <div class="summary-subvalue summary-winner-reason">${escapeHtml(localized?.summary?.winner?.reason || winner.reason)}</div>
       </article>
       <button type="button" class="summary-card tone-fatal summary-jump-card" data-jump-target="fatal">
@@ -3379,24 +3457,24 @@ function renderSummary(summary) {
       <button type="button" class="summary-card tone-contradiction summary-jump-card" data-jump-target="weak">
         <div class="summary-label">${escapeHtml(battleLabels.weakLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
-        <div class="summary-meta">${escapeHtml(`${weakSpot.side} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
+        <div class="summary-meta">${escapeHtml(`${formatBattleSideLabel(weakSpot.side)} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
         <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
-        <div class="summary-subvalue summary-quote">${escapeHtml(`「${displayWeakQuote}」`)}</div>
+        <div class="summary-subvalue summary-quote">${escapeHtml(normalizeTakeawayQuote(displayWeakQuote))}</div>
       </button>
       <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
-        <div class="summary-label">最初のヒビ</div>
+        <div class="summary-label">${escapeHtml(uiCopy.firstCrackLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
         <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
-        <div class="summary-value">${escapeHtml(displayFirstCrackQuote || "まだ最初のヒビは特定されていない。")}</div>
-        <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || "どこで最初の傷が入ったかを追う。")}</div>
+        <div class="summary-value">${escapeHtml(displayFirstCrackQuote || uiCopy.firstCrackEmptyQuote)}</div>
+        <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || uiCopy.firstCrackEmptyReason)}</div>
       </button>
       <article class="summary-card summary-card-confidence">
-        <div class="summary-label">判定の強さ</div>
+        <div class="summary-label">${escapeHtml(uiCopy.confidenceLabel)}</div>
         <div class="summary-value summary-emphasis">${escapeHtml(confidence)}</div>
       </article>
       ${showClincher ? `
         <button type="button" class="summary-card tone-clincher summary-jump-card" data-jump-target="clincher">
-          <div class="summary-label">最後の押し込み</div>
+          <div class="summary-label">${escapeHtml(uiCopy.clincherLabel)}</div>
           <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(clincher.role || "clincher"))}</div>
           <div class="summary-meta">${escapeHtml(`Turn ${clincher.turn} / ${clincher.speaker || "?"}`)}</div>
           <div class="summary-value">${escapeHtml(displayClincherQuote)}</div>
@@ -3406,8 +3484,8 @@ function renderSummary(summary) {
     `;
     detailPanelEl.innerHTML = `
       <details class="analysis-details" open>
-        <summary>詳細を見る</summary>
-        <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || "詳しい判定メモはまだありません。")}</div>
+        <summary>${escapeHtml(uiCopy.detailSummary)}</summary>
+        <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || uiCopy.detailEmpty)}</div>
       </details>
     `;
     return;
@@ -3545,14 +3623,15 @@ function destroyGeminiQuote() {
 
 function ensureAnalysisPanel() {
   if (analysisPanelEl && verdictGridEl && spotlightGridEl && detailPanelEl) return;
+  const uiCopy = battleSummaryCopy();
   analysisPanelEl = document.createElement("section");
   analysisPanelEl.id = "analysis-panel";
   analysisPanelEl.className = "output-block";
   analysisPanelEl.innerHTML = `
     <div class="section-title-row">
-      <h3>Judge Notes</h3>
+      <h3>${escapeHtml(uiCopy.judgeNotesTitle)}</h3>
       <div class="analysis-head-actions">
-        <button type="button" id="analysis-toggle-button" class="chip-button analysis-toggle-button" hidden>▼ 分析を見る</button>
+        <button type="button" id="analysis-toggle-button" class="chip-button analysis-toggle-button" hidden>${escapeHtml(uiCopy.analysisOpen)}</button>
         <span class="meta-chip">Judge</span>
       </div>
     </div>
@@ -3590,12 +3669,13 @@ function syncMobileAnalysisPanel() {
   if (!analysisPanelEl) return;
   const toggleButton = analysisPanelEl.querySelector("#analysis-toggle-button");
   const content = analysisPanelEl.querySelector("#analysis-content");
+  const uiCopy = battleSummaryCopy();
   if (!toggleButton || !content) return;
   if (isMobileLayout()) {
     toggleButton.hidden = false;
     analysisPanelEl.classList.toggle("mobile-analysis-collapsed", mobileAnalysisCollapsed);
     content.hidden = mobileAnalysisCollapsed;
-    toggleButton.textContent = mobileAnalysisCollapsed ? "▼ 分析を見る" : "▲ 分析を閉じる";
+    toggleButton.textContent = mobileAnalysisCollapsed ? uiCopy.analysisOpen : uiCopy.analysisClose;
     return;
   }
   toggleButton.hidden = true;
@@ -3605,6 +3685,7 @@ function syncMobileAnalysisPanel() {
 
 function renderTurns(turns, summary = {}, reveal = false) {
   const markers = reveal ? detectTurnMarkers(summary) : {};
+  const uiCopy = battleSummaryCopy();
   turnLogEl.classList.remove("empty");
   turnLogEl.innerHTML = turns
     .map((turn) => {
@@ -3641,7 +3722,7 @@ function renderTurns(turns, summary = {}, reveal = false) {
           <div class="rally-stack">
             <section id="turn-${escapeHtml(turn.turn)}-a" class="speaker-block rally-block rally-first" data-turn="${escapeHtml(turn.turn)}" data-speaker="A">
               <div class="speaker-label">
-                <span class="speaker-role">先攻</span>
+                <span class="speaker-role">${escapeHtml(uiCopy.sideALabel)}</span>
                 <span class="speaker-side">A</span>
               </div>
               <div class="turn-copy">${aMarkup}</div>
@@ -3649,7 +3730,7 @@ function renderTurns(turns, summary = {}, reveal = false) {
             </section>
             <section id="turn-${escapeHtml(turn.turn)}-b" class="speaker-block rally-block rally-second" data-turn="${escapeHtml(turn.turn)}" data-speaker="B">
               <div class="speaker-label">
-                <span class="speaker-role">後攻</span>
+                <span class="speaker-role">${escapeHtml(uiCopy.sideBLabel)}</span>
                 <span class="speaker-side">B</span>
               </div>
               <div class="turn-copy">${bMarkup}</div>
@@ -3732,11 +3813,12 @@ function splitTranscriptSentences(text) {
 }
 
 function describePhase(turnNumber, stageLabel, totalTurns) {
-  if (turnNumber === 1) return { phase: "Turn 1", stage: "主張" };
-  if (turnNumber === 2) return { phase: "Turn 2", stage: "反論" };
-  if (turnNumber === 3) return { phase: "Turn 3", stage: "討論開始" };
-  if (turnNumber === totalTurns) return { phase: `Turn ${turnNumber}`, stage: "締め" };
-  return { phase: `Turn ${turnNumber}`, stage: "討論継続" };
+  const uiCopy = battleSummaryCopy();
+  if (turnNumber === 1) return { phase: "Turn 1", stage: uiCopy.turnOneStage };
+  if (turnNumber === 2) return { phase: "Turn 2", stage: uiCopy.turnTwoStage };
+  if (turnNumber === 3) return { phase: "Turn 3", stage: uiCopy.turnThreeStage };
+  if (turnNumber === totalTurns) return { phase: `Turn ${turnNumber}`, stage: uiCopy.finalStage };
+  return { phase: `Turn ${turnNumber}`, stage: uiCopy.continueStage };
 }
 
 function refreshOutput() {
