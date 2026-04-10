@@ -322,6 +322,26 @@ def _record_summary_dict(record: dict[str, Any]) -> dict[str, Any]:
     return nested_judge_result if isinstance(nested_judge_result, dict) else {}
 
 
+def _record_display_turns(record: dict[str, Any]) -> list[dict[str, Any]]:
+    debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    nested = _nested_run_json(record)
+    nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
+    for candidate in (
+        debate_result.get("display_turns"),
+        debate_result.get("transcript_json"),
+        debate_result.get("raw_turns"),
+        nested_debate.get("display_turns"),
+        nested_debate.get("transcript_json"),
+        nested_debate.get("raw_turns"),
+        record.get("display_turns"),
+        record.get("transcript_json"),
+        record.get("raw_turns"),
+    ):
+        if isinstance(candidate, list) and candidate:
+            return [item for item in candidate if isinstance(item, dict)]
+    return []
+
+
 def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
     summary = _record_summary_dict(record)
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else {}
@@ -335,11 +355,21 @@ def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
     nested = _nested_run_json(record)
     nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
+    turns = _record_display_turns(record)
     return {
         "issue": _clean_text(record.get("topic") or debate_result.get("topic") or nested.get("topic") or nested_debate.get("topic") or ""),
         "side_a": _clean_text(record.get("stance_a") or record.get("side_a") or debate_result.get("stance_a") or nested.get("stance_a") or nested.get("side_a") or nested_debate.get("stance_a") or ""),
         "side_b": _clean_text(record.get("stance_b") or record.get("side_b") or debate_result.get("stance_b") or nested.get("stance_b") or nested.get("side_b") or nested_debate.get("stance_b") or ""),
         "source_summary": _record_source_summary(record),
+        "turns": [
+            {
+                "turn": int(turn.get("turn") or index + 1),
+                "a": _clean_text(turn.get("a") or ""),
+                "b": _clean_text(turn.get("b") or ""),
+            }
+            for index, turn in enumerate(turns)
+            if _clean_text(turn.get("a") or "") or _clean_text(turn.get("b") or "")
+        ],
         "summary": {
             "winner": {
                 "side": _clean_text(winner.get("side") or summary.get("winner") or ""),
@@ -407,8 +437,9 @@ def _battle_localize_prompt(seed: dict[str, Any], *, lang: str) -> str:
         "This is not a new debate. Do not change the winner, turn numbers, speakers, or structure.\n"
         "Do not add new analysis. Do not generalize. Keep the same incident and subject.\n"
         "Translate only user-facing text fields so the battle can be shown in a localized viewer.\n"
-        "Keep the exact top-level keys: issue, side_a, side_b, source_summary, summary.\n"
+        "Keep the exact top-level keys: issue, side_a, side_b, source_summary, turns, summary.\n"
         "Inside summary, keep the exact keys already provided. Preserve winner.side as A, B, or Draw.\n"
+        "Inside turns, keep one object per turn with the exact keys: turn, a, b.\n"
         "If a field is a structural token or empty, keep it as-is.\n"
         "Return JSON only.\n\n"
         + json.dumps(seed, ensure_ascii=False, indent=2)
@@ -470,6 +501,34 @@ def _localize_seed_missing_fields(seed: dict[str, Any]) -> list[str]:
     return missing
 
 
+def _normalize_localized_turns(raw: Any, fallback: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    fallback_turns = fallback if isinstance(fallback, list) else []
+    if not isinstance(raw, list):
+        return fallback_turns
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        a_text = _clean_text(item.get("a") or "")
+        b_text = _clean_text(item.get("b") or "")
+        if not (a_text or b_text):
+            continue
+        try:
+            turn_no = int(item.get("turn"))
+        except Exception:
+            turn_no = index + 1
+        normalized.append({"turn": turn_no, "a": a_text, "b": b_text})
+    return normalized or fallback_turns
+
+
+def _localized_view_has_turns(view: dict[str, Any]) -> bool:
+    turns = view.get("turns")
+    return isinstance(turns, list) and any(
+        isinstance(item, dict) and (_clean_text(item.get("a") or "") or _clean_text(item.get("b") or ""))
+        for item in turns
+    )
+
+
 def _classify_localize_failure(exc: Exception) -> str:
     message = str(exc or "")
     if isinstance(exc, LocalizeError):
@@ -488,7 +547,8 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
     existing_views = normalized_record.get("localized_views") if isinstance(normalized_record.get("localized_views"), dict) else {}
     if normalized_lang in existing_views and isinstance(existing_views.get(normalized_lang), dict):
         view = dict(existing_views.get(normalized_lang) or {})
-        if str(view.get("status") or "").strip().lower() == "ready":
+        view_ready = str(view.get("status") or "").strip().lower() == "ready"
+        if view_ready and (normalized_lang != "en" or _localized_view_has_turns(view)):
             normalized_record["localized_views"] = existing_views
             return {"record": normalized_record, "localized_view": view, "cache_hit": True}
     if normalized_lang != "en":
@@ -512,6 +572,7 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
         "side_a": _clean_text(parsed.get("side_a") or ""),
         "side_b": _clean_text(parsed.get("side_b") or ""),
         "source_summary": _clean_text(parsed.get("source_summary") or ""),
+        "turns": _normalize_localized_turns(parsed.get("turns"), seed.get("turns") or []),
         "summary": parsed.get("summary") if isinstance(parsed.get("summary"), dict) else {},
     }
     localized_view = {
@@ -521,6 +582,7 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
         "side_a": overlay["side_a"] or seed["side_a"],
         "side_b": overlay["side_b"] or seed["side_b"],
         "source_summary": overlay["source_summary"] or seed["source_summary"],
+        "turns": overlay["turns"] or (seed.get("turns") or []),
         "summary": _deep_overlay_strings(seed.get("summary") or {}, overlay.get("summary") or {}),
     }
     next_views = dict(existing_views)

@@ -774,6 +774,19 @@ function summaryForDisplay(summary) {
   return mergeLocalizedSummary(summary || {}, localized.summary);
 }
 
+function currentLocalizedBattleTurns() {
+  const localized = currentLocalizedBattleView();
+  if (!Array.isArray(localized?.turns) || !localized.turns.length) return [];
+  return localized.turns
+    .filter((turn) => turn && typeof turn === "object")
+    .map((turn, index) => ({
+      turn: Number(turn.turn) || index + 1,
+      a: String(turn.a || ""),
+      b: String(turn.b || ""),
+    }))
+    .filter((turn) => turn.a || turn.b);
+}
+
 function currentBattleSourceSummary() {
   const localized = currentLocalizedBattleView();
   if (localized?.source_summary) return String(localized.source_summary).trim();
@@ -2183,6 +2196,8 @@ function getRawTurns(recordOrDebate) {
 }
 
 function getDisplayTurns(recordOrDebate) {
+  const localizedTurns = currentLocalizedBattleTurns();
+  if (localizedTurns.length) return localizedTurns;
   if (!recordOrDebate || typeof recordOrDebate !== "object") return [];
   if (Array.isArray(recordOrDebate.display_turns) && recordOrDebate.display_turns.length) return recordOrDebate.display_turns;
   if (Array.isArray(recordOrDebate.transcript_json) && recordOrDebate.transcript_json.length) return recordOrDebate.transcript_json;
