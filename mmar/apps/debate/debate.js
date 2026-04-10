@@ -537,6 +537,19 @@ function setBattleLangButtonState() {
   });
 }
 
+function syncBattleLanguageRoute() {
+  if (currentExperienceMode !== "battle") return;
+  const url = new URL(window.location.href);
+  if (currentBattleLang === "en") {
+    url.searchParams.set("lang", "en");
+    queryParams.set("lang", "en");
+  } else {
+    url.searchParams.delete("lang");
+    queryParams.delete("lang");
+  }
+  window.history.replaceState({}, "", url.toString());
+}
+
 function applyBattleLanguageText() {
   const copy = battleCopy();
   if (battleLangSwitchLabelEl) battleLangSwitchLabelEl.textContent = copy.langLabel;
@@ -565,6 +578,7 @@ function setBattleLanguage(lang, options = {}) {
   try {
     window.localStorage.setItem("mmar_lang", nextLang);
   } catch {}
+  syncBattleLanguageRoute();
   applyBattleLanguageText();
   if (currentExperienceMode === "battle") {
     const copy = experienceCopyFor("battle");
@@ -752,6 +766,10 @@ function currentLocalizedBattleView() {
   return null;
 }
 
+function currentBattleDisplayView() {
+  return currentBattleLang === "en" ? currentLocalizedBattleView() : null;
+}
+
 function mergeLocalizedSummary(base, overlay) {
   if (!overlay || typeof overlay !== "object" || Array.isArray(overlay)) return base || {};
   const source = base && typeof base === "object" && !Array.isArray(base) ? base : {};
@@ -769,13 +787,13 @@ function mergeLocalizedSummary(base, overlay) {
 }
 
 function summaryForDisplay(summary) {
-  const localized = currentLocalizedBattleView();
+  const localized = currentBattleDisplayView();
   if (!localized?.summary) return summary || {};
   return mergeLocalizedSummary(summary || {}, localized.summary);
 }
 
 function currentLocalizedBattleTurns() {
-  const localized = currentLocalizedBattleView();
+  const localized = currentBattleDisplayView();
   if (!Array.isArray(localized?.turns) || !localized.turns.length) return [];
   return localized.turns
     .filter((turn) => turn && typeof turn === "object")
@@ -788,7 +806,7 @@ function currentLocalizedBattleTurns() {
 }
 
 function currentBattleSourceSummary() {
-  const localized = currentLocalizedBattleView();
+  const localized = currentBattleDisplayView();
   if (localized?.source_summary) return String(localized.source_summary).trim();
   return String(currentBattleSource?.source_summary || "").trim();
 }
@@ -2378,7 +2396,7 @@ function battleWinnerLabel(result = currentResult) {
 }
 
 function currentBattleIssue() {
-  const localized = currentLocalizedBattleView();
+  const localized = currentBattleDisplayView();
   return String(
     localized?.issue
       || currentResult?.debate?.topic
