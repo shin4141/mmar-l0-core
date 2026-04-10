@@ -389,6 +389,18 @@ def list_history_records(db_path: Path | None = None, sort: str = "recent") -> l
     return records
 
 
+def list_published_run_ids(db_path: Path | None = None) -> set[str]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT session_id
+            FROM history_items
+            WHERE hidden = 0
+            """
+        ).fetchall()
+    return {str(row["session_id"]) for row in rows if row["session_id"]}
+
+
 def get_history_record(record_id: str, db_path: Path | None = None) -> dict | None:
     with _connect(db_path) as conn:
         row = conn.execute(

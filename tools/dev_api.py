@@ -9,6 +9,8 @@ import hashlib
 import secrets
 import time
 import uuid
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 from http import cookies
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +27,7 @@ try:
         get_history_record,
         get_run_record,
         increment_history_metric,
+        list_published_run_ids,
         list_history_records,
         list_run_records,
         promote_run_to_history,
@@ -42,6 +45,7 @@ except ModuleNotFoundError:
         get_history_record,
         get_run_record,
         increment_history_metric,
+        list_published_run_ids,
         list_history_records,
         list_run_records,
         promote_run_to_history,
@@ -56,6 +60,8 @@ PORT = int(os.getenv("PORT", "8787"))
 BOOT_AT = datetime.now(timezone.utc).isoformat()
 REPO = Path(__file__).resolve().parents[1]
 ENV_PATH = REPO / ".env"
+ADMIN_SYNC_ORIGIN = str(os.getenv("MMAR_ADMIN_SYNC_ORIGIN") or "").strip().rstrip("/")
+ADMIN_SYNC_TOKEN = str(os.getenv("MMAR_ADMIN_SYNC_TOKEN") or "").strip()
 
 
 def _load_dotenv(path: Path) -> None:
@@ -437,6 +443,7 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
     turn_count = _record_turn_count(record, debate_result)
     if not turn_count:
         turn_count = _record_turn_count(nested_run, nested_debate_result)
+    is_published = bool(curated) if curated is not None else bool(record.get("curated"))
     flattened = {
         **record,
         "id": str(record.get("id") or record.get("session_id") or ""),
@@ -463,9 +470,46 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "judge_json": judge_result or nested_judge_json,
         "excerpt": _record_excerpt(debate_result or nested_debate_result),
         "tease": _record_excerpt(debate_result or nested_debate_result),
-        "curated": bool(curated) if curated is not None else bool(record.get("curated")),
+        "curated": is_published,
+        "record_state": "published" if is_published else "candidate",
     }
     return flattened
+
+
+def _flatten_run_records_for_admin(records: list[dict]) -> list[dict]:
+    published_ids = list_published_run_ids()
+    return [
+        _flatten_saved_record(item, curated=(str(item.get("session_id") or "") in published_ids))
+        for item in records
+    ]
+
+
+def _self_origin() -> str:
+    host = "127.0.0.1" if HOST in {"0.0.0.0", "::"} else HOST
+    return f"http://{host}:{PORT}"
+
+
+def _maybe_sync_candidate_to_admin(record: dict) -> None:
+    if not ADMIN_SYNC_ORIGIN or not ADMIN_SYNC_TOKEN or not isinstance(record, dict):
+        return
+    if ADMIN_SYNC_ORIGIN == _self_origin():
+        return
+    body = json.dumps({"record": record}, ensure_ascii=False).encode("utf-8")
+    request = urllib_request.Request(
+        f"{ADMIN_SYNC_ORIGIN}/api/admin/runs/import",
+        data=body,
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "X-MMAR-Admin-Sync-Token": ADMIN_SYNC_TOKEN,
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=5) as response:
+            if response.status >= 400:
+                raise RuntimeError(f"admin_sync_http_{response.status}")
+    except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError, RuntimeError):
+        return
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -526,16 +570,6 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed_url.query or "")
             sort = str(query.get("sort", ["recent"])[0] or "recent")
             items = [_flatten_saved_record(item, curated=True) for item in list_history_records(sort=sort)]
-            if not items:
-                items = [
-                    _flatten_saved_record(item, curated=False)
-                    for item in list_run_records(limit=200)
-                    if str(
-                        item.get("experience_mode")
-                        or ((item.get("debate_result") or {}).get("experience_mode"))
-                        or ""
-                    ).strip().lower() == "battle"
-                ]
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/battle/"):
@@ -590,11 +624,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = parse_qs(parsed_url.query or "")
             limit = int(str(query.get("limit", ["200"])[0] or "200"))
-            curated_ids = {item.get("session_id") for item in list_history_records()}
-            items = [
-                _flatten_saved_record(item, curated=(item.get("session_id") in curated_ids))
-                for item in list_run_records(limit=limit)
-            ]
+            state_filter = str(query.get("state", ["all"])[0] or "all").strip().lower()
+            items = _flatten_run_records_for_admin(list_run_records(limit=limit))
+            if state_filter in {"candidate", "published"}:
+                items = [item for item in items if str(item.get("record_state") or "") == state_filter]
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/admin/runs/"):
@@ -610,7 +643,7 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "ok": True,
-                    "item": _flatten_saved_record(item, curated=bool(get_history_record(session_id))),
+                    "item": _flatten_saved_record(item, curated=(session_id in list_published_run_ids())),
                 },
             )
             return
@@ -672,6 +705,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/logout",
             "/api/admin/history/add",
             "/api/admin/history/remove",
+            "/api/admin/runs/import",
         } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/") and not path.startswith("/api/battle/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
@@ -717,24 +751,27 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            if path == "/api/admin/runs/import":
+                token = str(self.headers.get("X-MMAR-Admin-Sync-Token") or "").strip()
+                if not ADMIN_SYNC_TOKEN or token != ADMIN_SYNC_TOKEN:
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                record = payload.get("record") if isinstance(payload.get("record"), dict) else payload
+                saved = save_run_record(record)
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "record": _flatten_saved_record(saved.get("record") or {}, curated=False),
+                        "saved_id": saved.get("saved_id") or "",
+                    },
+                )
+                return
             if path == "/api/runs/save":
                 saved = save_run_record(payload)
-                debate_result = payload.get("debate_result") if isinstance(payload.get("debate_result"), dict) else {}
-                run_json = payload.get("run_json") if isinstance(payload.get("run_json"), dict) else {}
-                experience_mode = str(
-                    payload.get("experience_mode")
-                    or run_json.get("experience_mode")
-                    or debate_result.get("experience_mode")
-                    or ""
-                ).strip().lower()
-                history_item = None
-                if experience_mode == "battle":
-                    session_id = str(saved.get("saved_id") or payload.get("session_id") or payload.get("run_id") or "").strip()
-                    if session_id:
-                        promoted = promote_run_to_history(session_id)
-                        if promoted:
-                            history_item = _flatten_saved_record(promoted, curated=True)
-                self._send_json(200, {"ok": True, **saved, "history_item": history_item})
+                _maybe_sync_candidate_to_admin(saved.get("record") or {})
+                saved_record = _flatten_saved_record(saved.get("record") or {}, curated=False)
+                self._send_json(200, {"ok": True, **saved, "history_item": None, "record": saved_record})
                 return
             if path == "/api/admin/history/add":
                 if not _admin_session(self):

@@ -3,21 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MMAR Admin History</title>
-  <link rel="stylesheet" href="/admin/admin.css?v=20260404a" />
+  <title>VerdAIct Admin</title>
+  <link rel="stylesheet" href="/admin/admin.css?v=20260410a" />
 </head>
 <body>
   <main class="admin-shell admin-history-shell">
     <section class="admin-card admin-list-card">
       <div class="admin-toolbar">
         <div>
-          <div class="admin-eyebrow">MMAR Admin</div>
-          <h1>Runs</h1>
+          <div class="admin-eyebrow">VerdAIct Admin</div>
+          <h1>Candidate / Published</h1>
         </div>
         <div class="admin-toolbar-actions">
           <button id="admin-refresh" type="button" class="secondary-button">Refresh</button>
           <button id="admin-logout" type="button" class="secondary-button">Logout</button>
         </div>
+      </div>
+      <div class="admin-filter-row" role="tablist" aria-label="Run state filters">
+        <button id="admin-filter-all" type="button" class="secondary-button admin-filter-button is-active" data-state-filter="all">All</button>
+        <button id="admin-filter-candidate" type="button" class="secondary-button admin-filter-button" data-state-filter="candidate">Candidate</button>
+        <button id="admin-filter-published" type="button" class="secondary-button admin-filter-button" data-state-filter="published">Published</button>
       </div>
       <div id="admin-run-list" class="admin-run-list empty">
         <div class="empty-state">Loading runs...</div>
@@ -28,10 +33,11 @@
         <div class="admin-detail-title-row">
           <h2>Run Detail</h2>
           <span id="admin-detail-mode-badge" class="admin-badge admin-mode-badge admin-mode-badge-debate" hidden>討論</span>
+          <span id="admin-detail-state-badge" class="admin-badge admin-state-badge" hidden>Candidate</span>
         </div>
         <div class="admin-toolbar-actions">
-          <button id="admin-promote" type="button" disabled>Add to History</button>
-          <button id="admin-remove" type="button" class="secondary-button" disabled>Remove from History</button>
+          <button id="admin-promote" type="button" disabled>Publish</button>
+          <button id="admin-remove" type="button" class="secondary-button" disabled>Move to Candidate</button>
         </div>
       </div>
       <div id="admin-detail-meta" class="admin-meta">Select a run.</div>
@@ -39,6 +45,6 @@
       <div id="admin-history-status" class="admin-status" hidden></div>
     </section>
   </main>
-  <script type="module" src="/admin/admin_history.js?v=20260404a"></script>
+  <script type="module" src="/admin/admin_history.js?v=20260410a"></script>
 </body>
 </html>

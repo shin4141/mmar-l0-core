@@ -87,6 +87,18 @@ button:disabled {
   gap: 12px;
 }
 
+.admin-filter-row {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-filter-button.is-active {
+  background: #1e1d1a;
+  color: #fffaf2;
+}
+
 .admin-run-list {
   margin-top: 16px;
   display: grid;
@@ -119,6 +131,13 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.admin-run-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .admin-run-topic-row {
@@ -219,6 +238,18 @@ button:disabled {
   background: rgba(177, 57, 34, 0.14);
   border-color: rgba(177, 57, 34, 0.22);
   color: #9c2f20;
+}
+
+.admin-state-badge-candidate {
+  background: rgba(137, 96, 26, 0.12);
+  border: 1px solid rgba(137, 96, 26, 0.2);
+  color: #7b5512;
+}
+
+.admin-state-badge-published {
+  background: rgba(40, 124, 74, 0.12);
+  border: 1px solid rgba(40, 124, 74, 0.2);
+  color: #256346;
 }
 
 .empty-state {
