@@ -168,6 +168,7 @@ const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo")
 const BETA_MODE = queryParams.get("beta") === "1";
 const REQUESTED_EXPERIENCE_MODE = queryParams.get("mode") === "battle" ? "battle" : "debate";
 const REQUESTED_FOCUS = String(queryParams.get("focus") || "").trim().toLowerCase();
+const REQUESTED_BATTLE_LANG_EXPLICIT = queryParams.has("lang");
 const REQUESTED_BATTLE_LANG = normalizeBattleLang(queryParams.get("lang") || (REQUESTED_EXPERIENCE_MODE === "battle" ? storedBattleLang() : "ja"));
 const READ_ONLY_DEMO = false;
 const PUBLIC_LIMITED_DEMO = false;
@@ -2850,7 +2851,11 @@ function loadRecordIntoView(record, options = {}) {
   const preview = normalizeSavedRecordForPreview(record);
   const experienceMode = preview.experience_mode === "battle" ? "battle" : "debate";
   const resolvedBattleLang = experienceMode === "battle"
-    ? normalizeBattleLang(rawBattleLang || REQUESTED_BATTLE_LANG || "ja")
+    ? normalizeBattleLang(
+        REQUESTED_BATTLE_LANG_EXPLICIT
+          ? REQUESTED_BATTLE_LANG
+          : (rawBattleLang || REQUESTED_BATTLE_LANG || "ja")
+      )
     : "ja";
   setBattleLanguage(resolvedBattleLang, { refresh: false });
   applyExperienceMode(experienceMode);
@@ -3836,6 +3841,19 @@ function resetJudgeState() {
 function startNextMatch() {
   clearCurrentResultView();
   resetJudgeState();
+  currentPayload = null;
+  currentBattleSource = null;
+  currentLocalizedViewFetchToken += 1;
+  clearBattleXSourceError();
+  const topicInput = document.querySelector("#topic");
+  const sideAInput = document.querySelector("#side-a");
+  const sideBInput = document.querySelector("#side-b");
+  if (topicInput) topicInput.value = "";
+  if (sideAInput) sideAInput.value = "";
+  if (sideBInput) sideBInput.value = "";
+  if (keywordInput) keywordInput.value = "";
+  if (battleXUrlInput) battleXUrlInput.value = "";
+  renderBattleSourceCard();
   setReadingMode(false);
   setStatus("idle", "Ready");
   setHint("");
