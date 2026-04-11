@@ -427,8 +427,8 @@ function shouldShowOperationalDebug() {
 }
 
 function shouldShowRuntimeFingerprint(health = currentHealthInfo?.data || null) {
-  if (shouldShowOperationalDebug()) return true;
-  return String(health?.env_tag || "").trim().toLowerCase() === "preview";
+  void health;
+  return shouldShowOperationalDebug();
 }
 
 function publicFacingOperationalHint(debugText, publicText = "") {

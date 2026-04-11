@@ -58,8 +58,8 @@ function endpointUrl(path) {
 }
 
 function shouldShowGalleryRuntime(health = currentHealthInfo) {
-  if (queryParams.get("debug") === "1") return true;
-  return String(health?.env_tag || "").trim().toLowerCase() === "preview";
+  void health;
+  return queryParams.get("debug") === "1";
 }
 
 function renderGalleryRuntime() {
