@@ -79,11 +79,40 @@ function isCandidateState(run) {
 function syncActionButtons(run) {
   if (!run) {
     promoteButton.disabled = true;
+    promoteButton.setAttribute("aria-disabled", "true");
     removeButton.disabled = true;
     return;
   }
-  promoteButton.disabled = !isCandidateState(run);
+  const publishEnabled = isCandidateState(run);
+  promoteButton.disabled = !publishEnabled;
+  promoteButton.setAttribute("aria-disabled", publishEnabled ? "false" : "true");
   removeButton.disabled = !isPublishedState(run);
+}
+
+async function handlePromoteClick() {
+  if (!activeSessionId || !isCandidateState(activeRun)) return;
+  setStatus("Publishing...");
+  const response = await fetch("/api/admin/history/add", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ session_id: activeSessionId }),
+  });
+  const data = await response.json();
+  console.log("[admin-promote]", { status: response.status, ok: response.ok, data });
+  if (!response.ok || !data.ok) {
+    setStatus("Publish failed.");
+    return;
+  }
+  setStatus("Published.");
+  await loadRuns();
+}
+
+function bindPromoteButton(run) {
+  promoteButton.onclick = async () => {
+    if (!isCandidateState(run)) return;
+    await handlePromoteClick();
+  };
 }
 
 function recordStateBadgeMarkup(run) {
@@ -173,6 +202,7 @@ function renderDetail(run) {
     if (detailModeBadgeEl) detailModeBadgeEl.hidden = true;
     if (detailStateBadgeEl) detailStateBadgeEl.hidden = true;
     syncActionButtons(null);
+    bindPromoteButton(null);
     return;
   }
   const turnCount = run.turn_count || getTurns(run).length || 0;
@@ -209,6 +239,7 @@ function renderDetail(run) {
     </section>
   `;
   syncActionButtons(run);
+  bindPromoteButton(run);
 }
 
 async function requireSession() {
@@ -264,24 +295,6 @@ runListEl.addEventListener("click", async (event) => {
   const detail = await loadRunDetail(activeSessionId);
   renderDetail(detail);
   setStatus("");
-});
-
-promoteButton.addEventListener("click", async () => {
-  if (!activeSessionId) return;
-  setStatus("Publishing...");
-  const response = await fetch("/api/admin/history/add", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({ session_id: activeSessionId }),
-  });
-  const data = await response.json();
-  if (!response.ok || !data.ok) {
-    setStatus("Publish failed.");
-    return;
-  }
-  setStatus("Published.");
-  await loadRuns();
 });
 
 removeButton.addEventListener("click", async () => {

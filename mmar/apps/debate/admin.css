@@ -78,6 +78,16 @@ button:disabled {
   cursor: default;
 }
 
+#admin-promote {
+  pointer-events: auto;
+  opacity: 1;
+  z-index: auto;
+}
+
+#admin-promote:disabled {
+  opacity: 0.5;
+}
+
 .admin-toolbar,
 .admin-detail-head,
 .admin-toolbar-actions {
