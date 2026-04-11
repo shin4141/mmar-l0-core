@@ -518,7 +518,7 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
 
 
 def _flatten_run_records_for_admin(records: list[dict]) -> list[dict]:
-    published_ids = list_published_card_ids()
+    published_ids = list_published_run_ids()
     return [
         _flatten_saved_record(item, curated=(str(item.get("session_id") or "") in published_ids))
         for item in records
@@ -730,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "ok": True,
-                    "item": _flatten_saved_record(item, curated=(session_id in list_published_card_ids())),
+                    "item": _flatten_saved_record(item, curated=(session_id in list_published_run_ids())),
                 },
             )
             return
@@ -875,6 +875,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not item:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
+                promote_run_to_history(session_id)
                 published = publish_record(item)
                 self._send_json(200, {"ok": True, "item": _flatten_saved_record(published, curated=True)})
                 return
@@ -886,6 +887,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not session_id:
                     self._send_json(400, {"ok": False, "error": "missing_session_id"})
                     return
+                remove_run_from_history(session_id)
                 removed = unpublish_record(session_id)
                 if not removed:
                     self._send_json(404, {"ok": False, "error": "not found"})
