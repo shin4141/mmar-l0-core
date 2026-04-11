@@ -526,6 +526,37 @@ function isBattleMode() {
   return currentExperienceMode === "battle";
 }
 
+function inferredRuntimeEnvTag() {
+  const explicit = String(currentHealthInfo?.data?.env_tag || "").trim().toLowerCase();
+  if (explicit) return explicit;
+  const origin = String(window.location.origin || "").trim().toLowerCase();
+  if (origin.includes("mmar-debate-preview.onrender.com")) return "preview";
+  if (origin.includes("mmar-l0-core.onrender.com")) return "public";
+  return "";
+}
+
+function isPublicBattleReadOnly() {
+  return inferredRuntimeEnvTag() === "public" && isBattleMode();
+}
+
+function syncBattleAccessControls() {
+  const restricted = isPublicBattleReadOnly();
+  const sourceSection = battleXSourceEl;
+  const sourceHead = sourceSection?.querySelector(".battle-x-source-head");
+  const sourceRow = sourceSection?.querySelector(".battle-x-source-row");
+  if (sourceHead) sourceHead.hidden = restricted;
+  if (sourceRow) sourceRow.hidden = restricted;
+  if (battleXSourceErrorEl) battleXSourceErrorEl.hidden = true;
+  if (runButton) {
+    runButton.hidden = restricted || READ_ONLY_DEMO;
+    if (restricted) {
+      runButton.disabled = true;
+    } else if (!READ_ONLY_DEMO && !shouldUsePublicFixedDemo()) {
+      runButton.disabled = false;
+    }
+  }
+}
+
 function setExperienceModeButtonState(mode) {
   modeButtons.forEach((button) => {
     const active = button.dataset.experienceMode === mode;
@@ -637,6 +668,7 @@ function applyExperienceMode(mode) {
   }
   renderBattleSourceCard();
   syncShareButton();
+  syncBattleAccessControls();
 }
 
 function syncBattleXSourceRefs() {
@@ -888,6 +920,11 @@ function fillBattleSourceFromXSeed(data) {
 }
 
 async function createBattleFromXUrl() {
+  if (isPublicBattleReadOnly()) {
+    setStatus("warn", "Preview/Admin only");
+    setHint("公開環境ではAIバトルの生成はできません。");
+    return;
+  }
   const url = String(battleXUrlInput?.value || "").trim();
   if (!url) {
     setBattleXSourceError(currentBattleLang === "en" ? "Enter an X post URL." : "Xの投稿URLを入れてください");
@@ -3996,6 +4033,7 @@ function collectPayload() {
     topic,
     side_a: sideA,
     side_b: sideB,
+    experience_mode: currentExperienceMode,
     keyword,
     turn_count: turnCount,
     mode,
@@ -4033,10 +4071,12 @@ async function checkApiHealth() {
     const data = await response.json();
     currentHealthInfo = { status: "ok", data, message: "" };
     renderRuntimeFingerprint();
+    syncBattleAccessControls();
     return data;
   } catch {
     currentHealthInfo = { status: "error", data: null, message: "health unavailable" };
     renderRuntimeFingerprint();
+    syncBattleAccessControls();
     if (!analysisHidden) setHint(publicFacingOperationalHint("API unavailable", ""));
   }
 }
@@ -4299,6 +4339,11 @@ async function runDebate(event) {
   event.preventDefault();
   if (READ_ONLY_DEMO) {
     setStatus("warn", "Demo mode / read-only");
+    return;
+  }
+  if (isPublicBattleReadOnly()) {
+    setStatus("warn", "Preview/Admin only");
+    setHint("公開環境ではAIバトルは閲覧専用です。");
     return;
   }
   if (shouldUsePublicFixedDemo()) {

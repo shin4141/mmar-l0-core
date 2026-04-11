@@ -125,6 +125,19 @@ def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
     return 502, reason
 
 
+def _requested_experience_mode(payload: dict) -> str:
+    raw = str(payload.get("experience_mode") or payload.get("experienceMode") or "").strip().lower()
+    if raw in {"battle", "debate"}:
+        return raw
+    if any(str(payload.get(key) or "").strip() for key in ("source_type", "source_url", "source_image", "source_summary")):
+        return "battle"
+    return "debate"
+
+
+def _public_battle_run_forbidden(payload: dict) -> bool:
+    return history_env_tag() == "public" and _requested_experience_mode(payload) == "battle"
+
+
 def _classify_x_import_reason(exc: Exception) -> str:
     raw = str(exc or "").strip()
     normalized = raw.lower()
@@ -932,6 +945,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(status, response_payload)
                 return
             if path == "/api/battle_from_x_url":
+                if history_env_tag() == "public":
+                    self._send_json(403, {"ok": False, "error": "battle_run_preview_only"})
+                    return
                 try:
                     result = build_battle_from_x_url(payload)
                 except Exception as exc:
@@ -943,6 +959,9 @@ class Handler(BaseHTTPRequestHandler):
             if path in {"/api/debate", "/api/debate_pure", "/api/debate_v2", "/api/debate_v3", "/api/debate_v4"}:
                 if path != "/api/debate_v4" and os.getenv("READ_ONLY_DEMO", "").lower() == "true":
                     self._send_json(403, {"ok": False, "error": "read-only demo"})
+                    return
+                if _public_battle_run_forbidden(payload):
+                    self._send_json(403, {"ok": False, "error": "battle_run_preview_only"})
                     return
                 server_phase_entries = []
                 request_received_at = datetime.now(timezone.utc).isoformat()
