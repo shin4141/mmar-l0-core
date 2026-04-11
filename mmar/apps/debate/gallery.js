@@ -190,14 +190,14 @@ function renderGallery(records) {
 async function loadGallery() {
   galleryGridEl.innerHTML = `<div class="gallery-empty">${escapeHtml(galleryCopy().loading)}</div>`;
   try {
-    const response = await fetch(endpointUrl("/api/history/list"), { method: "GET" });
+    const response = await fetch(endpointUrl("/api/gallery/list"), { method: "GET" });
     const data = await response.json();
     if (!response.ok || !data?.ok || !Array.isArray(data.items)) {
-      throw new Error("history_list_failed");
+      throw new Error("gallery_list_failed");
     }
     currentHealthInfo = {
       env_tag: data.env_tag,
-      history_store_id: data.history_store_id,
+      history_store_id: data.gallery_store_id || data.history_store_id,
       build_sha: data.build_sha,
       boot_at: data.boot_at,
     };

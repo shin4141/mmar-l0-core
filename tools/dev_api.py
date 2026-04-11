@@ -38,6 +38,17 @@ try:
         save_history_record,
         save_run_record,
     )
+    from published_store import (
+        count_published_cards,
+        get_published_card,
+        increment_published_metric,
+        list_published_card_ids,
+        list_published_cards,
+        publish_record,
+        published_store_id,
+        published_store_meta,
+        unpublish_record,
+    )
 except ModuleNotFoundError:
     from tools.debate_api import _call_gemini, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
@@ -58,6 +69,17 @@ except ModuleNotFoundError:
         remove_run_from_history,
         save_history_record,
         save_run_record,
+    )
+    from tools.published_store import (
+        count_published_cards,
+        get_published_card,
+        increment_published_metric,
+        list_published_card_ids,
+        list_published_cards,
+        publish_record,
+        published_store_id,
+        published_store_meta,
+        unpublish_record,
     )
 
 
@@ -496,7 +518,7 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
 
 
 def _flatten_run_records_for_admin(records: list[dict]) -> list[dict]:
-    published_ids = list_published_run_ids()
+    published_ids = list_published_card_ids()
     return [
         _flatten_saved_record(item, curated=(str(item.get("session_id") or "") in published_ids))
         for item in records
@@ -564,6 +586,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         if path == "/api/health":
+            published_meta = published_store_meta()
             self._send_json(
                 200,
                 {
@@ -575,6 +598,9 @@ class Handler(BaseHTTPRequestHandler):
                     "env_tag": history_env_tag(),
                     "history_store_id": history_store_id(),
                     "history_count": len(list_history_records()),
+                    "gallery_store_id": published_store_id(),
+                    "gallery_count": count_published_cards(),
+                    **published_meta,
                     "env": {
                         "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
                         "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
@@ -604,10 +630,39 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/gallery/list":
+            query = parse_qs(parsed_url.query or "")
+            sort = str(query.get("sort", ["recent"])[0] or "recent")
+            items = [_flatten_saved_record(item, curated=True) for item in list_published_cards(sort=sort)]
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "items": items,
+                    "env_tag": history_env_tag(),
+                    "gallery_store_id": published_store_id(),
+                    "gallery_count": len(items),
+                    "build_sha": GIT_SHA,
+                    "boot_at": BOOT_AT,
+                },
+            )
+            return
+        if path == "/api/gallery/count":
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "count": count_published_cards(),
+                    "gallery_store_id": published_store_id(),
+                    "build_sha": GIT_SHA,
+                    "boot_at": BOOT_AT,
+                },
+            )
+            return
         if path.startswith("/api/battle/"):
             if path.endswith("/localize"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/localize").strip()
-                record = get_run_record(record_id)
+                record = get_run_record(record_id) or get_published_card(record_id)
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
@@ -629,18 +684,18 @@ class Handler(BaseHTTPRequestHandler):
                     200,
                     {
                         "ok": True,
-                        "record": _flatten_saved_record(refreshed, curated=bool(get_history_record(record_id))),
+                        "record": _flatten_saved_record(refreshed, curated=bool(get_published_card(record_id))),
                         "localized_view": localized.get("localized_view") or {},
                         "cache_hit": bool(localized.get("cache_hit")),
                     },
                 )
                 return
             record_id = path.removeprefix("/api/battle/").strip()
-            record = get_run_record(record_id)
+            record = get_run_record(record_id) or get_published_card(record_id)
             if not record:
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
-            self._send_json(200, {"ok": True, "record": _flatten_saved_record(record, curated=bool(get_history_record(record_id)))})
+            self._send_json(200, {"ok": True, "record": _flatten_saved_record(record, curated=bool(get_published_card(record_id)))})
             return
         if path.startswith("/api/history/"):
             record_id = path.removeprefix("/api/history/").strip()
@@ -675,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "ok": True,
-                    "item": _flatten_saved_record(item, curated=(session_id in list_published_run_ids())),
+                    "item": _flatten_saved_record(item, curated=(session_id in list_published_card_ids())),
                 },
             )
             return
@@ -738,6 +793,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/history/add",
             "/api/admin/history/remove",
             "/api/admin/history/import_snapshot",
+            "/api/admin/gallery/publish",
+            "/api/admin/gallery/remove",
             "/api/admin/runs/import",
         } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/") and not path.startswith("/api/battle/"):
             self._send_json(404, {"ok": False, "error": "not found"})
@@ -814,11 +871,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not session_id:
                     self._send_json(400, {"ok": False, "error": "missing_session_id"})
                     return
-                item = promote_run_to_history(session_id)
+                item = get_run_record(session_id)
                 if not item:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
-                self._send_json(200, {"ok": True, "item": _flatten_saved_record(item, curated=True)})
+                published = publish_record(item)
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(published, curated=True)})
                 return
             if path == "/api/admin/history/remove":
                 if not _admin_session(self):
@@ -828,7 +886,30 @@ class Handler(BaseHTTPRequestHandler):
                 if not session_id:
                     self._send_json(400, {"ok": False, "error": "missing_session_id"})
                     return
-                removed = remove_run_from_history(session_id)
+                removed = unpublish_record(session_id)
+                if not removed:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, **removed})
+                return
+            if path == "/api/admin/gallery/publish":
+                if not _admin_session(self):
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                session_id = str(payload.get("session_id") or "").strip()
+                item = get_run_record(session_id) if session_id else None
+                if not item:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                published = publish_record(item)
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(published, curated=True)})
+                return
+            if path == "/api/admin/gallery/remove":
+                if not _admin_session(self):
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                session_id = str(payload.get("session_id") or "").strip()
+                removed = unpublish_record(session_id)
                 if not removed:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
@@ -1293,7 +1374,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/battle/") and path.endswith("/view"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/view").strip()
-                record = increment_history_metric(record_id, "views")
+                record = increment_published_metric(record_id, "views") or increment_history_metric(record_id, "views")
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
