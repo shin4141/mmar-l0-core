@@ -282,7 +282,9 @@ def count_published_cards() -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS count FROM published_cards WHERE hidden = FALSE"
         ).fetchone()
-        return int(row["count"] or 0)
+        if isinstance(row, dict):
+            return int(row.get("count") or 0)
+        return int(row[0] or 0)
 
 
 def list_published_card_ids() -> set[str]:
