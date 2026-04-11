@@ -68,6 +68,24 @@ function recordStateLabel(run) {
   return normalizeRecordState(run) === "published" ? "Published" : "Candidate";
 }
 
+function isPublishedState(run) {
+  return normalizeRecordState(run) === "published";
+}
+
+function isCandidateState(run) {
+  return !isPublishedState(run);
+}
+
+function syncActionButtons(run) {
+  if (!run) {
+    promoteButton.disabled = true;
+    removeButton.disabled = true;
+    return;
+  }
+  promoteButton.disabled = !isCandidateState(run);
+  removeButton.disabled = !isPublishedState(run);
+}
+
 function recordStateBadgeMarkup(run) {
   const state = normalizeRecordState(run);
   return `<span class="admin-badge admin-state-badge admin-state-badge-${escapeHtml(state)}">${escapeHtml(recordStateLabel(run))}</span>`;
@@ -154,8 +172,7 @@ function renderDetail(run) {
     detailBodyEl.innerHTML = "Select a run.";
     if (detailModeBadgeEl) detailModeBadgeEl.hidden = true;
     if (detailStateBadgeEl) detailStateBadgeEl.hidden = true;
-    promoteButton.disabled = true;
-    removeButton.disabled = true;
+    syncActionButtons(null);
     return;
   }
   const turnCount = run.turn_count || getTurns(run).length || 0;
@@ -191,8 +208,7 @@ function renderDetail(run) {
       ${renderJudge(run)}
     </section>
   `;
-  promoteButton.disabled = normalizeRecordState(run) === "published";
-  removeButton.disabled = normalizeRecordState(run) !== "published";
+  syncActionButtons(run);
 }
 
 async function requireSession() {
