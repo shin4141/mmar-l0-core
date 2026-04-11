@@ -1321,39 +1321,15 @@ function formatElapsedSeconds(value) {
 }
 
 function renderRuntimeFingerprint() {
-  const health = currentHealthInfo?.data || null;
   if (runtimeFingerprintEl) {
-    if (currentHealthInfo?.status !== "ok" || !health) {
-      runtimeFingerprintEl.hidden = true;
-      runtimeFingerprintEl.style.display = "none";
-      runtimeFingerprintEl.textContent = "";
-    } else {
-      const parts = [
-        String(health.api_base || "").trim(),
-        String(health.build_sha || "").trim(),
-        String(health.boot_at || "").trim(),
-        String(health.env_tag || "").trim(),
-        String(health.history_store_id || "").trim(),
-      ].filter(Boolean);
-      runtimeFingerprintEl.hidden = false;
-      runtimeFingerprintEl.style.display = "";
-      runtimeFingerprintEl.textContent = parts.join(" · ");
-    }
+    runtimeFingerprintEl.hidden = true;
+    runtimeFingerprintEl.style.display = "none";
+    runtimeFingerprintEl.textContent = "";
   }
   if (!runtimeDiagnosticEl) return;
-  if (currentHealthInfo?.status !== "ok" || !health) {
-    runtimeDiagnosticEl.hidden = true;
-    runtimeDiagnosticEl.style.display = "none";
-    runtimeDiagnosticEl.textContent = "";
-    return;
-  }
-  const details = [];
-  if (health.history_count !== undefined) {
-    details.push(`history ${health.history_count}`);
-  }
-  runtimeDiagnosticEl.hidden = details.length === 0;
-  runtimeDiagnosticEl.style.display = details.length === 0 ? "none" : "";
-  runtimeDiagnosticEl.textContent = details.join(" · ");
+  runtimeDiagnosticEl.hidden = true;
+  runtimeDiagnosticEl.style.display = "none";
+  runtimeDiagnosticEl.textContent = "";
 }
 
 function refreshStatusRow() {

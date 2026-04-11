@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import hashlib
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,36 +16,6 @@ def history_db_path() -> Path:
     if override:
         return Path(override).expanduser()
     return DEFAULT_DB_PATH
-
-
-def history_env_tag(db_path: Path | None = None) -> str:
-    override = str(os.getenv("MMAR_ENV_TAG") or "").strip().lower()
-    if override:
-        return override
-    resolved = str((db_path or history_db_path()).expanduser())
-    if "/preview-data/" in resolved:
-        return "preview"
-    if "/var/data/" in resolved:
-        return "public"
-    return "local"
-
-
-def history_store_id(db_path: Path | None = None) -> str:
-    override = str(os.getenv("MMAR_HISTORY_STORE_ID") or "").strip()
-    if override:
-        return override
-    resolved = str((db_path or history_db_path()).expanduser().resolve())
-    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:12]
-    return f"{history_env_tag(db_path)}-{digest}"
-
-
-def history_store_meta(db_path: Path | None = None) -> dict[str, str]:
-    path = (db_path or history_db_path()).expanduser()
-    return {
-        "env_tag": history_env_tag(path),
-        "history_store_id": history_store_id(path),
-        "history_db_path": str(path),
-    }
 
 
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
@@ -415,9 +383,6 @@ def list_history_records(db_path: Path | None = None, sort: str = "recent") -> l
     for row in item_rows:
         run_record = _run_record_from_row(row)
         run_record["id"] = row["session_id"]
-        run_record["item_created_at"] = row["item_created_at"]
-        run_record["promoted_at"] = row["promoted_at"]
-        run_record["hidden"] = bool(row["hidden"])
         run_record["views"] = int(row["views"] or 0)
         run_record["likes"] = int(row["likes"] or 0)
         records.append(run_record)
@@ -458,9 +423,6 @@ def get_history_record(record_id: str, db_path: Path | None = None) -> dict | No
         return None
     record = _run_record_from_row(row)
     record["id"] = row["session_id"]
-    record["item_created_at"] = row["item_created_at"]
-    record["promoted_at"] = row["promoted_at"]
-    record["hidden"] = bool(row["hidden"])
     record["views"] = int(row["views"] or 0)
     record["likes"] = int(row["likes"] or 0)
     return record
@@ -476,127 +438,3 @@ def increment_history_metric(record_id: str, metric: str, db_path: Path | None =
         )
         conn.commit()
     return get_history_record(record_id, db_path=db_path)
-
-
-def backup_history_store_file(target_path: str | Path, db_path: Path | None = None) -> dict[str, object]:
-    source = (db_path or history_db_path()).expanduser()
-    target = Path(target_path).expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not source.exists():
-        raise FileNotFoundError(f"history db not found: {source}")
-    shutil.copy2(source, target)
-    return {
-        "ok": True,
-        "source_path": str(source),
-        "target_path": str(target),
-        **history_store_meta(source),
-    }
-
-
-def export_history_snapshot(db_path: Path | None = None) -> dict[str, object]:
-    path = (db_path or history_db_path()).expanduser()
-    records = list_history_records(db_path=path)
-    exported_at = datetime.now(timezone.utc).isoformat()
-    index = [
-        {
-            "id": str(item.get("id") or item.get("session_id") or ""),
-            "title": str(item.get("topic") or ""),
-            "topic": str(item.get("topic") or ""),
-            "created_at": str(item.get("created_at") or ""),
-            "status": str(item.get("status") or ""),
-            "record_state": "published",
-        }
-        for item in records
-    ]
-    return {
-        "snapshot_name": f"{history_env_tag(path)}_history_{len(records)}_snapshot",
-        "exported_at": exported_at,
-        "count": len(records),
-        "index": index,
-        "items": records,
-        **history_store_meta(path),
-    }
-
-
-def write_history_snapshot(target_path: str | Path, db_path: Path | None = None) -> dict[str, object]:
-    snapshot = export_history_snapshot(db_path=db_path)
-    target = Path(target_path).expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {
-        "ok": True,
-        "snapshot_path": str(target),
-        "count": int(snapshot.get("count") or 0),
-        "snapshot_name": str(snapshot.get("snapshot_name") or ""),
-    }
-
-
-def _replace_history_items(conn: sqlite3.Connection, session_id: str, record: dict) -> None:
-    conn.execute(
-        """
-        INSERT INTO history_items (session_id, created_at, promoted_at, hidden, views, likes)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id) DO UPDATE SET
-          created_at=excluded.created_at,
-          promoted_at=excluded.promoted_at,
-          hidden=excluded.hidden,
-          views=excluded.views,
-          likes=excluded.likes
-        """,
-        (
-            session_id,
-            str(record.get("item_created_at") or record.get("created_at") or datetime.now(timezone.utc).isoformat()),
-            str(record.get("promoted_at") or datetime.now(timezone.utc).isoformat()),
-            1 if bool(record.get("hidden")) else 0,
-            int(record.get("views") or 0),
-            int(record.get("likes") or 0),
-        ),
-    )
-
-
-def import_history_snapshot(
-    snapshot: dict[str, object],
-    *,
-    db_path: Path | None = None,
-    clear_existing: bool = False,
-) -> dict[str, object]:
-    path = (db_path or history_db_path()).expanduser()
-    items = snapshot.get("items")
-    if not isinstance(items, list):
-        raise ValueError("invalid snapshot items")
-    imported = 0
-    with _connect(path) as conn:
-        if clear_existing:
-            conn.execute("DELETE FROM history_items")
-            conn.execute("DELETE FROM runs")
-        conn.commit()
-    for raw in items:
-        if not isinstance(raw, dict):
-            continue
-        session_id = str(raw.get("session_id") or raw.get("id") or raw.get("run_id") or "").strip()
-        if not session_id:
-            continue
-        record = dict(raw)
-        record["session_id"] = session_id
-        record.setdefault("run_id", session_id)
-        save_run_record(record, db_path=path)
-        with _connect(path) as conn:
-            _replace_history_items(conn, session_id, record)
-            conn.commit()
-        imported += 1
-    return {
-        "ok": True,
-        "imported": imported,
-        "count": len(items),
-        "clear_existing": bool(clear_existing),
-        "snapshot_name": str(snapshot.get("snapshot_name") or ""),
-        **history_store_meta(path),
-    }
-
-
-def load_history_snapshot(source_path: str | Path) -> dict[str, object]:
-    source = Path(source_path).expanduser()
-    data = json.loads(source.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("invalid snapshot payload")
-    return data

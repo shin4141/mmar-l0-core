@@ -24,9 +24,6 @@ try:
     from debate_core_v4 import run_debate_v4
     from debate_api_pure import run_debate as run_debate_pure
     from history_store import (
-        import_history_snapshot,
-        history_env_tag,
-        history_store_id,
         get_history_record,
         get_run_record,
         increment_history_metric,
@@ -45,9 +42,6 @@ except ModuleNotFoundError:
     from tools.debate_core_v4 import run_debate_v4
     from tools.debate_api_pure import run_debate as run_debate_pure
     from tools.history_store import (
-        import_history_snapshot,
-        history_env_tag,
-        history_store_id,
         get_history_record,
         get_run_record,
         increment_history_metric,
@@ -559,9 +553,6 @@ class Handler(BaseHTTPRequestHandler):
                     "boot_at": BOOT_AT,
                     "build_sha": GIT_SHA,
                     "api_base": _external_origin(self),
-                    "env_tag": history_env_tag(),
-                    "history_store_id": history_store_id(),
-                    "history_count": len(list_history_records()),
                     "env": {
                         "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
                         "ANTHROPIC_API_KEY": bool(os.getenv("ANTHROPIC_API_KEY")),
@@ -579,17 +570,7 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed_url.query or "")
             sort = str(query.get("sort", ["recent"])[0] or "recent")
             items = [_flatten_saved_record(item, curated=True) for item in list_history_records(sort=sort)]
-            self._send_json(
-                200,
-                {
-                    "ok": True,
-                    "items": items,
-                    "env_tag": history_env_tag(),
-                    "history_store_id": history_store_id(),
-                    "build_sha": GIT_SHA,
-                    "boot_at": BOOT_AT,
-                },
-            )
+            self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/battle/"):
             if path.endswith("/localize"):
@@ -724,7 +705,6 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/logout",
             "/api/admin/history/add",
             "/api/admin/history/remove",
-            "/api/admin/history/import_snapshot",
             "/api/admin/runs/import",
         } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/") and not path.startswith("/api/battle/"):
             self._send_json(404, {"ok": False, "error": "not found"})
@@ -820,34 +800,6 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
                 self._send_json(200, {"ok": True, **removed})
-                return
-            if path == "/api/admin/history/import_snapshot":
-                if not _admin_session(self):
-                    self._send_json(401, {"ok": False, "error": "unauthorized"})
-                    return
-                snapshot = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else payload
-                if not isinstance(snapshot, dict):
-                    self._send_json(400, {"ok": False, "error": "invalid_snapshot"})
-                    return
-                env_tag = history_env_tag()
-                confirm_env_tag = str(payload.get("confirm_env_tag") or snapshot.get("confirm_env_tag") or "").strip().lower()
-                if confirm_env_tag and confirm_env_tag != env_tag:
-                    self._send_json(
-                        409,
-                        {
-                            "ok": False,
-                            "error": "env_tag_mismatch",
-                            "expected_env_tag": env_tag,
-                            "received_env_tag": confirm_env_tag,
-                        },
-                    )
-                    return
-                clear_existing = bool(payload.get("clear_existing"))
-                if clear_existing and env_tag == "public":
-                    self._send_json(403, {"ok": False, "error": "public_clear_forbidden"})
-                    return
-                result = import_history_snapshot(snapshot, clear_existing=clear_existing)
-                self._send_json(200, {"ok": True, **result})
                 return
             if path == "/api/judge":
                 server_phase_entries = []
