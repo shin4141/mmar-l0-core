@@ -57,10 +57,15 @@ function endpointUrl(path) {
   return path;
 }
 
+function shouldShowGalleryRuntime(health = currentHealthInfo) {
+  if (queryParams.get("debug") === "1") return true;
+  return String(health?.env_tag || "").trim().toLowerCase() === "preview";
+}
+
 function renderGalleryRuntime() {
   if (!galleryRuntimeEl) return;
   const health = currentHealthInfo;
-  if (!health || typeof health !== "object") {
+  if (!health || typeof health !== "object" || !shouldShowGalleryRuntime(health)) {
     galleryRuntimeEl.hidden = true;
     galleryRuntimeEl.textContent = "";
     return;

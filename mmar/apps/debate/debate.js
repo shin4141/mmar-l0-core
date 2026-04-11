@@ -426,6 +426,11 @@ function shouldShowOperationalDebug() {
   return isLocalOrigin(window.location.origin || "") || queryParams.get("debug") === "1";
 }
 
+function shouldShowRuntimeFingerprint(health = currentHealthInfo?.data || null) {
+  if (shouldShowOperationalDebug()) return true;
+  return String(health?.env_tag || "").trim().toLowerCase() === "preview";
+}
+
 function publicFacingOperationalHint(debugText, publicText = "") {
   return shouldShowOperationalDebug() ? debugText : publicText;
 }
@@ -1322,8 +1327,9 @@ function formatElapsedSeconds(value) {
 
 function renderRuntimeFingerprint() {
   const health = currentHealthInfo?.data || null;
+  const visible = currentHealthInfo?.status === "ok" && !!health && shouldShowRuntimeFingerprint(health);
   if (runtimeFingerprintEl) {
-    if (currentHealthInfo?.status !== "ok" || !health) {
+    if (!visible) {
       runtimeFingerprintEl.hidden = true;
       runtimeFingerprintEl.style.display = "none";
       runtimeFingerprintEl.textContent = "";
@@ -1341,7 +1347,7 @@ function renderRuntimeFingerprint() {
     }
   }
   if (!runtimeDiagnosticEl) return;
-  if (currentHealthInfo?.status !== "ok" || !health) {
+  if (!visible) {
     runtimeDiagnosticEl.hidden = true;
     runtimeDiagnosticEl.style.display = "none";
     runtimeDiagnosticEl.textContent = "";
@@ -2048,6 +2054,10 @@ function loadHistoryRecords() {
   return historyRecordsCache;
 }
 
+function canonicalHistoryCount() {
+  return Array.isArray(historyRecordsCache) ? historyRecordsCache.length : 0;
+}
+
 function loadHistoryRecordsFromLocalStorage() {
   if (!storageAvailable()) return [];
   try {
@@ -2061,12 +2071,10 @@ function loadHistoryRecordsFromLocalStorage() {
 }
 
 function updateHistoryButton(count = loadHistoryRecords().length) {
-  if (count === loadHistoryRecords().length && curatedViewerRecords.length) {
-    count += curatedViewerRecords.length;
-  }
-  historyButton.textContent = isBattleMode() ? `${battleCopy().historyBattleLabel} (${count})` : `History (${count})`;
+  const normalizedCount = Number.isFinite(Number(count)) ? Number(count) : canonicalHistoryCount();
+  historyButton.textContent = isBattleMode() ? `${battleCopy().historyBattleLabel} (${normalizedCount})` : `History (${normalizedCount})`;
   historyButton.dataset.historyTarget = isBattleMode() ? buildBattleGalleryUrl() : "drawer";
-  historyCountEl.textContent = `${count} match${count === 1 ? "" : "es"}`;
+  historyCountEl.textContent = `${normalizedCount} match${normalizedCount === 1 ? "" : "es"}`;
 }
 
 function persistHistoryRecords(records) {
@@ -2762,12 +2770,10 @@ function renderHistoryList() {
 }
 
 function updateArchiveButton(count = loadHistoryRecords().length) {
-  if (count === loadHistoryRecords().length && curatedViewerRecords.length) {
-    count += curatedViewerRecords.length;
-  }
+  const normalizedCount = Number.isFinite(Number(count)) ? Number(count) : canonicalHistoryCount();
   archiveButton.textContent = `⚙️`;
-  archiveButton.setAttribute("aria-label", `Open archive (${count} matches)`);
-  archiveCountEl.textContent = `${count} match${count === 1 ? "" : "es"}`;
+  archiveButton.setAttribute("aria-label", `Open archive (${normalizedCount} matches)`);
+  archiveCountEl.textContent = `${normalizedCount} match${normalizedCount === 1 ? "" : "es"}`;
 }
 
 function filteredArchiveRecords(records, query, modeFilter) {
@@ -2788,7 +2794,7 @@ function renderArchiveList() {
   );
   const records = [...historyRecordsCache].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const filtered = filteredArchiveRecords(records, archiveSearchEl.value, archiveModeFilter);
-  updateArchiveButton(records.length + curated.length);
+  updateArchiveButton(records.length);
   archiveRecentCountEl.textContent = `${curated.length}`;
   archiveSavedCountEl.textContent = `${filtered.length}`;
 
