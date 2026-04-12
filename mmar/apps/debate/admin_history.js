@@ -9,6 +9,8 @@ const refreshButton = document.querySelector("#admin-refresh");
 const logoutButton = document.querySelector("#admin-logout");
 const statusEl = document.querySelector("#admin-history-status");
 const filterButtons = Array.from(document.querySelectorAll("[data-state-filter]"));
+const ADMIN_HISTORY_ADD_PATH = "/api/admin/history/add";
+const ADMIN_HISTORY_REMOVE_PATH = "/api/admin/history/remove";
 
 let runs = [];
 let activeSessionId = "";
@@ -93,7 +95,7 @@ async function handlePromoteClick(run) {
   if (!run || !run.session_id || !isCandidateState(run)) return;
   console.log("clicked publish");
   setStatus("Publishing...");
-  const response = await fetch("/api/admin/history/add", {
+  const response = await fetch(ADMIN_HISTORY_ADD_PATH, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
@@ -310,7 +312,7 @@ runListEl.addEventListener("click", async (event) => {
 removeButton.addEventListener("click", async () => {
   if (!activeSessionId) return;
   setStatus("Moving to candidate...");
-  const response = await fetch("/api/admin/history/remove", {
+  const response = await fetch(ADMIN_HISTORY_REMOVE_PATH, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
