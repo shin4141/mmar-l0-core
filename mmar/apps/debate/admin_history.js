@@ -187,6 +187,20 @@ function renderRuns() {
       <div class="admin-run-snippet">${escapeHtml(excerpt(run) || "No excerpt yet.")}</div>
     </button>
   `).join("");
+  const runItems = Array.from(runListEl.querySelectorAll(".admin-run-item"));
+  runItems.forEach((itemEl) => {
+    itemEl.addEventListener("click", async () => {
+      const sessionId = itemEl.dataset.sessionId || "";
+      if (!sessionId) return;
+      console.log("clicked run", sessionId);
+      activeSessionId = sessionId;
+      renderRuns();
+      setStatus("Loading detail...");
+      const detail = await loadRunDetail(activeSessionId);
+      renderDetail(detail);
+      setStatus("");
+    });
+  });
 }
 
 function renderTurns(run) {
@@ -238,6 +252,7 @@ function renderDetail(run) {
     rebuildPromoteButton(null);
     return;
   }
+  console.log("render detail", run.session_id);
   const turnCount = run.turn_count || getTurns(run).length || 0;
   if (detailModeBadgeEl) {
     const mode = normalizeExperienceMode(run);
@@ -323,17 +338,6 @@ function bindUi() {
     console.error("[admin-history] required DOM missing");
     return false;
   }
-  runListEl.addEventListener("click", async (event) => {
-    const trigger = event.target.closest("[data-session-id]");
-    if (!trigger) return;
-    activeSessionId = trigger.dataset.sessionId || "";
-    renderRuns();
-    setStatus("Loading detail...");
-    const detail = await loadRunDetail(activeSessionId);
-    renderDetail(detail);
-    setStatus("");
-  });
-
   removeButton.addEventListener("click", async () => {
     if (!activeSessionId) return;
     setStatus("Moving to candidate...");
