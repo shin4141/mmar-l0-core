@@ -17,7 +17,23 @@ let activeSessionId = "";
 let activeRun = null;
 let activeStateFilter = "all";
 
+function hasRequiredDom() {
+  return Boolean(
+    runListEl &&
+    detailMetaEl &&
+    detailBodyEl &&
+    detailModeBadgeEl &&
+    detailStateBadgeEl &&
+    promoteButton &&
+    removeButton &&
+    refreshButton &&
+    logoutButton &&
+    statusEl
+  );
+}
+
 function setStatus(text) {
+  if (!statusEl) return;
   statusEl.hidden = !text;
   statusEl.textContent = text || "";
 }
@@ -79,6 +95,7 @@ function isCandidateState(run) {
 }
 
 function syncActionButtons(run) {
+  if (!promoteButton || !removeButton) return;
   if (!run) {
     promoteButton.disabled = true;
     promoteButton.setAttribute("aria-disabled", "true");
@@ -118,6 +135,7 @@ async function handlePromoteClick(run) {
 }
 
 function rebuildPromoteButton(run) {
+  if (!promoteButton) return;
   const oldButton = promoteButton;
   const newButton = oldButton.cloneNode(true);
   oldButton.replaceWith(newButton);
@@ -300,66 +318,78 @@ async function loadRuns() {
   setStatus("");
 }
 
-runListEl.addEventListener("click", async (event) => {
-  const trigger = event.target.closest("[data-session-id]");
-  if (!trigger) return;
-  activeSessionId = trigger.dataset.sessionId || "";
-  renderRuns();
-  setStatus("Loading detail...");
-  const detail = await loadRunDetail(activeSessionId);
-  renderDetail(detail);
-  setStatus("");
-});
-
-removeButton.addEventListener("click", async () => {
-  if (!activeSessionId) return;
-  setStatus("Moving to candidate...");
-  const response = await fetch(ADMIN_HISTORY_REMOVE_PATH, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({ session_id: activeSessionId }),
-  });
-  const data = await response.json();
-  if (!response.ok || !data.ok) {
-    setStatus("Move failed.");
-    return;
+function bindUi() {
+  if (!hasRequiredDom()) {
+    console.error("[admin-history] required DOM missing");
+    return false;
   }
-  setStatus("Moved to candidate.");
-  await loadRuns();
-});
-
-filterButtons.forEach((button) => {
-  button.addEventListener("click", async () => {
-    const nextFilter = button.dataset.stateFilter || "all";
-    if (nextFilter === activeStateFilter) return;
-    activeStateFilter = nextFilter;
+  runListEl.addEventListener("click", async (event) => {
+    const trigger = event.target.closest("[data-session-id]");
+    if (!trigger) return;
+    activeSessionId = trigger.dataset.sessionId || "";
     renderRuns();
-    const visibleRuns = filteredRuns();
-    activeSessionId = visibleRuns[0]?.session_id || "";
-    if (activeSessionId) {
-      setStatus("Loading detail...");
-      const detail = await loadRunDetail(activeSessionId);
-      renderDetail(detail);
-      setStatus("");
+    setStatus("Loading detail...");
+    const detail = await loadRunDetail(activeSessionId);
+    renderDetail(detail);
+    setStatus("");
+  });
+
+  removeButton.addEventListener("click", async () => {
+    if (!activeSessionId) return;
+    setStatus("Moving to candidate...");
+    const response = await fetch(ADMIN_HISTORY_REMOVE_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ session_id: activeSessionId }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      setStatus("Move failed.");
       return;
     }
-    renderDetail(null);
+    setStatus("Moved to candidate.");
+    await loadRuns();
   });
-});
 
-refreshButton.addEventListener("click", () => {
-  void loadRuns();
-});
-
-logoutButton.addEventListener("click", async () => {
-  await fetch("/api/admin/logout", {
-    method: "POST",
-    credentials: "same-origin",
+  filterButtons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      const nextFilter = button.dataset.stateFilter || "all";
+      if (nextFilter === activeStateFilter) return;
+      activeStateFilter = nextFilter;
+      renderRuns();
+      const visibleRuns = filteredRuns();
+      activeSessionId = visibleRuns[0]?.session_id || "";
+      if (activeSessionId) {
+        setStatus("Loading detail...");
+        const detail = await loadRunDetail(activeSessionId);
+        renderDetail(detail);
+        setStatus("");
+        return;
+      }
+      renderDetail(null);
+    });
   });
-  window.location.href = "/admin/login";
-});
 
-if (await requireSession()) {
-  await loadRuns();
+  refreshButton.addEventListener("click", () => {
+    void loadRuns();
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    await fetch("/api/admin/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    window.location.href = "/admin/login";
+  });
+  return true;
+}
+
+try {
+  if (bindUi() && await requireSession()) {
+    await loadRuns();
+  }
+} catch (error) {
+  console.error("[admin-history] bootstrap failed", error);
+  setStatus("Admin page failed to load.");
 }
