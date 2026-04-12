@@ -119,11 +119,13 @@ async function handlePromoteClick(run) {
 
 function rebuildPromoteButton(run) {
   const oldButton = promoteButton;
-  const nextButton = oldButton.cloneNode(true);
-  oldButton.replaceWith(nextButton);
-  promoteButton = nextButton;
+  const newButton = oldButton.cloneNode(true);
+  oldButton.replaceWith(newButton);
+  promoteButton = newButton;
   syncActionButtons(run);
-  promoteButton.addEventListener("click", async () => {
+  newButton.disabled = !isCandidateState(run);
+  newButton.setAttribute("aria-disabled", newButton.disabled ? "true" : "false");
+  newButton.addEventListener("click", async () => {
     if (!isCandidateState(run)) return;
     await handlePromoteClick(run);
   });
