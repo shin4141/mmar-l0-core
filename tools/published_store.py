@@ -155,14 +155,49 @@ def _normalize_record(record: dict) -> dict:
     return normalized
 
 
+def _row_value(row, key: str, default=None):
+    if row is None:
+        return default
+    try:
+        return row[key]
+    except Exception:
+        pass
+    index_map_short = {
+        "id": 0,
+        "promoted_at": 1,
+        "views": 2,
+        "likes": 3,
+        "record_json": 4,
+    }
+    index_map_full = {
+        "id": 0,
+        "promoted_at": 1,
+        "views": 4,
+        "likes": 5,
+        "record_json": 6,
+    }
+    try:
+        row_len = len(row)
+    except Exception:
+        return default
+    index_map = index_map_full if row_len >= 7 else index_map_short
+    index = index_map.get(key)
+    if index is None or index >= row_len:
+        return default
+    try:
+        return row[index]
+    except Exception:
+        return default
+
+
 def _record_from_row(row) -> dict:
-    record = json.loads(row["record_json"])
-    record["id"] = str(record.get("id") or row["id"] or "")
+    record = json.loads(_row_value(row, "record_json") or "{}")
+    record["id"] = str(record.get("id") or _row_value(row, "id") or "")
     record["session_id"] = str(record.get("session_id") or record["id"])
     record["run_id"] = str(record.get("run_id") or record["id"])
-    record["promoted_at"] = row["promoted_at"]
-    record["views"] = int(row["views"] or 0)
-    record["likes"] = int(row["likes"] or 0)
+    record["promoted_at"] = _row_value(row, "promoted_at")
+    record["views"] = int(_row_value(row, "views", 0) or 0)
+    record["likes"] = int(_row_value(row, "likes", 0) or 0)
     return record
 
 
