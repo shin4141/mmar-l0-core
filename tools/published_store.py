@@ -87,29 +87,46 @@ def _postgres_conn():
         import psycopg
     except ModuleNotFoundError as exc:
         raise RuntimeError("psycopg_missing") from exc
-    conn = psycopg.connect(published_store_url())
     try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS published_cards (
-              id TEXT PRIMARY KEY,
-              promoted_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              hidden BOOLEAN NOT NULL DEFAULT FALSE,
-              views BIGINT NOT NULL DEFAULT 0,
-              likes BIGINT NOT NULL DEFAULT 0,
-              record_json TEXT NOT NULL
+        conn = psycopg.connect(
+            published_store_url(),
+            connect_timeout=5,
+        )
+    except Exception as exc:
+        print("[publish-error] connect", exc)
+        raise
+    try:
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS published_cards (
+                  id TEXT PRIMARY KEY,
+                  promoted_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+                  views BIGINT NOT NULL DEFAULT 0,
+                  likes BIGINT NOT NULL DEFAULT 0,
+                  record_json TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_published_cards_visible ON published_cards(hidden, promoted_at DESC)"
-        )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_published_cards_visible ON published_cards(hidden, promoted_at DESC)"
+            )
+        except Exception as exc:
+            print("[publish-error] schema", exc)
+            raise
         conn.commit()
         yield conn
         conn.commit()
+    except Exception as exc:
+        print("[publish-error] query", exc)
+        raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception as exc:
+            print("[publish-error] close", exc)
 
 
 def _now_iso() -> str:
