@@ -3,7 +3,7 @@ const detailMetaEl = document.querySelector("#admin-detail-meta");
 const detailBodyEl = document.querySelector("#admin-detail-json");
 const detailModeBadgeEl = document.querySelector("#admin-detail-mode-badge");
 const detailStateBadgeEl = document.querySelector("#admin-detail-state-badge");
-const promoteButton = document.querySelector("#admin-promote");
+let promoteButton = document.querySelector("#admin-promote");
 const removeButton = document.querySelector("#admin-remove");
 const refreshButton = document.querySelector("#admin-refresh");
 const logoutButton = document.querySelector("#admin-logout");
@@ -89,17 +89,24 @@ function syncActionButtons(run) {
   removeButton.disabled = !isPublishedState(run);
 }
 
-async function handlePromoteClick() {
-  if (!activeSessionId || !isCandidateState(activeRun)) return;
+async function handlePromoteClick(run) {
+  if (!run || !run.session_id || !isCandidateState(run)) return;
+  console.log("clicked publish");
   setStatus("Publishing...");
   const response = await fetch("/api/admin/history/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
-    body: JSON.stringify({ session_id: activeSessionId }),
+    body: JSON.stringify({ session_id: run.session_id }),
   });
-  const data = await response.json();
-  console.log("[admin-promote]", { status: response.status, ok: response.ok, data });
+  const text = await response.text();
+  console.log("[admin-promote]", response.status, text);
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {};
+  }
   if (!response.ok || !data.ok) {
     setStatus("Publish failed.");
     return;
@@ -108,11 +115,16 @@ async function handlePromoteClick() {
   await loadRuns();
 }
 
-function bindPromoteButton(run) {
-  promoteButton.onclick = async () => {
+function rebuildPromoteButton(run) {
+  const oldButton = promoteButton;
+  const nextButton = oldButton.cloneNode(true);
+  oldButton.replaceWith(nextButton);
+  promoteButton = nextButton;
+  syncActionButtons(run);
+  promoteButton.addEventListener("click", async () => {
     if (!isCandidateState(run)) return;
-    await handlePromoteClick();
-  };
+    await handlePromoteClick(run);
+  });
 }
 
 function recordStateBadgeMarkup(run) {
@@ -201,8 +213,7 @@ function renderDetail(run) {
     detailBodyEl.innerHTML = "Select a run.";
     if (detailModeBadgeEl) detailModeBadgeEl.hidden = true;
     if (detailStateBadgeEl) detailStateBadgeEl.hidden = true;
-    syncActionButtons(null);
-    bindPromoteButton(null);
+    rebuildPromoteButton(null);
     return;
   }
   const turnCount = run.turn_count || getTurns(run).length || 0;
@@ -238,8 +249,7 @@ function renderDetail(run) {
       ${renderJudge(run)}
     </section>
   `;
-  syncActionButtons(run);
-  bindPromoteButton(run);
+  rebuildPromoteButton(run);
 }
 
 async function requireSession() {
