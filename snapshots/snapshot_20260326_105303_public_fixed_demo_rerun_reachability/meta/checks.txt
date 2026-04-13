@@ -1,4 +1,0 @@
-Goal: keep Run Fixed Debate manually reachable after first run
-Verify: selfHit true after first run, second run works without next-match
-Risk: reading-mode left rail regression
-Rollback: restore backups/debate.css and backups/debate.js

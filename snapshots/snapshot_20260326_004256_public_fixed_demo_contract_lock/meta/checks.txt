@@ -1,4 +1,0 @@
-Goal: lock public fixed demo contract in tests and reduce branch drift
-Verify: smoke tests + canonical 8912 capture
-Risk: changing public fixed demo control path may regress click/run behavior
-Rollback: restore backups and prior patch

@@ -63,3 +63,7 @@ examples/raw_local/
 data/
 
 .env.backup*
+tmp/
+tmp_*
+snapshots/*
+!snapshots/.keep

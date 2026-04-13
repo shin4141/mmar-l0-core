@@ -1,3 +1,0 @@
-tmp_verify_ui_judge_lane.py
-tmp_verify_summary_presence.py
-tmp_verify_live_runs.py

@@ -1,4 +1,0 @@
-Goal: restore Run Fixed Debate so click reaches fixture loader on canonical 8912
-Verify: click->branch->loader->turn log
-Risk: breaking submit path for public fixed demo
-Rollback: restore backups and prior patch

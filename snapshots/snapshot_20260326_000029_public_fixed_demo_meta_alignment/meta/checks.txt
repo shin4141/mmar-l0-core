@@ -1,4 +1,0 @@
-Goal: align public fixed demo output meta with fixture execution reality
-Verify: output meta, runtime label, turn count consistency on canonical 8912
-Risk: breaking normal output meta rendering
-Rollback: restore backups/debate.js and reapply meta/git_diff.patch baseline
