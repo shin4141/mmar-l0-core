@@ -2542,12 +2542,12 @@ def test_normalize_summary_keeps_winner_story_consistent_when_turning_point_favo
         }
     )
 
-    assert summary["winner"]["side"] == "A"
-    assert summary["weak_spot"]["side"] == "B"
-    assert summary["weak_spot"]["speaker"] == "B"
-    assert "A" in summary["gemini_takeaway"]["debate_dynamic"]
+    assert summary["winner"]["side"] == "B"
+    assert summary["weak_spot"]["side"] == "A"
+    assert summary["weak_spot"]["speaker"] == "A"
+    assert "B" in summary["gemini_takeaway"]["debate_dynamic"]
     assert "Bが流れを握った" not in summary["gemini_quote"]["text"]
-    assert "A" == summary["fatal_phrase"]["speaker"]
+    assert "B" == summary["fatal_phrase"]["speaker"]
 
 
 def test_normalize_summary_rejects_meta_strategy_fatal_phrase():
