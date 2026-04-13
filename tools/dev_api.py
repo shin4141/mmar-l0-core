@@ -437,6 +437,30 @@ def _admin_session(handler: BaseHTTPRequestHandler) -> dict[str, str] | None:
     return ADMIN_SESSIONS.get(morsel.value)
 
 
+def _log_admin_auth_probe(handler: BaseHTTPRequestHandler, path: str) -> None:
+    admin_session = _admin_session(handler)
+    sync_header = str(handler.headers.get("X-MMAR-Admin-Sync-Token") or "").strip()
+    print(
+        "[dev_api] admin_auth_probe "
+        + json.dumps(
+            {
+                "path": path,
+                "env_tag": history_env_tag(),
+                "admin_session": bool(admin_session),
+                "service_sync_authorized": False,
+                "sync_header_present": bool(sync_header),
+                "sync_header_length": len(sync_header),
+                "env_token_present": bool(ADMIN_SYNC_TOKEN),
+                "forwarded_hint": bool(handler.headers.get("X-MMAR-Admin-Sync-Token")),
+                "origin": str(handler.headers.get("Origin") or ""),
+                "referer": str(handler.headers.get("Referer") or ""),
+                "user_agent": str(handler.headers.get("User-Agent") or ""),
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def _extract_turns(debate_result: dict | None) -> tuple[list, list, list]:
     debate = debate_result if isinstance(debate_result, dict) else {}
     raw_turns = debate.get("raw_turns") if isinstance(debate.get("raw_turns"), list) else []
@@ -865,6 +889,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path in {"/api/admin/history/add", "/api/admin/gallery/publish"}:
                 if not _admin_session(self):
+                    _log_admin_auth_probe(self, path)
                     self._send_json(401, {"ok": False, "error": "unauthorized"})
                     return
                 session_id = str(payload.get("session_id") or "").strip()
@@ -881,6 +906,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path in {"/api/admin/history/remove", "/api/admin/gallery/remove"}:
                 if not _admin_session(self):
+                    _log_admin_auth_probe(self, path)
                     self._send_json(401, {"ok": False, "error": "unauthorized"})
                     return
                 session_id = str(payload.get("session_id") or "").strip()
