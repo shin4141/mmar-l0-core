@@ -888,7 +888,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, **saved, "history_item": None, "record": saved_record})
                 return
             if path in {"/api/admin/history/add", "/api/admin/gallery/publish"}:
-                if not _admin_session(self):
+                if not (_admin_session(self) or _service_sync_authorized(self)):
                     _log_admin_auth_probe(self, path)
                     self._send_json(401, {"ok": False, "error": "unauthorized"})
                     return
@@ -905,7 +905,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "item": _flatten_saved_record(published, curated=True)})
                 return
             if path in {"/api/admin/history/remove", "/api/admin/gallery/remove"}:
-                if not _admin_session(self):
+                if not (_admin_session(self) or _service_sync_authorized(self)):
                     _log_admin_auth_probe(self, path)
                     self._send_json(401, {"ok": False, "error": "unauthorized"})
                     return
