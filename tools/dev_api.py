@@ -437,6 +437,11 @@ def _admin_session(handler: BaseHTTPRequestHandler) -> dict[str, str] | None:
     return ADMIN_SESSIONS.get(morsel.value)
 
 
+def _service_sync_authorized(handler: BaseHTTPRequestHandler) -> bool:
+    token = str(handler.headers.get("X-MMAR-Admin-Sync-Token") or "").strip()
+    return bool(ADMIN_SYNC_TOKEN and token == ADMIN_SYNC_TOKEN)
+
+
 def _log_admin_auth_probe(handler: BaseHTTPRequestHandler, path: str) -> None:
     admin_session = _admin_session(handler)
     sync_header = str(handler.headers.get("X-MMAR-Admin-Sync-Token") or "").strip()
