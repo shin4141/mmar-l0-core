@@ -30,7 +30,8 @@
     html[data-initial-mode="battle"] #topic-overwrite-note { display: none; }
     html[data-initial-mode="battle"] #debug-pipeline-panel { display: none !important; }
   </style>
-  <title>VerdAIct | Debate</title>
+  <title>VerdAIct | AI Argument Breakdown</title>
+  <meta id="app-meta-description" name="description" content="Turn any issue or X post into an AI battle. See the winner, turning point, fatal phrase, weak spot, and flip condition." />
   <link rel="stylesheet" href="./debate.css?v=20260409b" />
 </head>
 <body>
@@ -85,7 +86,11 @@
       <script>
         (function () {
           if (window.__MMAR_INITIAL_MODE !== "battle" || window.__MMAR_INITIAL_LANG !== "en") return;
-          document.title = "VerdAIct | AI Battle";
+          document.title = "VerdAIct | AI Argument Breakdown";
+          const metaDescription = document.getElementById("app-meta-description");
+          if (metaDescription) {
+            metaDescription.setAttribute("content", "Turn any issue or X post into an AI battle. See the winner, turning point, fatal phrase, weak spot, and flip condition.");
+          }
           const setText = (id, value) => {
             const el = document.getElementById(id);
             if (el) el.textContent = value;
@@ -96,11 +101,11 @@
           };
           setText("app-title", "VerdAIct");
           setText("brand-signoff", "AI Battle");
-          setText("app-lede", "A faster way in: see the winner and decisive hit first.");
+          setText("app-lede", "Two AIs argue. The judge shows where it turned.");
           setText("mode-debate-button", "Debate");
           setText("mode-battle-button", "AI Battle");
           setText("battle-lang-switch-label", "Language");
-          setText("battle-x-import-copy", "Paste an X post URL to start an AI battle.");
+          setText("battle-x-import-copy", "Paste an X post to turn it into an argument breakdown.");
           setText("battle-x-url-label", "X post URL");
           setPlaceholder("battle-x-url", "Paste an X post URL");
           setText("topic-label", "Issue");
@@ -111,8 +116,8 @@
           setText("battle-x-build-button", "Create from X");
           setText("battle-source-label", "Source");
           setText("battle-source-link", "Open original");
-          setText("run-button", "Start Battle");
-          setText("judge-button", "See Result");
+          setText("run-button", "Start AI Battle");
+          setText("judge-button", "See Breakdown");
           const debateBtn = document.getElementById("mode-debate-button");
           const battleBtn = document.getElementById("mode-battle-button");
           const langSwitch = document.getElementById("battle-lang-switch");

@@ -264,12 +264,12 @@ const BATTLE_LANG_COPY = {
   en: {
     title: "VerdAIct",
     modeLabel: "AI Battle",
-    lede: "A faster way in: see the winner and decisive hit first.",
-    runLabel: "Start Battle",
-    judgeLabel: "See Result",
+    lede: "Two AIs argue. The judge shows where it turned.",
+    runLabel: "Start AI Battle",
+    judgeLabel: "See Breakdown",
     langLabel: "Language",
     xImportEyebrow: "X Import",
-    xImportCopy: "Paste an X post URL to start an AI battle.",
+    xImportCopy: "Paste an X post to turn it into an argument breakdown.",
     xUrlLabel: "X post URL",
     xUrlPlaceholder: "Paste an X post URL",
     xBuildLabel: "Create from X",
@@ -279,20 +279,20 @@ const BATTLE_LANG_COPY = {
     sourcePlaceholder: "Paste an X post URL to load the source.",
     shareCopyLabel: "Copy share link",
     shareXLabel: "Share on X",
-    issueLabel: "AI Battle:",
+    issueLabel: "Issue",
     winnerLabel: "Winner",
-    decisiveLabel: "Decisive Hit",
+    decisiveLabel: "Fatal Phrase",
     turningLabel: "Turning Point",
-    summaryLabel: "One-line Summary",
-    weakLabel: "Pain Point",
+    summaryLabel: "Why It Held",
+    weakLabel: "Weak Spot",
     xBuildReading: "Reading the X post",
-    xBuildHint: "Turning the original post into a battle-ready issue and two sides.",
+    xBuildHint: "Building the issue, both sides, and the structural judgment surface.",
     xBuildDone: "Built battle seed from X",
     xBuildError: "Could not read that X post",
     xBuildRetry: "Could not read that post. Try another X post URL.",
     shareOpened: "Opened X share",
     shareFailed: "Could not open X share",
-    shareFallback: "I turned this post into an AI battle",
+    shareFallback: "VerdAIct shows where this AI argument turned",
     historyBattleLabel: "Gallery",
     galleryTitle: "VerdAIct",
     galleryCopy: "Pick an AI battle that grabs you",
@@ -307,7 +307,7 @@ const BATTLE_LANG_COPY = {
     sideAPlaceholder: "Enter Side A",
     sideBPlaceholder: "Enter Side B",
     keywordPlaceholder: "Optional keyword",
-    emptyTurnLog: "Start Battle to see the winner, decisive hit, and turn log.",
+    emptyTurnLog: "Start an AI battle to see the winner, turning point, fatal phrase, and flip condition.",
   },
 };
 const DEBATE_FORM_COPY = {
@@ -350,14 +350,14 @@ function battleSummaryCopy() {
     askButton: battleLocaleText("この試合をGeminiに聞く", "Ask Gemini About This Match"),
     askHint: battleLocaleText("この試合について Gemini に質問できます。なぜ負けたか、何を足せば戻るかを聞けます。", "Ask Gemini why one side lost, what could have flipped the result, or which rule decided the match."),
     sourceKicker: battleLocaleText("Source", "Source"),
-    battleResultKicker: battleLocaleText("Battle Result", "Battle Result"),
+    battleResultKicker: battleLocaleText("Battle Result", "Structural Judgment"),
     firstCrackLabel: battleLocaleText("最初のヒビ", "First Crack"),
     firstCrackEmptyQuote: battleLocaleText("まだ最初のヒビは特定されていない。", "The first crack has not been identified yet."),
     firstCrackEmptyReason: battleLocaleText("どこで最初の傷が入ったかを追う。", "Track where the first visible weakness opened."),
-    confidenceLabel: battleLocaleText("判定の強さ", "Confidence"),
+    confidenceLabel: battleLocaleText("判定の強さ", "Judge Confidence"),
     clincherLabel: battleLocaleText("最後の押し込み", "Clincher"),
-    detailSummary: battleLocaleText("詳細を見る", "Read Full Rationale"),
-    detailEmpty: battleLocaleText("詳しい判定メモはまだありません。", "No detailed judge notes yet."),
+    detailSummary: battleLocaleText("詳細を見る", "Read Full Judgment"),
+    detailEmpty: battleLocaleText("詳しい判定メモはまだありません。", "No full judgment yet."),
     judgeNotesTitle: battleLocaleText("Judge Notes", "Judge Notes"),
     analysisOpen: battleLocaleText("▼ 分析を見る", "▼ View Analysis"),
     analysisClose: battleLocaleText("▲ 分析を閉じる", "▲ Hide Analysis"),
@@ -369,6 +369,17 @@ function battleSummaryCopy() {
     sideALabel: battleLocaleText("先攻", "Side A"),
     sideBLabel: battleLocaleText("後攻", "Side B"),
   };
+}
+
+function updateDocumentMeta() {
+  document.title = "VerdAIct | AI Argument Breakdown";
+  const metaDescription = document.querySelector("#app-meta-description");
+  if (metaDescription) {
+    metaDescription.setAttribute(
+      "content",
+      "Turn any issue or X post into an AI battle. See the winner, turning point, fatal phrase, weak spot, and flip condition."
+    );
+  }
 }
 
 function formatBattleSideLabel(side) {
@@ -627,6 +638,7 @@ function setBattleLanguage(lang, options = {}) {
     if (!shouldUsePublicFixedDemo()) runButton.textContent = copy.runLabel;
     judgeButton.textContent = copy.judgeLabel;
   }
+  updateDocumentMeta();
   clearBattleXSourceError();
   applyFormShellCopy();
   if (options.refresh !== false && changed) {
@@ -654,6 +666,7 @@ function applyExperienceMode(mode) {
     runButton.textContent = copy.runLabel;
   }
   judgeButton.textContent = copy.judgeLabel;
+  updateDocumentMeta();
   renderBattleXSourceSection();
   applyBattleLanguageText();
   applyFormShellCopy();
@@ -2450,10 +2463,10 @@ async function copyBattleShareLink() {
     const id = await ensureBattleShareId();
     const url = buildBattleShareUrl(id);
     await navigator.clipboard.writeText(url);
-    setStatus("ok", "共有リンクをコピーしました");
+    setStatus("ok", currentBattleLang === "en" ? "Copied share link" : "共有リンクをコピーしました");
     setHint(url);
   } catch (error) {
-    setStatus("error", "共有リンクを作れませんでした");
+    setStatus("error", currentBattleLang === "en" ? "Could not create share link" : "共有リンクを作れませんでした");
     setHint(String(error?.message || "share_unavailable"));
   }
 }
@@ -2482,7 +2495,7 @@ function buildBattleShareText(shareId = currentBattleShareId()) {
   const issue = currentBattleIssue();
   if (issue) {
     return currentBattleLang === "en"
-      ? `AI Battle: ${issue}\n${url}`
+      ? `${issue}\nVerdAIct shows the winner, turning point, and fatal phrase.\n${url}`
       : `AIバトル: ${issue}\n${url}`;
   }
   return `${battleCopy().shareFallback}\n${url}`;
