@@ -46,6 +46,8 @@ const GALLERY_COPY = {
     empty: "No English AI battles yet.",
     loading: "Loading AI battles.",
     error: "Could not load AI battles.",
+    missingTitle: "English preview not ready yet",
+    missingExcerpt: "Open the card to view details.",
   },
 };
 
@@ -124,13 +126,75 @@ function localizedViewForRecord(record) {
   return langView && typeof langView === "object" && !Array.isArray(langView) ? langView : null;
 }
 
+function englishViewReady(record, localized) {
+  if (currentLang !== "en") return false;
+  if (!localized || typeof localized !== "object") return false;
+  const status = String(localized.status || record?.localized_en_status || "").trim().toLowerCase();
+  const viewHash = String(localized.source_hash || "").trim();
+  const recordHash = String(record?.localized_en_source_hash || "").trim();
+  const viewVersion = String(localized.generator_version || "").trim();
+  const recordVersion = String(record?.localized_en_generator_version || "").trim();
+  return (
+    status === "ready"
+    && (!recordHash || !viewHash || recordHash === viewHash)
+    && (!recordVersion || !viewVersion || recordVersion === viewVersion)
+  );
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function englishCardCopy(record, localized) {
+  const copy = galleryCopy();
+  if (!englishViewReady(record, localized)) {
+    return {
+      issue: copy.missingTitle,
+      excerpt: copy.missingExcerpt,
+      ready: false,
+    };
+  }
+  const summary = localized.summary && typeof localized.summary === "object" ? localized.summary : {};
+  const takeaway = summary.gemini_takeaway && typeof summary.gemini_takeaway === "object"
+    ? summary.gemini_takeaway
+    : {};
+  return {
+    issue: firstNonEmpty(
+      localized.issue,
+      summary.issue,
+      summary.verdict_headline,
+      copy.missingTitle,
+    ),
+    excerpt: firstNonEmpty(
+      summary.verdict_subline,
+      takeaway.structural_explanation,
+      takeaway.debate_dynamic,
+      summary.flip_condition,
+      localized.source_summary,
+      copy.missingExcerpt,
+    ),
+    ready: true,
+  };
+}
+
 function sortRecords(records) {
   return [...records].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 }
 
 function buildCardMarkup(record) {
   const localized = localizedViewForRecord(record);
-  const issue = String(localized?.issue || record.topic || "").trim() || galleryCopy().badge;
+  const copy = galleryCopy();
+  const englishCard = currentLang === "en" ? englishCardCopy(record, localized) : null;
+  const issue = currentLang === "en"
+    ? englishCard.issue
+    : (String(localized?.issue || record.topic || "").trim() || copy.badge);
+  const excerpt = currentLang === "en"
+    ? englishCard.excerpt
+    : firstNonEmpty(record.excerpt, record.tease, "");
   const image = String(record.source_image || "").trim() || buildPlaceholderImage(issue);
   const id = String(record.id || record.run_id || "").trim();
   if (!id) {
@@ -147,6 +211,7 @@ function buildCardMarkup(record) {
       </div>
       <div class="gallery-card-copy">
         <div class="gallery-card-issue">${escapeHtml(issue)}</div>
+        ${excerpt ? `<div class="gallery-card-excerpt">${escapeHtml(excerpt)}</div>` : ""}
       </div>
     </a>
   `;
