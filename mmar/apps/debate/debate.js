@@ -344,8 +344,8 @@ function battleSummaryCopy() {
     momentumLabel: battleLocaleText("Momentum Bar", "Momentum Bar"),
     momentumNote: battleLocaleText("この判定は真偽ではなく、この命題での押し込みです。", "This measures who controlled the proposition, not who proved objective truth."),
     flipConditionLabel: battleLocaleText("Flip Condition", "Flip Condition"),
-    geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Gemini Takeaway"),
-    geminiQuoteLabel: battleLocaleText("Gemini Quote", "Gemini Quote"),
+    geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Takeaway"),
+    geminiQuoteLabel: battleLocaleText("Gemini Quote", "Signature Line"),
     askTitle: battleLocaleText("この試合についてGeminiに聞く", "Ask Gemini About This Match"),
     askButton: battleLocaleText("この試合をGeminiに聞く", "Ask Gemini About This Match"),
     askHint: battleLocaleText("この試合について Gemini に質問できます。なぜ負けたか、何を足せば戻るかを聞けます。", "Ask Gemini why one side lost, what could have flipped the result, or which rule decided the match."),
@@ -353,7 +353,7 @@ function battleSummaryCopy() {
     battleResultKicker: battleLocaleText("Battle Result", "Structural Judgment"),
     firstCrackLabel: battleLocaleText("最初のヒビ", "First Crack"),
     firstCrackEmptyQuote: battleLocaleText("まだ最初のヒビは特定されていない。", "The first crack has not been identified yet."),
-    firstCrackEmptyReason: battleLocaleText("どこで最初の傷が入ったかを追う。", "Track where the first visible weakness opened."),
+    firstCrackEmptyReason: battleLocaleText("どこで最初の傷が入ったかを追う。", "This is where the first visible weakness opened."),
     confidenceLabel: battleLocaleText("判定の強さ", "Judge Confidence"),
     clincherLabel: battleLocaleText("最後の押し込み", "Clincher"),
     detailSummary: battleLocaleText("詳細を見る", "Read Full Judgment"),
@@ -802,9 +802,168 @@ function normalizeLocalizedViews(raw) {
   const normalized = {};
   for (const [key, value] of Object.entries(raw)) {
     const lang = normalizeBattleLang(key);
-    if (value && typeof value === "object" && !Array.isArray(value)) normalized[lang] = value;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      normalized[lang] = lang === "en" ? polishEnglishBattleView(value) : value;
+    }
   }
   return normalized;
+}
+
+function normalizedEnglishSurfaceKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/["“”'‘’`「」『』()[\]{}]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function looksLikeAdjacentEnglishDuplicate(left, right) {
+  const a = normalizedEnglishSurfaceKey(left);
+  const b = normalizedEnglishSurfaceKey(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  return shorter.length >= 18 && longer.includes(shorter);
+}
+
+function dedupeEnglishSurfaceLines(lines) {
+  const deduped = [];
+  for (const line of lines) {
+    const text = String(line || "").trim();
+    if (!text) continue;
+    const previous = deduped[deduped.length - 1] || "";
+    if (looksLikeAdjacentEnglishDuplicate(text, previous)) continue;
+    deduped.push(text);
+  }
+  return deduped;
+}
+
+function polishEnglishWeakSpotLabel(value) {
+  const label = String(value || "").trim();
+  const exactMap = {
+    "Retreat of Definition": "Shifting the Claim",
+    "Definition Retreat": "Shifting the Claim",
+    "Retreat to a Weaker Claim": "Shifting the Claim",
+    "Failure exposure": "Weak Spot",
+    "Why it stayed unresolved": "Why It Stayed Unresolved",
+  };
+  if (exactMap[label]) return exactMap[label];
+  if (/retreat of definition/i.test(label)) return "Shifting the Claim";
+  if (/definition shift/i.test(label)) return "Shifting the Claim";
+  if (/failure exposure/i.test(label)) return "Weak Spot";
+  return label;
+}
+
+function polishEnglishSurfaceText(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  const replacements = [
+    [/\bline of establishment\b/gi, "path to proof"],
+    [/\bretreat of definition\b/gi, "definition shift"],
+    [/\bestablished dominance by\b/gi, "controlled the frame by"],
+    [/\bEven a clean logic collapses if there is a hole\./gi, "Even a clean line of logic collapses if it has a hole."],
+    [/\bEven a clean logic collapses if it has a hole\./gi, "Even a clean line of logic collapses if it has a hole."],
+    [/\bwithout missing the initial question and closed off ([AB])'s path to proof\b/gi, "and shut down $1's path to proof"],
+    [/\bwithout missing the initial question\b/gi, "while staying on the original question"],
+    [/\bTo return,\b/gi, "To flip the result,"],
+    [/\bTo return\b/gi, "To flip the result"],
+    [/\bretreat to a weaker definition\b/gi, "shift to a weaker definition"],
+    [/\bline of logic\b/gi, "line of logic"],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    text = text.replace(pattern, replacement);
+  }
+  text = text
+    .replace(/'definition shift'/gi, '"definition shift"')
+    .replace(/'shifting the claim'/gi, '"shifting the claim"')
+    .replace(/\breturn, they need to\b/gi, "flip the result, they need to")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
+}
+
+function polishEnglishSummary(summary) {
+  const raw = summary && typeof summary === "object" && !Array.isArray(summary) ? summary : {};
+  const winner = raw.winner && typeof raw.winner === "object" && !Array.isArray(raw.winner) ? raw.winner : {};
+  const turning = raw.turning_point && typeof raw.turning_point === "object" && !Array.isArray(raw.turning_point) ? raw.turning_point : {};
+  const fatal = raw.fatal_phrase && typeof raw.fatal_phrase === "object" && !Array.isArray(raw.fatal_phrase) ? raw.fatal_phrase : {};
+  const weak = raw.weak_spot && typeof raw.weak_spot === "object" && !Array.isArray(raw.weak_spot) ? raw.weak_spot : {};
+  const firstCrack = raw.first_crack && typeof raw.first_crack === "object" && !Array.isArray(raw.first_crack) ? raw.first_crack : {};
+  const clincher = raw.clincher && typeof raw.clincher === "object" && !Array.isArray(raw.clincher) ? raw.clincher : {};
+  const takeaway = raw.gemini_takeaway && typeof raw.gemini_takeaway === "object" && !Array.isArray(raw.gemini_takeaway) ? raw.gemini_takeaway : {};
+  const quote = raw.gemini_quote && typeof raw.gemini_quote === "object" && !Array.isArray(raw.gemini_quote) ? raw.gemini_quote : {};
+  return {
+    ...raw,
+    reason_one_liner: polishEnglishSurfaceText(raw.reason_one_liner),
+    flip_condition: polishEnglishSurfaceText(raw.flip_condition),
+    provisional_judgment: polishEnglishSurfaceText(raw.provisional_judgment),
+    full_rationale: polishEnglishSurfaceText(raw.full_rationale),
+    winner: {
+      ...winner,
+      reason: polishEnglishSurfaceText(winner.reason),
+    },
+    turning_point: {
+      ...turning,
+      summary: polishEnglishSurfaceText(turning.summary),
+      quote_excerpt: polishEnglishSurfaceText(turning.quote_excerpt),
+    },
+    fatal_phrase: {
+      ...fatal,
+      quote: polishEnglishSurfaceText(fatal.quote),
+      reason: polishEnglishSurfaceText(fatal.reason),
+    },
+    weak_spot: {
+      ...weak,
+      label: polishEnglishWeakSpotLabel(weak.label),
+      quote_excerpt: polishEnglishSurfaceText(weak.quote_excerpt),
+      why_one_sentence: polishEnglishSurfaceText(weak.why_one_sentence),
+      how_to_fix: polishEnglishSurfaceText(weak.how_to_fix),
+    },
+    first_crack: {
+      ...firstCrack,
+      quote: polishEnglishSurfaceText(firstCrack.quote),
+      reason: polishEnglishSurfaceText(firstCrack.reason),
+    },
+    clincher: {
+      ...clincher,
+      quote: polishEnglishSurfaceText(clincher.quote),
+      reason: polishEnglishSurfaceText(clincher.reason),
+    },
+    gemini_takeaway: {
+      ...takeaway,
+      structural_explanation: polishEnglishSurfaceText(takeaway.structural_explanation),
+      debate_dynamic: polishEnglishSurfaceText(takeaway.debate_dynamic),
+      quote: polishEnglishSurfaceText(takeaway.quote),
+    },
+    gemini_quote: {
+      ...quote,
+      text: polishEnglishSurfaceText(quote.text),
+      framing_text: polishEnglishSurfaceText(quote.framing_text),
+      evidence_quote: polishEnglishSurfaceText(quote.evidence_quote),
+      framing_reason: polishEnglishSurfaceText(quote.framing_reason),
+      pick_reason: polishEnglishSurfaceText(quote.pick_reason),
+    },
+  };
+}
+
+function polishEnglishBattleView(view) {
+  const raw = view && typeof view === "object" && !Array.isArray(view) ? view : {};
+  return {
+    ...raw,
+    issue: polishEnglishSurfaceText(raw.issue),
+    side_a: polishEnglishSurfaceText(raw.side_a),
+    side_b: polishEnglishSurfaceText(raw.side_b),
+    source_summary: polishEnglishSurfaceText(raw.source_summary),
+    turns: Array.isArray(raw.turns)
+      ? raw.turns.map((turn, index) => ({
+          turn: Number(turn?.turn) || index + 1,
+          a: polishEnglishSurfaceText(turn?.a),
+          b: polishEnglishSurfaceText(turn?.b),
+        }))
+      : [],
+    summary: polishEnglishSummary(raw.summary),
+  };
 }
 
 function currentLocalizedBattleView() {
@@ -1628,12 +1787,12 @@ function formatCardRoleLabel(value) {
   const role = String(value || "").trim();
   const labels = {
     verdict_summary: "Verdict",
-    first_crack: "First crack",
-    decisive_lock: "Decisive lock",
-    frame_shift: "Frame shift",
-    failure_exposure: "Failure exposure",
-    clincher: "Clincher",
-    ai_framing: "AI framing",
+    first_crack: "Early break",
+    decisive_lock: "Decisive line",
+    frame_shift: "Turning point",
+    failure_exposure: "Core weakness",
+    clincher: "Closing turn",
+    ai_framing: "Takeaway",
   };
   return labels[role] || "";
 }
@@ -1642,12 +1801,12 @@ function formatStructuralRoleLabel(value) {
   const role = String(value || "").trim();
   const labels = isEnglishBattleView()
     ? {
-        rule_capture: "Rule capture",
-        definition_lock: "Definition lock",
-        category_reframe: "Category reframe",
-        burden_shift: "Burden lock",
+        rule_capture: "Rules locked",
+        definition_lock: "Definition locked",
+        category_reframe: "Category shift",
+        burden_shift: "Burden shifted",
         counterexample_land: "Counterexample landed",
-        drift_exposure: "Retreat exposed",
+        drift_exposure: "Claim drift exposed",
         decisive_frame: "Decisive frame",
       }
     : {
@@ -1750,7 +1909,7 @@ function normalizeWeakSpot(summary) {
       speaker: raw.speaker || defaultSpeaker,
       role: String(raw.role || "failure_exposure").trim(),
       axis_tag: String(raw.axis_tag || "").trim(),
-      label: raw.label || defaultLabel,
+      label: isEnglishBattleView() ? polishEnglishWeakSpotLabel(raw.label || defaultLabel) : (raw.label || defaultLabel),
       quote_excerpt: raw.quote_excerpt || raw.quote || raw.text || "相手に最も刺された弱点がここで露出した。",
       why_one_sentence: raw.why_one_sentence || raw.why || defaultWhy,
       how_to_fix: raw.how_to_fix || defaultFix,
@@ -1761,7 +1920,7 @@ function normalizeWeakSpot(summary) {
     turn: defaultTurn,
     speaker: defaultSpeaker,
     role: "failure_exposure",
-    label: defaultLabel,
+    label: isEnglishBattleView() ? polishEnglishWeakSpotLabel(defaultLabel) : defaultLabel,
     quote_excerpt: summary?.contradiction_exposed || "相手に最も刺された弱点がここで露出した。",
     why_one_sentence: summary?.contradiction_exposed || defaultWhy,
     how_to_fix: defaultFix,
@@ -2085,6 +2244,38 @@ function composeFlipCondition(winner, weakSpot, why) {
     return `次にひっくり返すには、${label}を具体化して決定打に変える必要がある。`;
   }
   return `${loser}が戻るには、「${label}」を消す具体例か定義を先に出す必要がある。${reason}`;
+}
+
+function composeEnglishVerdictHeadline(topic, winner) {
+  const side = winner?.side || "Draw";
+  if (side === "Draw") return "No clear winner";
+  return `${formatBattleSideLabel(side)} had the stronger frame`;
+}
+
+function composeEnglishVerdictSubline(topic, winner, why) {
+  const side = winner?.side || "Draw";
+  if (side === "Draw") return "Neither side fully closed the case.";
+  return `${formatBattleSideLabel(side)} came out ahead.`;
+}
+
+function composeEnglishFlipCondition(winner, weakSpot, why) {
+  const loser = winner?.side === "A" ? "B" : winner?.side === "B" ? "A" : "Draw";
+  const loserLabel = formatBattleSideLabel(loser);
+  const weakLabel = polishEnglishWeakSpotLabel(weakSpot?.label || "key weakness");
+  const fix = polishEnglishSurfaceText(weakSpot?.how_to_fix || weakSpot?.why_one_sentence || why || "");
+  if (loser === "Draw") {
+    return "To change the result, one side would need to turn the main weakness into a decisive point.";
+  }
+  if (weakLabel === "Shifting the Claim") {
+    return `To flip the result, ${loserLabel} must stop shifting the claim and define it with concrete examples or criteria.`;
+  }
+  if (/less invasive|superior to/i.test(fix)) {
+    return `To flip the result, ${loserLabel} must address "${weakLabel}" with concrete evidence and show why that case beats the main alternative.`;
+  }
+  if (fix) {
+    return `To flip the result, ${loserLabel} must address "${weakLabel}" with concrete evidence or a tighter definition. ${fix}`;
+  }
+  return `To flip the result, ${loserLabel} must address "${weakLabel}" with concrete evidence or a tighter definition.`;
 }
 
 function storageAvailable() {
@@ -3429,20 +3620,31 @@ function renderSummary(summary) {
   const topic = currentResult?.debate?.topic || "";
   const battleIssue = currentBattleIssue() || topic;
   const battleLabels = battleCopy();
-  const headline = localized?.summary?.verdict_headline || (isEnglishBattleView() ? `${formatBattleSideLabel(winner.side)} has the edge` : composeVerdictHeadline(topic, winner));
-  const subline = localized?.summary?.verdict_subline || (isEnglishBattleView() ? why : composeVerdictSubline(topic, winner, why));
+  const headline = localized?.summary?.verdict_headline || (isEnglishBattleView() ? composeEnglishVerdictHeadline(topic, winner) : composeVerdictHeadline(topic, winner));
+  const subline = localized?.summary?.verdict_subline || (isEnglishBattleView() ? composeEnglishVerdictSubline(topic, winner, why) : composeVerdictSubline(topic, winner, why));
   const momentum = normalizeMomentum(summary, winner, confidence);
   const flipCondition = localized?.summary?.flip_condition || (isEnglishBattleView()
-    ? `${formatBattleSideLabel(winner.side === "A" ? "B" : winner.side === "B" ? "A" : "Draw")} needed a concrete example or a tighter definition to remove "${weakSpot.label || "key weakness"}". ${weakSpot?.how_to_fix || weakSpot?.why_one_sentence || why || ""}`.trim()
+    ? composeEnglishFlipCondition(winner, weakSpot, why)
     : composeFlipCondition(winner, weakSpot, why));
   const takeaway = normalizeGeminiTakeaway(summary, topic);
   const geminiQuote = normalizeGeminiQuote(summary);
-  const takeawayLines = [
+  const displayWinnerReason = isEnglishBattleView() && looksLikeAdjacentEnglishDuplicate(localized?.summary?.winner?.reason || winner.reason, why)
+    ? ""
+    : (localized?.summary?.winner?.reason || winner.reason);
+  const takeawayLines = dedupeEnglishSurfaceLines([
     takeaway.structural_explanation,
     takeaway.debate_dynamic,
-  ].filter((line) => String(line || "").trim());
-  const takeawayQuote = String(takeaway.quote || "").trim();
-  const geminiQuoteText = String(geminiQuote.framing_text || geminiQuote.text || "").trim();
+  ].filter((line) => String(line || "").trim()));
+  const takeawayQuote = isEnglishBattleView() && takeawayLines.some((line) => looksLikeAdjacentEnglishDuplicate(takeaway.quote, line))
+    ? ""
+    : String(takeaway.quote || "").trim();
+  const geminiQuoteText = isEnglishBattleView() && (
+    takeawayLines.some((line) => looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, line))
+    || looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, takeawayQuote)
+    || looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, why)
+  )
+    ? ""
+    : String(geminiQuote.framing_text || geminiQuote.text || "").trim();
   const displayFatalQuote = localized?.summary?.fatal_phrase?.quote || fatal.quote;
   const displayFatalReason = localized?.summary?.fatal_phrase?.reason || fatal.why;
   const displayTurningSummary = localized?.summary?.turning_point?.summary || turning.summary;
@@ -3558,7 +3760,7 @@ function renderSummary(summary) {
         <div class="summary-label">${escapeHtml(battleLabels.winnerLabel)}</div>
         <div class="summary-kicker">${escapeHtml(uiCopy.battleResultKicker)}</div>
         <div class="summary-value summary-emphasis">${escapeHtml(formatBattleSideLabel(winner.side))}</div>
-        <div class="summary-subvalue summary-winner-reason">${escapeHtml(localized?.summary?.winner?.reason || winner.reason)}</div>
+        ${displayWinnerReason ? `<div class="summary-subvalue summary-winner-reason">${escapeHtml(displayWinnerReason)}</div>` : ""}
       </article>
       <button type="button" class="summary-card tone-fatal summary-jump-card" data-jump-target="fatal">
         <div class="summary-label">${escapeHtml(battleLabels.decisiveLabel)}</div>
