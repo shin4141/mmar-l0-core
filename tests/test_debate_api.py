@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from tools.debate_api import DebateConfig, JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _three_turn_validation_report, ask_match_gemini, run_debate
+from tools.debate_api import DebateConfig, JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _suppress_overlapping_summary_roles, _three_turn_validation_report, ask_match_gemini, run_debate
 from tools.history_store import (
     archive_run,
     get_history_record,
@@ -2256,6 +2256,78 @@ def test_normalize_summary_keeps_gemini_takeaway_or_builds_fallback():
     assert takeaway["structural_explanation"] == "Bは判定基準を握った。"
     assert takeaway["debate_dynamic"] == "その後もBが圧を維持し、Aは論拠不足を修正し切れなかった。"
     assert takeaway["quote"].startswith("「")
+
+
+def test_normalize_summary_separates_draw_verdict_takeaway_and_quote_roles():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "Draw", "reason": "流れは動いたが、どちらも決定打を押し切れなかった。"},
+            "reason_one_liner": "流れは動いたが、どちらも決定打を押し切れなかった。",
+            "confidence": "Medium",
+            "turning_point": {
+                "turn": 3,
+                "summary": "Turn 3で流れは傾いたが、どちらも弱点を決定打に変えきれなかった。",
+                "quote_excerpt": "その反論は刺さったが、まだ倒し切れていない。",
+            },
+            "fatal_phrase": {"turn": 0, "speaker": "", "text": "", "reason": ""},
+            "weak_spot": {
+                "side": "A/B",
+                "turn": 3,
+                "speaker": "",
+                "label": "決定打不足",
+                "quote_excerpt": "その反論は刺さったが、まだ倒し切れていない。",
+                "why_one_sentence": "どちらも相手の弱点を決定打に変えきれなかった。",
+                "how_to_fix": "相手の弱点を一つに絞って押し切るべきだった。",
+            },
+            "gemini_takeaway": {
+                "structural_explanation": "流れは動いたが、どちらも決着まで押し切れなかった。",
+                "debate_dynamic": "流れは動いたが、どちらも決定打を最後まで押し切れなかった。",
+                "quote": "流れは揺れたが、決着は届かなかった。",
+            },
+            "gemini_quote": {"text": "流れは揺れたが、決着は届かなかった。"},
+            "key_disagreement_top3": ["x"],
+        },
+        turns=[
+            {"turn": 3, "a": "その反論は刺さったが、まだ倒し切れていない。", "b": "まだ致命傷ではない。"},
+        ],
+    )
+
+    assert summary["reason_one_liner"] == "流れは動いたが、どちらも決定打を押し切れなかった。"
+    assert summary["gemini_takeaway"]["structural_explanation"] != summary["reason_one_liner"]
+    assert "決定打" in summary["gemini_takeaway"]["structural_explanation"] or "弱点" in summary["gemini_takeaway"]["structural_explanation"]
+    assert summary["gemini_takeaway"]["debate_dynamic"] != summary["reason_one_liner"]
+    assert "押し込み" in summary["gemini_takeaway"]["debate_dynamic"]
+    assert summary["gemini_takeaway"]["quote"] == ""
+    assert summary["gemini_quote"]["text"] == ""
+    assert summary["gemini_quote"]["framing_text"] == ""
+
+
+def test_summary_role_suppression_hides_gemini_quote_when_it_repeats_verdict_and_reuses_evidence():
+    takeaway, quote = _suppress_overlapping_summary_roles(
+        {"side": "B"},
+        "Bは定義を固定し、Aの逃げ道を閉じた。",
+        {"summary": "Turn 3でBが定義を固定し、Aの逃げ道を閉じた。", "quote_excerpt": "その定義の広げ方は逃げだ。"},
+        {"quote": "その定義の広げ方は逃げだ。", "text": "その定義の広げ方は逃げだ。"},
+        {"label": "定義の後退", "quote_excerpt": "その定義の広げ方は逃げだ。", "why_one_sentence": "Aは定義の逃げ道を閉じられた。"},
+        {
+            "structural_explanation": "Turn 3で争点が動いたあとも、Aの定義の後退が最後まで残った。",
+            "debate_dynamic": "終盤までAが定義の後退を埋め切れず、流れを取り返せなかった。",
+            "quote": "定義を固定し、Aの逃げ道を閉じた。",
+        },
+        {
+            "text": "「固定を広げた瞬間、その定義の広げ方は逃げだ。は折れた。」",
+            "framing_text": "「固定を広げた瞬間、その定義の広げ方は逃げだ。は折れた。」",
+            "framing_reason": "Bは定義を固定し、Aの逃げ道を閉じた。",
+            "pick_reason": "Bは定義を固定し、Aの逃げ道を閉じた。",
+            "evidence_quote": "その定義の広げ方は逃げだ。",
+            "quote": "その定義の広げ方は逃げだ。",
+        },
+    )
+
+    assert takeaway["quote"] == ""
+    assert quote["text"] == ""
+    assert quote["framing_text"] == ""
+    assert quote["evidence_quote"] == ""
 
 
 def test_normalize_summary_keeps_or_builds_gemini_quote():

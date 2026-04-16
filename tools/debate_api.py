@@ -4527,6 +4527,15 @@ def _normalize_summary(summary: dict[str, Any], turns: list[dict[str, Any]] | No
         gemini_takeaway,
         gemini_quote,
     )
+    gemini_takeaway, gemini_quote = _suppress_overlapping_summary_roles(
+        winner,
+        reason_one_liner,
+        turning_point,
+        fatal_phrase,
+        weak_spot,
+        gemini_takeaway,
+        gemini_quote,
+    )
     return {
         "winner": winner,
         "why_role": "verdict_summary",
@@ -4611,6 +4620,172 @@ def _summary_role_overlaps(left: Any, right: Any) -> bool:
         return True
     shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
     return len(shorter) >= 8 and shorter in longer
+
+
+def _summary_role_semantic_key(text: Any) -> str:
+    value = _summary_role_overlap_key(text)
+    if not value:
+        return ""
+    substitutions = [
+        (r"turn\d+", ""),
+        (r"(流れ|試合|議論の軸|争点)(は)?(動いた|揺れた|傾いた|変わった)", "flowshift"),
+        (r"(どちらも|双方|両者|a/bとも|aもbも|bもaも)", "both"),
+        (r"(相手の)?(核|弱点|穴)", "weakness"),
+        (r"(決定打|決着|勝ち筋)", "finish"),
+        (r"(決定打|決着|勝ち筋).{0,6}(押し切れなかった|決め切れなかった|届かなかった|続かなかった|割れなかった|崩し切れなかった|変えきれなかった)", "unresolved"),
+        (r"(押し切れなかった|決め切れなかった|届かなかった|続かなかった|割れなかった|崩し切れなかった|変えきれなかった)", "unresolved"),
+        (r"(最後まで|決着まで)", ""),
+    ]
+    for pattern, replacement in substitutions:
+        value = re.sub(pattern, replacement, value)
+    return value
+
+
+def _summary_role_semantic_overlaps(left: Any, right: Any) -> bool:
+    if _summary_role_overlaps(left, right):
+        return True
+    a = _summary_role_semantic_key(left)
+    b = _summary_role_semantic_key(right)
+    if not a or not b:
+        return False
+    if all(token in a for token in ("flowshift", "unresolved")) and all(token in b for token in ("flowshift", "unresolved")):
+        return True
+    if a == b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return len(shorter) >= 8 and shorter in longer
+
+
+def _build_takeaway_structural_candidate(
+    winner: dict[str, str],
+    turning_point: dict[str, Any],
+    weak_spot: dict[str, Any],
+) -> str:
+    side = _clean_text(winner.get("side") or "")
+    weak_label = _clean_text(weak_spot.get("label") or "")
+    weak_focus = weak_label if weak_label and not re.search(r"[A-Za-z]", weak_label) else ""
+    if not weak_focus or weak_focus in {"Why it stayed unresolved", "Weak Spot"}:
+        weak_focus = "相手の弱点"
+    turn_no = (
+        extract_turn_number_from_text(turning_point.get("turn"))
+        or extract_turn_number_from_text(turning_point.get("summary"))
+        or extract_turn_number_from_text(weak_spot.get("turn"))
+        or 3
+    )
+    if side == "Draw":
+        return f"Turn {turn_no}で流れは傾いたが、どちらも{weak_focus}を決定打に変えきれなかった。"
+    if side in {"A", "B"}:
+        loser = _losing_side(winner)
+        if loser in {"A", "B"}:
+            return f"Turn {turn_no}で争点が動いたあとも、{loser}の{weak_focus}が最後まで残った。"
+        return f"Turn {turn_no}で争点が動いたあとも、{side}が押し返されずに主導を保った。"
+    return f"Turn {turn_no}で流れは動いたが、{weak_focus}が最後まで勝ち筋に変わらなかった。"
+
+
+def _build_takeaway_dynamic_candidate(winner: dict[str, str], weak_spot: dict[str, Any]) -> str:
+    side = _clean_text(winner.get("side") or "")
+    weak_label = _clean_text(weak_spot.get("label") or "")
+    weak_focus = weak_label if weak_label and not re.search(r"[A-Za-z]", weak_label) else ""
+    if not weak_focus or weak_focus in {"Why it stayed unresolved", "Weak Spot"}:
+        weak_focus = "弱点"
+    if side == "Draw":
+        return f"{weak_focus}は見えても押し込みが続かず、判定を割る一手にはならなかった。"
+    if side in {"A", "B"}:
+        loser = _losing_side(winner)
+        if loser in {"A", "B"}:
+            return f"終盤まで{loser}が{weak_focus}を埋め切れず、流れを取り返せなかった。"
+        return f"終盤まで{side}が押し返されず、流れを保った。"
+    return f"{weak_focus}は見えたが、最後の押し込みまでは続かなかった。"
+
+
+def _suppress_overlapping_summary_roles(
+    winner: dict[str, str],
+    reason_one_liner: str,
+    turning_point: dict[str, Any],
+    fatal_phrase: dict[str, Any],
+    weak_spot: dict[str, Any],
+    gemini_takeaway: dict[str, Any],
+    gemini_quote: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    verdict = _first_sentence(reason_one_liner)
+    turning_summary = _clean_text((turning_point or {}).get("summary") or "")
+    turning_quote = _clean_text((turning_point or {}).get("quote_excerpt") or "")
+    fatal_quote = _clean_text((fatal_phrase or {}).get("quote") or (fatal_phrase or {}).get("text") or "")
+    weak_why = _clean_text((weak_spot or {}).get("why_one_sentence") or "")
+    weak_quote = _clean_text((weak_spot or {}).get("quote_excerpt") or "")
+    takeaway = dict(gemini_takeaway or {})
+    quote = dict(gemini_quote or {})
+
+    structural = _first_sentence(takeaway.get("structural_explanation") or "")
+    dynamic = _first_sentence(takeaway.get("debate_dynamic") or "")
+    takeaway_quote = _clean_text(takeaway.get("quote") or "")
+
+    if _summary_role_semantic_overlaps(structural, verdict):
+        for candidate in (
+            _build_takeaway_structural_candidate(winner, turning_point, weak_spot),
+            weak_why,
+            turning_summary,
+        ):
+            if candidate and not _summary_role_semantic_overlaps(candidate, verdict):
+                structural = _first_sentence(candidate)
+                break
+
+    if (
+        _summary_role_semantic_overlaps(dynamic, verdict)
+        or _summary_role_semantic_overlaps(dynamic, structural)
+    ):
+        for candidate in (
+            _build_takeaway_dynamic_candidate(winner, weak_spot),
+            weak_why,
+            turning_summary,
+        ):
+            if candidate and not _summary_role_semantic_overlaps(candidate, verdict) and not _summary_role_semantic_overlaps(candidate, structural):
+                dynamic = _first_sentence(candidate)
+                break
+        else:
+            dynamic = ""
+
+    if (
+        _summary_role_semantic_overlaps(takeaway_quote, verdict)
+        or _summary_role_semantic_overlaps(takeaway_quote, structural)
+        or _summary_role_semantic_overlaps(takeaway_quote, dynamic)
+    ):
+        takeaway_quote = ""
+
+    quote_text = _clean_text(quote.get("framing_text") or quote.get("text") or "")
+    quote_reason = _clean_text(quote.get("framing_reason") or quote.get("pick_reason") or "")
+    quote_evidence = _clean_text(quote.get("evidence_quote") or quote.get("quote") or "")
+    if quote_text and (
+        _summary_role_semantic_overlaps(quote_text, verdict)
+        or _summary_role_semantic_overlaps(quote_text, structural)
+        or _summary_role_semantic_overlaps(quote_text, dynamic)
+        or _summary_role_semantic_overlaps(quote_text, turning_summary)
+        or (
+            _summary_role_semantic_overlaps(quote_reason, verdict)
+            and (
+                _summary_role_semantic_overlaps(quote_evidence, turning_quote)
+                or _summary_role_semantic_overlaps(quote_evidence, fatal_quote)
+                or _summary_role_semantic_overlaps(quote_evidence, weak_quote)
+            )
+        )
+    ):
+        quote["text"] = ""
+        quote["framing_text"] = ""
+        quote["framing_reason"] = ""
+        quote["pick_reason"] = ""
+        quote["quote"] = ""
+        quote["evidence_quote"] = ""
+        quote["source_turn"] = 0
+        quote["evidence_turn"] = 0
+        quote["source_side"] = ""
+        quote["evidence_side"] = ""
+        quote["match_confidence"] = 0.0
+        quote["evidence_match_confidence"] = 0.0
+
+    takeaway["structural_explanation"] = structural
+    takeaway["debate_dynamic"] = dynamic
+    takeaway["quote"] = takeaway_quote
+    return takeaway, quote
 
 
 def _build_turning_point_frame_shift_summary(turning_point: Any, weak_spot: dict[str, Any], fatal_phrase: dict[str, Any]) -> str:

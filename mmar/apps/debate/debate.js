@@ -3437,6 +3437,12 @@ function renderSummary(summary) {
     : composeFlipCondition(winner, weakSpot, why));
   const takeaway = normalizeGeminiTakeaway(summary, topic);
   const geminiQuote = normalizeGeminiQuote(summary);
+  const takeawayLines = [
+    takeaway.structural_explanation,
+    takeaway.debate_dynamic,
+  ].filter((line) => String(line || "").trim());
+  const takeawayQuote = String(takeaway.quote || "").trim();
+  const geminiQuoteText = String(geminiQuote.framing_text || geminiQuote.text || "").trim();
   const displayFatalQuote = localized?.summary?.fatal_phrase?.quote || fatal.quote;
   const displayFatalReason = localized?.summary?.fatal_phrase?.reason || fatal.why;
   const displayTurningSummary = localized?.summary?.turning_point?.summary || turning.summary;
@@ -3508,9 +3514,8 @@ function renderSummary(summary) {
       </div>
       <section class="gemini-takeaway-card">
         <div class="summary-label">${escapeHtml(uiCopy.geminiTakeawayLabel)}</div>
-        <div class="gemini-takeaway-line">${escapeHtml(takeaway.structural_explanation)}</div>
-        <div class="gemini-takeaway-line">${escapeHtml(takeaway.debate_dynamic)}</div>
-        <div class="gemini-takeaway-quote">${escapeHtml(takeaway.quote)}</div>
+        ${takeawayLines.map((line) => `<div class="gemini-takeaway-line">${escapeHtml(line)}</div>`).join("")}
+        ${takeawayQuote ? `<div class="gemini-takeaway-quote">${escapeHtml(takeawayQuote)}</div>` : ""}
       </section>
       ${PUBLIC_ASK_DISABLED ? "" : `
       <div class="verdict-strip-actions">
@@ -3523,16 +3528,22 @@ function renderSummary(summary) {
     </article>
   `;
 
-  geminiQuoteEl.innerHTML = `
-    <article class="gemini-quote-card summary-jump-card" data-jump-target="gemini-quote" title="${escapeHtml(geminiQuote.framing_reason || geminiQuote.pick_reason || "")}">
-      <div class="summary-label">${escapeHtml(uiCopy.geminiQuoteLabel)}</div>
-      <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(geminiQuote.role || "ai_framing"))}</div>
-      ${geminiQuote.framing_role || geminiQuote.structural_role ? `<div class="summary-role">${escapeHtml(formatStructuralRoleLabel(geminiQuote.framing_role || geminiQuote.structural_role))}</div>` : ""}
-      <div class="gemini-quote-copy">${escapeHtml(geminiQuote.framing_text || geminiQuote.text)}</div>
-      ${geminiQuote.evidence_quote ? `<div class="gemini-quote-evidence">${escapeHtml(normalizeTakeawayQuote(geminiQuote.evidence_quote))}</div>` : ""}
-      ${(geminiQuote.evidence_turn || geminiQuote.source_turn) ? `<div class="summary-subvalue">${escapeHtml(`Turn ${geminiQuote.evidence_turn || geminiQuote.source_turn} / ${geminiQuote.evidence_side || geminiQuote.source_side || "?"}`)}</div>` : ""}
-    </article>
-  `;
+  if (geminiQuoteText) {
+    geminiQuoteEl.hidden = false;
+    geminiQuoteEl.innerHTML = `
+      <article class="gemini-quote-card summary-jump-card" data-jump-target="gemini-quote" title="${escapeHtml(geminiQuote.framing_reason || geminiQuote.pick_reason || "")}">
+        <div class="summary-label">${escapeHtml(uiCopy.geminiQuoteLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(geminiQuote.role || "ai_framing"))}</div>
+        ${geminiQuote.framing_role || geminiQuote.structural_role ? `<div class="summary-role">${escapeHtml(formatStructuralRoleLabel(geminiQuote.framing_role || geminiQuote.structural_role))}</div>` : ""}
+        <div class="gemini-quote-copy">${escapeHtml(geminiQuoteText)}</div>
+        ${geminiQuote.evidence_quote ? `<div class="gemini-quote-evidence">${escapeHtml(normalizeTakeawayQuote(geminiQuote.evidence_quote))}</div>` : ""}
+        ${(geminiQuote.evidence_turn || geminiQuote.source_turn) ? `<div class="summary-subvalue">${escapeHtml(`Turn ${geminiQuote.evidence_turn || geminiQuote.source_turn} / ${geminiQuote.evidence_side || geminiQuote.source_side || "?"}`)}</div>` : ""}
+      </article>
+    `;
+  } else {
+    geminiQuoteEl.hidden = true;
+    geminiQuoteEl.innerHTML = "";
+  }
 
   verdictGridEl.classList.remove("empty");
   spotlightGridEl.classList.remove("empty");
