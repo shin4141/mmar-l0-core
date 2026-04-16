@@ -303,6 +303,28 @@ def test_dev_api_blocks_debate_when_read_only_demo(monkeypatch):
     assert handler.sent == (403, {"ok": False, "error": "read-only demo"})
 
 
+def test_persist_battle_record_updates_published_store_when_needed(monkeypatch):
+    calls = []
+
+    def fake_save_run_record(record):
+        calls.append(("save", dict(record)))
+        return {"saved_id": "run_1", "record": {**record, "saved": True}}
+
+    def fake_publish_record(record):
+        calls.append(("publish", dict(record)))
+        return dict(record)
+
+    monkeypatch.setattr(dev_api, "save_run_record", fake_save_run_record)
+    monkeypatch.setattr(dev_api, "publish_record", fake_publish_record)
+
+    saved = dev_api._persist_battle_record({"session_id": "run_1", "topic": "topic"}, published=True)
+
+    assert saved["record"]["saved"] is True
+    assert calls[0][0] == "save"
+    assert calls[1][0] == "publish"
+    assert calls[1][1]["saved"] is True
+
+
 @pytest.mark.skip(reason="obsolete after current live fallback mode behavior changed")
 def test_run_debate_allows_single_provider_live(monkeypatch):
     def fake_openai(prompt, api_key):

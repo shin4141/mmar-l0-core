@@ -625,6 +625,17 @@ def _maybe_sync_candidate_to_admin(record: dict) -> None:
         return
 
 
+def _persist_battle_record(record: dict, *, published: bool = False) -> dict:
+    saved = save_run_record(record)
+    persisted_record = saved.get("record") or record
+    if published:
+        try:
+            publish_record(persisted_record)
+        except Exception:
+            pass
+    return saved
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, code: int, payload: dict, extra_headers: dict[str, str] | None = None) -> None:
         started_at = datetime.now(timezone.utc).isoformat()
@@ -736,6 +747,7 @@ class Handler(BaseHTTPRequestHandler):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/localize").strip()
                 run_record = get_run_record(record_id)
                 published_record = get_published_card(record_id)
+                is_published = bool(published_record)
                 record = published_record or (run_record if not _is_admin_hidden_record(run_record) else None)
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
@@ -759,22 +771,23 @@ class Handler(BaseHTTPRequestHandler):
                             failed_record["localized_en_status"] = "failed"
                             failed_record["localized_en_source_hash"] = str(failed_view.get("source_hash") or failed_record.get("localized_en_source_hash") or "")
                             failed_record["localized_en_generator_version"] = str(failed_view.get("generator_version") or failed_record.get("localized_en_generator_version") or "")
-                        save_run_record(failed_record)
+                        _persist_battle_record(failed_record, published=is_published)
                     except Exception:
                         pass
                     self._send_json(502, {"ok": False, "error": "localize_unavailable", "reason": reason})
                     return
                 try:
-                    saved = save_run_record(localized.get("record") or record)
+                    saved = _persist_battle_record(localized.get("record") or record, published=is_published)
                 except Exception:
                     self._send_json(502, {"ok": False, "error": "localize_unavailable", "reason": "save_failed"})
                     return
-                refreshed = get_run_record(record_id) or saved.get("record") or record
+                refreshed_published = get_published_card(record_id) if is_published else None
+                refreshed = refreshed_published or get_run_record(record_id) or saved.get("record") or record
                 self._send_json(
                     200,
                     {
                         "ok": True,
-                        "record": _flatten_saved_record(refreshed, curated=bool(get_published_card(record_id))),
+                        "record": _flatten_saved_record(refreshed, curated=is_published),
                         "localized_view": localized.get("localized_view") or {},
                         "cache_hit": bool(localized.get("cache_hit")),
                     },
