@@ -137,6 +137,10 @@ def _normalize_run_record(record: dict) -> dict:
     normalized.setdefault("status", "debate_complete")
     normalized.setdefault("debate_result", {})
     normalized.setdefault("judge_result", {})
+    normalized.setdefault("deleted_at", "")
+    normalized.setdefault("deleted_by", "")
+    normalized.setdefault("archived_at", "")
+    normalized.setdefault("archived_by", "")
     return normalized
 
 
@@ -160,6 +164,7 @@ def _run_record_from_row(row: sqlite3.Row) -> dict:
 
 
 def save_run_record(record: dict, db_path: Path | None = None) -> dict:
+    raw_keys = set(record.keys()) if isinstance(record, dict) else set()
     normalized = _normalize_run_record(record)
     now = datetime.now(timezone.utc).isoformat()
     normalized["updated_at"] = now
@@ -176,6 +181,9 @@ def save_run_record(record: dict, db_path: Path | None = None) -> dict:
                 normalized["judge_result"] = previous.get("judge_result") or {}
             if not normalized.get("status"):
                 normalized["status"] = previous.get("status") or "debate_complete"
+            for key in ("deleted_at", "deleted_by", "archived_at", "archived_by"):
+                if key not in raw_keys:
+                    normalized[key] = previous.get(key) or ""
             normalized["created_at"] = previous.get("created_at") or normalized["created_at"]
         payload = dict(normalized)
         conn.execute(
@@ -227,6 +235,54 @@ def get_run_record(session_id: str, db_path: Path | None = None) -> dict | None:
             (session_id,),
         ).fetchone()
     return _run_record_from_row(row) if row else None
+
+
+def run_lifecycle_state(record: dict | None, *, published: bool = False) -> str:
+    if not isinstance(record, dict):
+        return "candidate"
+    if str(record.get("deleted_at") or "").strip():
+        return "deleted"
+    if str(record.get("archived_at") or "").strip():
+        return "archived"
+    if published:
+        return "published"
+    status = str(record.get("status") or "").strip().lower()
+    if "fail" in status or "error" in status:
+        return "failed"
+    return "candidate"
+
+
+def soft_delete_run(session_id: str, *, deleted_by: str = "", db_path: Path | None = None) -> dict | None:
+    record = get_run_record(session_id, db_path=db_path)
+    if not record:
+        return None
+    record["deleted_at"] = datetime.now(timezone.utc).isoformat()
+    record["deleted_by"] = str(deleted_by or "").strip()
+    record["archived_at"] = ""
+    record["archived_by"] = ""
+    return save_run_record(record, db_path=db_path).get("record")
+
+
+def archive_run(session_id: str, *, archived_by: str = "", db_path: Path | None = None) -> dict | None:
+    record = get_run_record(session_id, db_path=db_path)
+    if not record:
+        return None
+    record["archived_at"] = datetime.now(timezone.utc).isoformat()
+    record["archived_by"] = str(archived_by or "").strip()
+    record["deleted_at"] = ""
+    record["deleted_by"] = ""
+    return save_run_record(record, db_path=db_path).get("record")
+
+
+def restore_run(session_id: str, db_path: Path | None = None) -> dict | None:
+    record = get_run_record(session_id, db_path=db_path)
+    if not record:
+        return None
+    record["deleted_at"] = ""
+    record["deleted_by"] = ""
+    record["archived_at"] = ""
+    record["archived_by"] = ""
+    return save_run_record(record, db_path=db_path).get("record")
 
 
 def promote_run_to_history(session_id: str, db_path: Path | None = None) -> dict | None:

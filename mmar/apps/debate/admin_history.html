@@ -22,7 +22,9 @@
       <div class="admin-filter-row" role="tablist" aria-label="Run state filters">
         <button id="admin-filter-all" type="button" class="secondary-button admin-filter-button is-active" data-state-filter="all">All</button>
         <button id="admin-filter-candidate" type="button" class="secondary-button admin-filter-button" data-state-filter="candidate">Candidate</button>
+        <button id="admin-filter-failed" type="button" class="secondary-button admin-filter-button" data-state-filter="failed">Failed</button>
         <button id="admin-filter-published" type="button" class="secondary-button admin-filter-button" data-state-filter="published">Published</button>
+        <button id="admin-filter-trash" type="button" class="secondary-button admin-filter-button" data-state-filter="trash">Trash</button>
       </div>
       <div id="admin-run-list" class="admin-run-list empty">
         <div class="empty-state">Loading runs...</div>
@@ -38,13 +40,17 @@
         <div class="admin-toolbar-actions">
           <button id="admin-promote" type="button" disabled>Publish</button>
           <button id="admin-remove" type="button" class="secondary-button" disabled>Move to Candidate</button>
+          <button id="admin-archive" type="button" class="secondary-button" disabled>Archive</button>
+          <button id="admin-delete" type="button" class="danger-button" disabled>Delete</button>
+          <button id="admin-restore" type="button" class="secondary-button" disabled>Restore</button>
         </div>
       </div>
+      <div id="admin-action-note" class="admin-action-note"></div>
       <div id="admin-detail-meta" class="admin-meta">Select a run.</div>
       <div id="admin-detail-json" class="admin-detail-body">Select a run.</div>
       <div id="admin-history-status" class="admin-status" hidden></div>
     </section>
   </main>
-  <script type="module" src="/admin/admin_history.js?v=20260412a"></script>
+  <script type="module" src="/admin/admin_history.js?v=20260416a"></script>
 </body>
 </html>

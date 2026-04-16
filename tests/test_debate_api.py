@@ -1,7 +1,19 @@
+import json
+
 import pytest
 
 from tools.debate_api import DebateConfig, JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _three_turn_validation_report, ask_match_gemini, run_debate
-from tools.history_store import get_history_record, increment_history_metric, list_history_records, save_history_record
+from tools.history_store import (
+    archive_run,
+    get_history_record,
+    increment_history_metric,
+    list_history_records,
+    restore_run,
+    run_lifecycle_state,
+    save_history_record,
+    save_run_record,
+    soft_delete_run,
+)
 from tools import dev_api
 
 
@@ -2570,9 +2582,161 @@ def test_normalize_summary_keeps_winner_story_consistent_when_turning_point_favo
     assert summary["winner"]["side"] == "B"
     assert summary["weak_spot"]["side"] == "A"
     assert summary["weak_spot"]["speaker"] == "A"
-    assert "B" in summary["gemini_takeaway"]["debate_dynamic"]
+    assert summary["gemini_takeaway"]["debate_dynamic"]
+    assert "Turn4" not in summary["gemini_takeaway"]["debate_dynamic"]
+    assert "Bが" not in summary["gemini_takeaway"]["debate_dynamic"]
     assert "Bが流れを握った" not in summary["gemini_quote"]["text"]
     assert "B" == summary["fatal_phrase"]["speaker"]
+
+
+def test_normalize_summary_rebuilds_ui_contract_from_new_fields_only():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが要件の穴を突いた。"},
+            "reason_one_liner": "Bが要件の穴を突いた。",
+            "confidence": "High",
+            "fatal_phrase": {
+                "speaker": "B",
+                "turn": 3,
+                "text": "占有の証明がないなら、窃盗の前提は立たない。",
+                "reason": "所有の根拠が欠けた。",
+                "surface": "占有の証明がないため、窃盗の前提は成立しない。",
+                "quote": "占有の証明がないなら、窃盗の前提は立たない。",
+            },
+            "weak_spot": {
+                "side": "A",
+                "turn": 3,
+                "speaker": "A",
+                "label": "立証不足",
+                "quote_excerpt": "占有の証明は出していない。",
+                "why_one_sentence": "Aは占有の立証を返せず、この点を覆せなかった。",
+                "how_to_fix": "占有の事実を示すべきだった。",
+            },
+            "gemini_takeaway": {
+                "structural_explanation": "基準を握った側が、議論を支配する。",
+                "debate_dynamic": "旧テンプレの流れ説明",
+                "quote": "「基準を握った側が、議論を支配する。」",
+            },
+            "full_rationale": "旧まとめ文",
+            "winner_axis_tag": "Frame survival",
+        }
+    )
+
+    assert summary["axis"] == "Ownership vs Control"
+    assert summary["winner_axis_tag"] == "Ownership vs Control"
+    assert summary["why_axis_tag"] == "Ownership vs Control"
+    assert summary["decisive"] == "所有や占有を示せない以上、窃盗の前提は持たない。"
+    assert summary["takeaway"] == summary["gemini_takeaway"]["surface"]
+    assert summary["gemini_takeaway"]["surface"] == "所有を示せないなら、窃盗には進めない。"
+    assert summary["gemini_takeaway"]["core"] == "所有を示せないなら、窃盗には進めない。"
+    assert summary["gemini_takeaway"]["debate_dynamic"] == summary["gemini_takeaway"]["core"]
+    assert summary["full_rationale"] == "\n".join(summary["details"])
+    assert "占有の証明がないなら、窃盗の前提は立たない。" in summary["details"]
+    assert "Aは占有の立証を返せず、この点を覆せなかった。" in summary["details"]
+
+
+def test_normalize_summary_blocks_legacy_template_phrases_in_new_fields():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "A", "reason": "Aが押し切った。"},
+            "reason_one_liner": "Aが押し切った。",
+            "confidence": "High",
+            "fatal_phrase": {
+                "speaker": "A",
+                "turn": 3,
+                "text": "故意を示す具体的な証拠がないなら、退場処分は支えられない。",
+                "quote": "故意を示す具体的な証拠がないなら、退場処分は支えられない。",
+                "reason": "ラリー中盤で、一方は強い命題を掲げたまま、実際には条件付き後退でしか守れていないことが露出した。",
+                "surface": "ラリー中盤で、一方は強い命題を掲げたまま、実際には条件付き後退でしか守れていないことが露出した。",
+            },
+            "weak_spot": {
+                "side": "B",
+                "turn": 3,
+                "speaker": "B",
+                "label": "故意立証不足",
+                "quote_excerpt": "故意の証拠は示していない。",
+                "why_one_sentence": "Bは故意の立証を返せず、この点を覆せなかった。",
+                "how_to_fix": "故意を示す具体証拠を出すべきだった。",
+            },
+            "gemini_takeaway": {
+                "surface": "Turn 3で、相手の直前主張を受けて新争点が追加され、議論が単純な賛否からルール争奪へ移った。",
+                "structural_explanation": "基準を握った側が、議論を支配する。",
+                "debate_dynamic": "Turn 3で、相手の直前主張を受けて新争点が追加され、議論が単純な賛否からルール争奪へ移った。",
+                "quote": "「基準を握った側が、議論を支配する。」",
+            },
+            "full_rationale": "Bは最後まで未解決条件を残し、Aは命題の輪郭を守るために条件を足し続けた。見た瞬間に拾うべきポイントは、Winner と Fatal Phrase と Weak Spot で足りる。",
+        }
+    )
+
+    assert "条件付き後退" not in summary["fatal_phrase"]["reason"]
+    assert "ラリー中盤で" not in summary["fatal_phrase"]["surface"]
+    assert "Turn 3で、相手の直前主張を受けて" not in summary["gemini_takeaway"]["surface"]
+    assert "基準を握った側が" not in summary["gemini_takeaway"]["structural_explanation"]
+    assert "基準を握った側が" not in summary["gemini_takeaway"]["debate_dynamic"]
+    assert "Winner と Fatal Phrase と Weak Spot で足りる" not in summary["full_rationale"]
+    assert all("Winner と Fatal Phrase と Weak Spot で足りる" not in item for item in summary["details"])
+    assert summary["winner_axis_tag"] == "Intent vs Action"
+    assert summary["decisive"] == "故意を立証できない以上、処分は支えられない。"
+    assert summary["takeaway"] == "意図を証明できないなら、罰は成立しない。"
+
+
+def test_flatten_saved_record_reapplies_normalized_summary_contract_for_legacy_records():
+    record = {
+        "session_id": "legacy-summary-1",
+        "topic": "このアンドレ選手の陰部を掻く行為は退場処分に値するか？",
+        "stance_a": "退場処分は妥当だ",
+        "stance_b": "退場処分は行き過ぎだ",
+        "debate_result": {
+            "topic": "このアンドレ選手の陰部を掻く行為は退場処分に値するか？",
+            "stance_a": "退場処分は妥当だ",
+            "stance_b": "退場処分は行き過ぎだ",
+            "turn_count": 3,
+            "transcript_json": [
+                {"turn": 1, "a": "挑発行為だから退場は妥当だ。", "b": "ただの癖なら重すぎる。"},
+                {"turn": 2, "a": "相手に向かって繰り返した点が重要だ。", "b": "故意だとまでは言えない。"},
+                {"turn": 3, "a": "故意を示す具体的な証拠がないなら、退場処分は支えられない。", "b": "そこは断定できない。"},
+            ],
+        },
+        "judge_result": {
+            "winner": {"side": "A", "reason": "Aが押し切った。"},
+            "reason_one_liner": "Aが押し切った。",
+            "confidence": "High",
+            "fatal_phrase": {
+                "speaker": "A",
+                "turn": 3,
+                "text": "故意を示す具体的な証拠がないなら、退場処分は支えられない。",
+                "quote": "故意を示す具体的な証拠がないなら、退場処分は支えられない。",
+                "reason": "Bが故意性を否定する具体的な証拠を提示できなかったため、Aの主張が補強された。",
+            },
+            "weak_spot": {
+                "side": "B",
+                "turn": 3,
+                "speaker": "B",
+                "label": "故意立証不足",
+                "quote_excerpt": "故意だとまでは言えない。",
+                "why_one_sentence": "Bは故意の立証を返せず、この点を覆せなかった。",
+                "how_to_fix": "故意を示す具体証拠を出すべきだった。",
+            },
+            "gemini_takeaway": {
+                "structural_explanation": "AはBの反論の穴を的確に指摘し、自身の主張を補強する論理展開に成功した。",
+                "debate_dynamic": "その後もAが流れを保ち、Bは反復を返せなかった。",
+                "quote": "「基準を握った側が、議論を支配する。」",
+            },
+            "winner_axis_tag": "Frame survival",
+            "full_rationale": "Bは最後まで未解決条件を残し、Aは命題の輪郭を守るために条件を足し続けた。見た瞬間に拾うべきポイントは、Winner と Fatal Phrase と Weak Spot で足りる。",
+        },
+    }
+
+    flattened = dev_api._flatten_saved_record(record)
+    summary = flattened["judge_json"]
+
+    assert summary["winner_axis_tag"] == "Intent vs Action"
+    assert summary["fatal_phrase"]["surface"] == "故意を立証できない以上、処分は支えられない。"
+    assert summary["decisive"] == "故意を立証できない以上、処分は支えられない。"
+    assert summary["takeaway"] == "意図を証明できないなら、罰は成立しない。"
+    assert "Frame survival" not in json.dumps(summary, ensure_ascii=False)
+    assert "その後もAが流れを保ち" not in json.dumps(summary, ensure_ascii=False)
+    assert "Winner と Fatal Phrase と Weak Spot で足りる" not in json.dumps(summary, ensure_ascii=False)
 
 
 def test_normalize_summary_rejects_meta_strategy_fatal_phrase():
@@ -2803,3 +2967,79 @@ def test_history_store_increments_views_and_likes(tmp_path):
     assert viewed["likes"] == 0
     assert liked["views"] == 1
     assert liked["likes"] == 1
+
+
+def test_run_store_soft_delete_and_restore_round_trip(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    save_run_record(
+        {
+            "session_id": "run_delete_me",
+            "created_at": "2026-04-16T00:00:00+00:00",
+            "updated_at": "2026-04-16T00:00:00+00:00",
+            "topic": "delete target",
+            "stance_a": "A",
+            "stance_b": "B",
+            "status": "debate_complete",
+        },
+        db_path,
+    )
+
+    deleted = soft_delete_run("run_delete_me", deleted_by="Shin", db_path=db_path)
+    assert deleted["deleted_at"]
+    assert deleted["deleted_by"] == "Shin"
+    assert run_lifecycle_state(deleted, published=False) == "deleted"
+
+    restored = restore_run("run_delete_me", db_path=db_path)
+    assert restored["deleted_at"] == ""
+    assert restored["deleted_by"] == ""
+    assert restored["archived_at"] == ""
+    assert restored["archived_by"] == ""
+    assert run_lifecycle_state(restored, published=False) == "candidate"
+
+
+def test_run_store_archive_and_restore_round_trip(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    save_run_record(
+        {
+            "session_id": "run_archive_me",
+            "created_at": "2026-04-16T00:00:00+00:00",
+            "updated_at": "2026-04-16T00:00:00+00:00",
+            "topic": "archive target",
+            "stance_a": "A",
+            "stance_b": "B",
+            "status": "judge_complete",
+        },
+        db_path,
+    )
+
+    archived = archive_run("run_archive_me", archived_by="Shin", db_path=db_path)
+    assert archived["archived_at"]
+    assert archived["archived_by"] == "Shin"
+    assert run_lifecycle_state(archived, published=False) == "archived"
+
+    restored = restore_run("run_archive_me", db_path=db_path)
+    assert restored["archived_at"] == ""
+    assert restored["archived_by"] == ""
+    assert run_lifecycle_state(restored, published=False) == "candidate"
+
+
+def test_flatten_saved_record_maps_failed_deleted_and_published_states():
+    failed = dev_api._flatten_saved_record({"session_id": "failed_1", "status": "judge_failed"}, curated=False)
+    assert failed["record_state"] == "failed"
+
+    deleted = dev_api._flatten_saved_record(
+        {"session_id": "deleted_1", "status": "debate_complete", "deleted_at": "2026-04-16T00:00:00+00:00"},
+        curated=False,
+    )
+    assert deleted["record_state"] == "deleted"
+
+    published = dev_api._flatten_saved_record({"session_id": "published_1", "status": "judge_complete"}, curated=True)
+    assert published["record_state"] == "published"
+
+
+def test_admin_hidden_record_helper_detects_deleted_and_archived_runs():
+    hidden_candidate = {"session_id": "run_1", "deleted_at": "2026-04-16T00:00:00+00:00"}
+    assert dev_api._is_admin_hidden_record(hidden_candidate) is True
+    archived_candidate = {"session_id": "run_2", "archived_at": "2026-04-16T00:00:00+00:00"}
+    assert dev_api._is_admin_hidden_record(archived_candidate) is True
+    assert dev_api._is_admin_hidden_record({"session_id": "run_3"}) is False

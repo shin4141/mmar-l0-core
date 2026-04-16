@@ -3,14 +3,21 @@ const detailMetaEl = document.querySelector("#admin-detail-meta");
 const detailBodyEl = document.querySelector("#admin-detail-json");
 const detailModeBadgeEl = document.querySelector("#admin-detail-mode-badge");
 const detailStateBadgeEl = document.querySelector("#admin-detail-state-badge");
-let promoteButton = document.querySelector("#admin-promote");
+const promoteButton = document.querySelector("#admin-promote");
 const removeButton = document.querySelector("#admin-remove");
+const archiveButton = document.querySelector("#admin-archive");
+const deleteButton = document.querySelector("#admin-delete");
+const restoreButton = document.querySelector("#admin-restore");
 const refreshButton = document.querySelector("#admin-refresh");
 const logoutButton = document.querySelector("#admin-logout");
 const statusEl = document.querySelector("#admin-history-status");
+const actionNoteEl = document.querySelector("#admin-action-note");
 const filterButtons = Array.from(document.querySelectorAll("[data-state-filter]"));
 const ADMIN_HISTORY_ADD_PATH = "/api/admin/history/add";
 const ADMIN_HISTORY_REMOVE_PATH = "/api/admin/history/remove";
+const ADMIN_RUN_DELETE_PATH = "/api/admin/runs/delete";
+const ADMIN_RUN_ARCHIVE_PATH = "/api/admin/runs/archive";
+const ADMIN_RUN_RESTORE_PATH = "/api/admin/runs/restore";
 
 let runs = [];
 let activeSessionId = "";
@@ -26,9 +33,13 @@ function hasRequiredDom() {
     detailStateBadgeEl &&
     promoteButton &&
     removeButton &&
+    archiveButton &&
+    deleteButton &&
+    restoreButton &&
     refreshButton &&
     logoutButton &&
-    statusEl
+    statusEl &&
+    actionNoteEl
   );
 }
 
@@ -36,6 +47,11 @@ function setStatus(text) {
   if (!statusEl) return;
   statusEl.hidden = !text;
   statusEl.textContent = text || "";
+}
+
+function setActionNote(text) {
+  if (!actionNoteEl) return;
+  actionNoteEl.textContent = text || "";
 }
 
 function escapeHtml(value) {
@@ -79,74 +95,50 @@ function experienceModeBadgeMarkup(run) {
 }
 
 function normalizeRecordState(run) {
-  return String(run?.record_state || "").trim().toLowerCase() === "published" ? "published" : "candidate";
+  const raw = String(run?.record_state || "").trim().toLowerCase();
+  if (["published", "candidate", "failed", "archived", "deleted"].includes(raw)) return raw;
+  return "candidate";
 }
 
 function recordStateLabel(run) {
-  return normalizeRecordState(run) === "published" ? "Published" : "Candidate";
+  const state = normalizeRecordState(run);
+  if (state === "published") return "Published";
+  if (state === "failed") return "Failed";
+  if (state === "archived") return "Archived";
+  if (state === "deleted") return "Deleted";
+  return "Candidate";
 }
 
 function isPublishedState(run) {
   return normalizeRecordState(run) === "published";
 }
 
-function isCandidateState(run) {
-  return !isPublishedState(run);
+function isDeleteAllowed(run) {
+  return ["candidate", "failed"].includes(normalizeRecordState(run));
+}
+
+function isRestoreAllowed(run) {
+  return ["archived", "deleted"].includes(normalizeRecordState(run));
+}
+
+function actionNoteForRun(run) {
+  if (!run) return "";
+  const state = normalizeRecordState(run);
+  if (state === "published") return "Published は直接削除できません。先に Candidate へ戻すか Archive してください。";
+  if (state === "deleted") return "この run は削除済みです。Restore で Candidate に戻せます。";
+  if (state === "archived") return "この run は Archive 済みです。Restore で Candidate に戻せます。";
+  if (state === "failed") return "Failed run は Delete できます。あとで Restore 可能です。";
+  return "Candidate run は Delete できます。あとで Restore 可能です。";
 }
 
 function syncActionButtons(run) {
-  if (!promoteButton || !removeButton) return;
-  if (!run) {
-    promoteButton.disabled = true;
-    promoteButton.setAttribute("aria-disabled", "true");
-    removeButton.disabled = true;
-    return;
-  }
-  const publishEnabled = isCandidateState(run);
-  promoteButton.disabled = !publishEnabled;
-  promoteButton.setAttribute("aria-disabled", publishEnabled ? "false" : "true");
-  removeButton.disabled = !isPublishedState(run);
-}
-
-async function handlePromoteClick(run) {
-  if (!run || !run.session_id || !isCandidateState(run)) return;
-  console.log("clicked publish");
-  setStatus("Publishing...");
-  const response = await fetch(ADMIN_HISTORY_ADD_PATH, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({ session_id: run.session_id }),
-  });
-  const text = await response.text();
-  console.log("[admin-promote]", response.status, text);
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = {};
-  }
-  if (!response.ok || !data.ok) {
-    setStatus("Publish failed.");
-    return;
-  }
-  setStatus("Published.");
-  await loadRuns();
-}
-
-function rebuildPromoteButton(run) {
-  if (!promoteButton) return;
-  const oldButton = promoteButton;
-  const newButton = oldButton.cloneNode(true);
-  oldButton.replaceWith(newButton);
-  promoteButton = newButton;
-  syncActionButtons(run);
-  newButton.disabled = !isCandidateState(run);
-  newButton.setAttribute("aria-disabled", newButton.disabled ? "true" : "false");
-  newButton.addEventListener("click", async () => {
-    if (!isCandidateState(run)) return;
-    await handlePromoteClick(run);
-  });
+  const disabled = !run;
+  promoteButton.disabled = disabled || normalizeRecordState(run) !== "candidate";
+  removeButton.disabled = disabled || !isPublishedState(run);
+  archiveButton.disabled = disabled || !isPublishedState(run);
+  deleteButton.disabled = disabled || !isDeleteAllowed(run);
+  restoreButton.disabled = disabled || !isRestoreAllowed(run);
+  setActionNote(actionNoteForRun(run));
 }
 
 function recordStateBadgeMarkup(run) {
@@ -155,7 +147,12 @@ function recordStateBadgeMarkup(run) {
 }
 
 function filteredRuns() {
-  if (activeStateFilter === "all") return runs;
+  if (activeStateFilter === "all") {
+    return runs.filter((run) => ["candidate", "published", "failed"].includes(normalizeRecordState(run)));
+  }
+  if (activeStateFilter === "trash") {
+    return runs.filter((run) => ["archived", "deleted"].includes(normalizeRecordState(run)));
+  }
   return runs.filter((run) => normalizeRecordState(run) === activeStateFilter);
 }
 
@@ -192,7 +189,6 @@ function renderRuns() {
     itemEl.addEventListener("click", async () => {
       const sessionId = itemEl.dataset.sessionId || "";
       if (!sessionId) return;
-      console.log("clicked run", sessionId);
       activeSessionId = sessionId;
       renderRuns();
       setStatus("Loading detail...");
@@ -242,30 +238,42 @@ function renderJudge(run) {
   `;
 }
 
+function renderLifecycleMeta(run) {
+  const lines = [];
+  if (run.deleted_at) {
+    lines.push(`<div class="admin-section-copy"><strong>Deleted:</strong> ${escapeHtml(run.deleted_at)} ${escapeHtml(run.deleted_by ? `/ ${run.deleted_by}` : "")}</div>`);
+  }
+  if (run.archived_at) {
+    lines.push(`<div class="admin-section-copy"><strong>Archived:</strong> ${escapeHtml(run.archived_at)} ${escapeHtml(run.archived_by ? `/ ${run.archived_by}` : "")}</div>`);
+  }
+  if (!lines.length) return "";
+  return `
+    <section class="admin-section">
+      <div class="admin-section-title">Lifecycle</div>
+      ${lines.join("")}
+    </section>
+  `;
+}
+
 function renderDetail(run) {
   activeRun = run || null;
   if (!run) {
     detailMetaEl.textContent = "Select a run.";
     detailBodyEl.innerHTML = "Select a run.";
-    if (detailModeBadgeEl) detailModeBadgeEl.hidden = true;
-    if (detailStateBadgeEl) detailStateBadgeEl.hidden = true;
-    rebuildPromoteButton(null);
+    detailModeBadgeEl.hidden = true;
+    detailStateBadgeEl.hidden = true;
+    syncActionButtons(null);
     return;
   }
-  console.log("render detail", run.session_id);
   const turnCount = run.turn_count || getTurns(run).length || 0;
-  if (detailModeBadgeEl) {
-    const mode = normalizeExperienceMode(run);
-    detailModeBadgeEl.textContent = experienceModeLabel(run);
-    detailModeBadgeEl.className = `admin-badge admin-mode-badge admin-mode-badge-${mode}`;
-    detailModeBadgeEl.hidden = false;
-  }
-  if (detailStateBadgeEl) {
-    const state = normalizeRecordState(run);
-    detailStateBadgeEl.textContent = recordStateLabel(run);
-    detailStateBadgeEl.className = `admin-badge admin-state-badge admin-state-badge-${state}`;
-    detailStateBadgeEl.hidden = false;
-  }
+  const mode = normalizeExperienceMode(run);
+  const state = normalizeRecordState(run);
+  detailModeBadgeEl.textContent = experienceModeLabel(run);
+  detailModeBadgeEl.className = `admin-badge admin-mode-badge admin-mode-badge-${mode}`;
+  detailModeBadgeEl.hidden = false;
+  detailStateBadgeEl.textContent = recordStateLabel(run);
+  detailStateBadgeEl.className = `admin-badge admin-state-badge admin-state-badge-${state}`;
+  detailStateBadgeEl.hidden = false;
   detailMetaEl.textContent = `${run.created_at || ""} / ${run.status || ""} / ${turnCount} turns / ${run.session_id || ""}`;
   detailBodyEl.innerHTML = `
     <section class="admin-section">
@@ -277,6 +285,7 @@ function renderDetail(run) {
       <div class="admin-section-copy"><strong>A:</strong> ${escapeHtml(run.stance_a || "")}</div>
       <div class="admin-section-copy"><strong>B:</strong> ${escapeHtml(run.stance_b || "")}</div>
     </section>
+    ${renderLifecycleMeta(run)}
     <section class="admin-section">
       <div class="admin-section-title">Turns</div>
       ${renderTurns(run)}
@@ -286,7 +295,7 @@ function renderDetail(run) {
       ${renderJudge(run)}
     </section>
   `;
-  rebuildPromoteButton(run);
+  syncActionButtons(run);
 }
 
 async function requireSession() {
@@ -311,7 +320,7 @@ async function loadRunDetail(sessionId) {
 
 async function loadRuns() {
   setStatus("Loading...");
-  const response = await fetch("/api/admin/runs", { credentials: "same-origin" });
+  const response = await fetch(`/api/admin/runs?state=${encodeURIComponent(activeStateFilter)}`, { credentials: "same-origin" });
   if (response.status === 401) {
     window.location.href = "/admin/login";
     return;
@@ -333,45 +342,107 @@ async function loadRuns() {
   setStatus("");
 }
 
+async function postAdminAction(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify(body),
+  });
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  return { response, data };
+}
+
+async function handlePublish() {
+  if (!activeRun || normalizeRecordState(activeRun) !== "candidate") return;
+  setStatus("Publishing...");
+  const { response, data } = await postAdminAction(ADMIN_HISTORY_ADD_PATH, { session_id: activeRun.session_id });
+  if (!response.ok || !data.ok) {
+    setStatus("Publish failed.");
+    return;
+  }
+  setStatus("Published.");
+  await loadRuns();
+}
+
+async function handleMoveToCandidate() {
+  if (!activeRun || !isPublishedState(activeRun)) return;
+  if (!window.confirm("Published を Candidate に戻します。public 側からは非表示になります。")) return;
+  setStatus("Moving to candidate...");
+  const { response, data } = await postAdminAction(ADMIN_HISTORY_REMOVE_PATH, { session_id: activeRun.session_id });
+  if (!response.ok || !data.ok) {
+    setStatus("Move failed.");
+    return;
+  }
+  setStatus("Moved to candidate.");
+  await loadRuns();
+}
+
+async function handleArchive() {
+  if (!activeRun || !isPublishedState(activeRun)) return;
+  if (!window.confirm("Published を Archive します。あとで Restore できます。")) return;
+  setStatus("Archiving...");
+  const { response, data } = await postAdminAction(ADMIN_RUN_ARCHIVE_PATH, { session_id: activeRun.session_id });
+  if (!response.ok || !data.ok) {
+    setStatus("Archive failed.");
+    return;
+  }
+  setStatus("Archived.");
+  activeStateFilter = "trash";
+  await loadRuns();
+}
+
+async function handleDelete() {
+  if (!activeRun || !isDeleteAllowed(activeRun)) return;
+  if (!window.confirm("この run を削除します。あとで Restore できます。")) return;
+  setStatus("Deleting...");
+  const { response, data } = await postAdminAction(ADMIN_RUN_DELETE_PATH, { session_id: activeRun.session_id });
+  if (!response.ok || !data.ok) {
+    setStatus(data?.error === "published_delete_forbidden" ? "Published cannot be deleted directly." : "Delete failed.");
+    return;
+  }
+  setStatus("Deleted.");
+  activeStateFilter = "trash";
+  await loadRuns();
+}
+
+async function handleRestore() {
+  if (!activeRun || !isRestoreAllowed(activeRun)) return;
+  if (!window.confirm("この run を Restore して Candidate に戻します。")) return;
+  setStatus("Restoring...");
+  const { response, data } = await postAdminAction(ADMIN_RUN_RESTORE_PATH, { session_id: activeRun.session_id });
+  if (!response.ok || !data.ok) {
+    setStatus("Restore failed.");
+    return;
+  }
+  setStatus("Restored to candidate.");
+  activeStateFilter = "candidate";
+  await loadRuns();
+}
+
 function bindUi() {
   if (!hasRequiredDom()) {
     console.error("[admin-history] required DOM missing");
     return false;
   }
-  removeButton.addEventListener("click", async () => {
-    if (!activeSessionId) return;
-    setStatus("Moving to candidate...");
-    const response = await fetch(ADMIN_HISTORY_REMOVE_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ session_id: activeSessionId }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      setStatus("Move failed.");
-      return;
-    }
-    setStatus("Moved to candidate.");
-    await loadRuns();
-  });
+  promoteButton.addEventListener("click", () => void handlePublish());
+  removeButton.addEventListener("click", () => void handleMoveToCandidate());
+  archiveButton.addEventListener("click", () => void handleArchive());
+  deleteButton.addEventListener("click", () => void handleDelete());
+  restoreButton.addEventListener("click", () => void handleRestore());
 
   filterButtons.forEach((button) => {
     button.addEventListener("click", async () => {
       const nextFilter = button.dataset.stateFilter || "all";
       if (nextFilter === activeStateFilter) return;
       activeStateFilter = nextFilter;
-      renderRuns();
-      const visibleRuns = filteredRuns();
-      activeSessionId = visibleRuns[0]?.session_id || "";
-      if (activeSessionId) {
-        setStatus("Loading detail...");
-        const detail = await loadRunDetail(activeSessionId);
-        renderDetail(detail);
-        setStatus("");
-        return;
-      }
-      renderDetail(null);
+      activeSessionId = "";
+      await loadRuns();
     });
   });
 

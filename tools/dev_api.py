@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from debate_api import _call_gemini, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
+    from debate_api import _call_gemini, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from debate_core_v2 import run_debate_v2
     from debate_core_v3 import run_debate_v3
     from debate_core_v4 import run_debate_v4
@@ -30,13 +30,17 @@ try:
         get_history_record,
         get_run_record,
         increment_history_metric,
+        archive_run,
         list_published_run_ids,
         list_history_records,
         list_run_records,
         promote_run_to_history,
         remove_run_from_history,
+        restore_run,
+        run_lifecycle_state,
         save_history_record,
         save_run_record,
+        soft_delete_run,
     )
     from published_store import (
         count_published_cards,
@@ -50,7 +54,7 @@ try:
         unpublish_record,
     )
 except ModuleNotFoundError:
-    from tools.debate_api import _call_gemini, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
+    from tools.debate_api import _call_gemini, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
     from tools.debate_core_v4 import run_debate_v4
@@ -62,13 +66,17 @@ except ModuleNotFoundError:
         get_history_record,
         get_run_record,
         increment_history_metric,
+        archive_run,
         list_published_run_ids,
         list_history_records,
         list_run_records,
         promote_run_to_history,
         remove_run_from_history,
+        restore_run,
+        run_lifecycle_state,
         save_history_record,
         save_run_record,
+        soft_delete_run,
     )
     from tools.published_store import (
         count_published_cards,
@@ -466,6 +474,11 @@ def _log_admin_auth_probe(handler: BaseHTTPRequestHandler, path: str) -> None:
     )
 
 
+def _admin_actor(handler: BaseHTTPRequestHandler) -> str:
+    session = _admin_session(handler)
+    return str((session or {}).get("user") or "admin").strip()
+
+
 def _extract_turns(debate_result: dict | None) -> tuple[list, list, list]:
     debate = debate_result if isinstance(debate_result, dict) else {}
     raw_turns = debate.get("raw_turns") if isinstance(debate.get("raw_turns"), list) else []
@@ -510,10 +523,17 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
     raw_turns, display_turns, transcript = _extract_turns(debate_result)
     if not (raw_turns or display_turns or transcript):
         raw_turns, display_turns, transcript = _extract_turns(nested_debate_result)
+    judge_json = judge_result or nested_judge_json
+    if judge_json:
+        try:
+            judge_json = _normalize_summary(judge_json, transcript or display_turns or raw_turns or [])
+        except Exception:
+            judge_json = judge_result or nested_judge_json
     turn_count = _record_turn_count(record, debate_result)
     if not turn_count:
         turn_count = _record_turn_count(nested_run, nested_debate_result)
     is_published = bool(curated) if curated is not None else bool(record.get("curated"))
+    lifecycle_state = run_lifecycle_state(record, published=is_published)
     flattened = {
         **record,
         "id": str(record.get("id") or record.get("session_id") or ""),
@@ -537,11 +557,15 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "output_meta": debate_result.get("output_meta") or nested_debate_result.get("output_meta") or "",
         "elapsed_seconds": debate_result.get("elapsed_seconds") or nested_debate_result.get("elapsed_seconds"),
         "source_mode": debate_result.get("source_mode") or nested_debate_result.get("source_mode") or "",
-        "judge_json": judge_result or nested_judge_json,
+        "judge_json": judge_json,
         "excerpt": _record_excerpt(debate_result or nested_debate_result),
         "tease": _record_excerpt(debate_result or nested_debate_result),
         "curated": is_published,
-        "record_state": "published" if is_published else "candidate",
+        "deleted_at": str(record.get("deleted_at") or ""),
+        "deleted_by": str(record.get("deleted_by") or ""),
+        "archived_at": str(record.get("archived_at") or ""),
+        "archived_by": str(record.get("archived_by") or ""),
+        "record_state": lifecycle_state,
     }
     return flattened
 
@@ -552,6 +576,21 @@ def _flatten_run_records_for_admin(records: list[dict]) -> list[dict]:
         _flatten_saved_record(item, curated=(str(item.get("session_id") or "") in published_ids))
         for item in records
     ]
+
+
+def _state_filter_matches(item: dict, state_filter: str) -> bool:
+    state = str(item.get("record_state") or "candidate").strip().lower()
+    if state_filter == "all":
+        return state in {"candidate", "published", "failed"}
+    if state_filter == "trash":
+        return state in {"deleted", "archived"}
+    return state == state_filter
+
+
+def _is_admin_hidden_record(record: dict | None) -> bool:
+    if not isinstance(record, dict):
+        return False
+    return bool(str(record.get("deleted_at") or "").strip() or str(record.get("archived_at") or "").strip())
 
 
 def _self_origin() -> str:
@@ -691,7 +730,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/battle/"):
             if path.endswith("/localize"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/localize").strip()
-                record = get_run_record(record_id) or get_published_card(record_id)
+                run_record = get_run_record(record_id)
+                published_record = get_published_card(record_id)
+                record = published_record or (run_record if not _is_admin_hidden_record(run_record) else None)
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
@@ -720,11 +761,13 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             record_id = path.removeprefix("/api/battle/").strip()
-            record = get_run_record(record_id) or get_published_card(record_id)
+            run_record = get_run_record(record_id)
+            published_record = get_published_card(record_id)
+            record = published_record or (run_record if not _is_admin_hidden_record(run_record) else None)
             if not record:
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
-            self._send_json(200, {"ok": True, "record": _flatten_saved_record(record, curated=bool(get_published_card(record_id)))})
+            self._send_json(200, {"ok": True, "record": _flatten_saved_record(record, curated=bool(published_record))})
             return
         if path.startswith("/api/history/"):
             record_id = path.removeprefix("/api/history/").strip()
@@ -742,8 +785,8 @@ class Handler(BaseHTTPRequestHandler):
             limit = int(str(query.get("limit", ["200"])[0] or "200"))
             state_filter = str(query.get("state", ["all"])[0] or "all").strip().lower()
             items = _flatten_run_records_for_admin(list_run_records(limit=limit))
-            if state_filter in {"candidate", "published"}:
-                items = [item for item in items if str(item.get("record_state") or "") == state_filter]
+            if state_filter in {"all", "candidate", "published", "failed", "archived", "deleted", "trash"}:
+                items = [item for item in items if _state_filter_matches(item, state_filter)]
             self._send_json(200, {"ok": True, "items": items})
             return
         if path.startswith("/api/admin/runs/"):
@@ -825,6 +868,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/gallery/publish",
             "/api/admin/gallery/remove",
             "/api/admin/runs/import",
+            "/api/admin/runs/delete",
+            "/api/admin/runs/archive",
+            "/api/admin/runs/restore",
         } and not path.startswith("/api/history/view/") and not path.startswith("/api/history/like/") and not path.startswith("/api/battle/"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
@@ -905,6 +951,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not item:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
+                lifecycle_state = run_lifecycle_state(item, published=bool(get_published_card(session_id)))
+                if lifecycle_state in {"deleted", "archived"}:
+                    self._send_json(409, {"ok": False, "error": "restore_required", "record_state": lifecycle_state})
+                    return
                 promote_run_to_history(session_id)
                 published = publish_record(item)
                 self._send_json(200, {"ok": True, "item": _flatten_saved_record(published, curated=True)})
@@ -924,6 +974,49 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
                 self._send_json(200, {"ok": True, **removed})
+                return
+            if path in {"/api/admin/runs/delete", "/api/admin/runs/archive", "/api/admin/runs/restore"}:
+                if not _admin_session(self):
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                session_id = str(payload.get("session_id") or "").strip()
+                if not session_id:
+                    self._send_json(400, {"ok": False, "error": "missing_session_id"})
+                    return
+                item = get_run_record(session_id)
+                if not item:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                actor = _admin_actor(self)
+                is_published = bool(get_published_card(session_id))
+                lifecycle_state = run_lifecycle_state(item, published=is_published)
+                if path == "/api/admin/runs/delete":
+                    if is_published:
+                        self._send_json(409, {"ok": False, "error": "published_delete_forbidden"})
+                        return
+                    if lifecycle_state not in {"candidate", "failed"}:
+                        self._send_json(409, {"ok": False, "error": "delete_not_allowed", "record_state": lifecycle_state})
+                        return
+                    updated = soft_delete_run(session_id, deleted_by=actor)
+                    self._send_json(200, {"ok": True, "item": _flatten_saved_record(updated or {}, curated=False)})
+                    return
+                if path == "/api/admin/runs/archive":
+                    if not is_published:
+                        self._send_json(409, {"ok": False, "error": "archive_requires_published"})
+                        return
+                    remove_run_from_history(session_id)
+                    removed = unpublish_record(session_id)
+                    if not removed:
+                        self._send_json(404, {"ok": False, "error": "not found"})
+                        return
+                    updated = archive_run(session_id, archived_by=actor)
+                    self._send_json(200, {"ok": True, "item": _flatten_saved_record(updated or {}, curated=False)})
+                    return
+                if lifecycle_state not in {"deleted", "archived"}:
+                    self._send_json(409, {"ok": False, "error": "restore_not_needed", "record_state": lifecycle_state})
+                    return
+                updated = restore_run(session_id)
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(updated or {}, curated=False)})
                 return
             if path == "/api/admin/history/import_snapshot":
                 if not _admin_session(self):
