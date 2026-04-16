@@ -38,6 +38,7 @@ ASK_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_ASK_TIMEOUT_S", "90"))
 GEMINI_ASK_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_ASK_MAX_OUTPUT_TOKENS", "2048"))
 GEMINI_ASK_RETRIES = int(os.getenv("MMAR_DEBATE_ASK_RETRIES", "1"))
 GEMINI_LOCALIZE_RETRIES = int(os.getenv("MMAR_DEBATE_GEMINI_LOCALIZE_RETRIES", "2"))
+LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v3")
 
 
 @dataclass
@@ -279,6 +280,14 @@ def build_battle_from_x_url(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_localized_view_lang(value: Any) -> str:
     return "en" if _clean_text(value).lower() == "en" else "ja"
+
+
+def _canonical_payload_hash(payload: Any) -> str:
+    try:
+        serialized = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        serialized = json.dumps({}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
 
 
 def _nested_run_json(record: dict[str, Any]) -> dict[str, Any]:
@@ -529,6 +538,40 @@ def _localized_view_has_turns(view: dict[str, Any]) -> bool:
     )
 
 
+def _normalize_localized_view_cache(record: dict[str, Any], *, lang: str = "en") -> dict[str, Any]:
+    normalized_record = dict(record or {})
+    normalized_record["canonical_lang"] = "ja"
+    canonical_payload = _battle_localization_seed(normalized_record)
+    canonical_hash = _canonical_payload_hash(canonical_payload)
+    if lang != "en":
+        return normalized_record
+    existing_views = normalized_record.get("localized_views") if isinstance(normalized_record.get("localized_views"), dict) else {}
+    view = dict(existing_views.get("en") or {}) if isinstance(existing_views.get("en"), dict) else {}
+    view_status = _clean_text(view.get("status") or normalized_record.get("localized_en_status") or "")
+    view_hash = _clean_text(view.get("source_hash") or normalized_record.get("localized_en_source_hash") or "")
+    view_version = _clean_text(view.get("generator_version") or normalized_record.get("localized_en_generator_version") or "")
+    is_ready = (
+        view_status.lower() == "ready"
+        and view_hash == canonical_hash
+        and view_version == LOCALIZED_EN_GENERATOR_VERSION
+        and _localized_view_has_turns(view)
+    )
+    if view:
+        view["status"] = "ready" if is_ready else ("failed" if view_status.lower() == "failed" else "pending")
+        view["source_hash"] = view_hash
+        view["generator_version"] = view_version
+    existing_views["en"] = view
+    normalized_record["localized_views"] = existing_views
+    normalized_record["canonical_payload"] = canonical_payload
+    normalized_record["canonical_source_hash"] = canonical_hash
+    normalized_record["localized_en_payload"] = view if isinstance(view, dict) else {}
+    normalized_record["localized_en_source_hash"] = view_hash
+    normalized_record["localized_en_generated_at"] = _clean_text(view.get("generated_at") or normalized_record.get("localized_en_generated_at") or "")
+    normalized_record["localized_en_generator_version"] = view_version
+    normalized_record["localized_en_status"] = "ready" if is_ready else ("failed" if view_status.lower() == "failed" else "pending")
+    return normalized_record
+
+
 def _classify_localize_failure(exc: Exception) -> str:
     message = str(exc or "")
     if isinstance(exc, LocalizeError):
@@ -542,8 +585,7 @@ def _classify_localize_failure(exc: Exception) -> str:
 
 def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[str, Any]:
     normalized_lang = _normalize_localized_view_lang(lang)
-    normalized_record = dict(record or {})
-    normalized_record["canonical_lang"] = "ja"
+    normalized_record = _normalize_localized_view_cache(record, lang=normalized_lang)
     existing_views = normalized_record.get("localized_views") if isinstance(normalized_record.get("localized_views"), dict) else {}
     if normalized_lang in existing_views and isinstance(existing_views.get(normalized_lang), dict):
         view = dict(existing_views.get(normalized_lang) or {})
@@ -556,10 +598,25 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
     gemini_key = str(os.getenv("GEMINI_API_KEY") or "").strip()
     if not gemini_key:
         raise LocalizeError("provider_503", "gemini_api_key_missing")
-    seed = _battle_localization_seed(normalized_record)
+    seed = normalized_record.get("canonical_payload") if isinstance(normalized_record.get("canonical_payload"), dict) else _battle_localization_seed(normalized_record)
+    source_hash = _clean_text(normalized_record.get("canonical_source_hash") or "") or _canonical_payload_hash(seed)
     missing_fields = _localize_seed_missing_fields(seed)
     if missing_fields:
         raise LocalizeError("seed_missing", ",".join(missing_fields))
+    pending_view = dict(existing_views.get("en") or {}) if isinstance(existing_views.get("en"), dict) else {}
+    pending_view.update(
+        {
+            "status": "pending",
+            "source_hash": source_hash,
+            "generator_version": LOCALIZED_EN_GENERATOR_VERSION,
+        }
+    )
+    existing_views["en"] = pending_view
+    normalized_record["localized_views"] = existing_views
+    normalized_record["localized_en_payload"] = pending_view
+    normalized_record["localized_en_source_hash"] = source_hash
+    normalized_record["localized_en_generator_version"] = LOCALIZED_EN_GENERATOR_VERSION
+    normalized_record["localized_en_status"] = "pending"
     try:
         raw = _call_gemini_localize(_battle_localize_prompt(seed, lang=normalized_lang), gemini_key)
     except Exception as exc:
@@ -578,6 +635,9 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
     localized_view = {
         "status": "ready",
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source_hash": source_hash,
+        "generator_version": LOCALIZED_EN_GENERATOR_VERSION,
         "issue": overlay["issue"] or seed["issue"],
         "side_a": overlay["side_a"] or seed["side_a"],
         "side_b": overlay["side_b"] or seed["side_b"],
@@ -588,6 +648,11 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
     next_views = dict(existing_views)
     next_views[normalized_lang] = localized_view
     normalized_record["localized_views"] = next_views
+    normalized_record["localized_en_payload"] = localized_view
+    normalized_record["localized_en_source_hash"] = source_hash
+    normalized_record["localized_en_generated_at"] = localized_view["generated_at"]
+    normalized_record["localized_en_generator_version"] = LOCALIZED_EN_GENERATOR_VERSION
+    normalized_record["localized_en_status"] = "ready"
     return {"record": normalized_record, "localized_view": localized_view, "cache_hit": False}
 
 

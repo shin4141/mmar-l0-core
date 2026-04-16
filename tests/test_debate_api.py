@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from tools.debate_api import DebateConfig, JudgeError, _ask_match_prompt, _call_gemini_generate_content, _call_gemini_match_chat, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _suppress_overlapping_summary_roles, _three_turn_validation_report, ask_match_gemini, run_debate
+from tools.debate_api import LOCALIZED_EN_GENERATOR_VERSION, DebateConfig, JudgeError, _ask_match_prompt, _battle_localization_seed, _call_gemini_generate_content, _call_gemini_match_chat, _canonical_payload_hash, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _suppress_overlapping_summary_roles, _three_turn_validation_report, ask_match_gemini, localize_battle_record, run_debate
 from tools.history_store import (
     archive_run,
     get_history_record,
@@ -2328,6 +2328,106 @@ def test_summary_role_suppression_hides_gemini_quote_when_it_repeats_verdict_and
     assert quote["text"] == ""
     assert quote["framing_text"] == ""
     assert quote["evidence_quote"] == ""
+
+
+def test_localize_battle_record_reuses_persisted_en_derivative_when_hash_matches(monkeypatch):
+    canonical_record = {
+        "session_id": "localized-cache-hit",
+        "topic": "愛は金で買えるか",
+        "stance_a": "買えない。",
+        "stance_b": "買える。",
+        "judge_json": {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bが押した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2で条件論が前に出た。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "条件を買えるなら関係も動く。", "reason": "条件論を固定した。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "論拠不足", "quote_excerpt": "条件と愛情を分けただけだ。", "why_one_sentence": "Aは条件論への返答を閉じ切れなかった。", "how_to_fix": "条件と本質の線引きを具体化するべきだった。"},
+        },
+        "display_turns": [{"turn": 1, "a": "愛は買えない。", "b": "条件は買える。"}],
+    }
+    seed = _battle_localization_seed(canonical_record)
+    source_hash = _canonical_payload_hash(seed)
+    canonical_record["localized_views"] = {
+        "en": {
+            "status": "ready",
+            "source_hash": source_hash,
+            "generator_version": LOCALIZED_EN_GENERATOR_VERSION,
+            "generated_at": "2026-04-16T00:00:00Z",
+            "issue": "Can money buy love?",
+            "side_a": "No, it cannot.",
+            "side_b": "Yes, it can.",
+            "turns": [{"turn": 1, "a": "Love cannot be bought.", "b": "The conditions can be bought."}],
+            "summary": {"reason_one_liner": "B came out ahead."},
+        }
+    }
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("localize API should not run on cache hit")
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_localize", fail_if_called)
+
+    localized = localize_battle_record(canonical_record, lang="en")
+
+    assert localized["cache_hit"] is True
+    assert localized["localized_view"]["summary"]["reason_one_liner"] == "B came out ahead."
+    assert localized["record"]["localized_en_status"] == "ready"
+    assert localized["record"]["localized_en_source_hash"] == source_hash
+
+
+def test_localize_battle_record_regenerates_when_source_hash_or_version_is_stale(monkeypatch):
+    canonical_record = {
+        "session_id": "localized-cache-miss",
+        "topic": "愛は金で買えるか",
+        "stance_a": "買えない。",
+        "stance_b": "買える。",
+        "judge_json": {
+            "winner": {"side": "B", "reason": "Bが押した。"},
+            "reason_one_liner": "Bが押した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2で条件論が前に出た。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "条件を買えるなら関係も動く。", "reason": "条件論を固定した。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "論拠不足", "quote_excerpt": "条件と愛情を分けただけだ。", "why_one_sentence": "Aは条件論への返答を閉じ切れなかった。", "how_to_fix": "条件と本質の線引きを具体化するべきだった。"},
+        },
+        "display_turns": [{"turn": 1, "a": "愛は買えない。", "b": "条件は買える。"}],
+        "localized_views": {
+            "en": {
+                "status": "ready",
+                "source_hash": "stale-hash",
+                "generator_version": "battle-en-v0",
+                "issue": "Old translation",
+                "side_a": "Old side A",
+                "side_b": "Old side B",
+                "turns": [{"turn": 1, "a": "old", "b": "old"}],
+                "summary": {"reason_one_liner": "old"},
+            }
+        },
+    }
+
+    def fake_localize(prompt, api_key):
+        return json.dumps(
+            {
+                "issue": "Can money buy love?",
+                "side_a": "No, it cannot.",
+                "side_b": "Yes, it can.",
+                "turns": [{"turn": 1, "a": "Love cannot be bought.", "b": "The conditions can be bought."}],
+                "summary": {
+                    "reason_one_liner": "B came out ahead.",
+                    "flip_condition": "To flip the result, Side A must define the claim more concretely.",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_localize", fake_localize)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    localized = localize_battle_record(canonical_record, lang="en")
+
+    assert localized["cache_hit"] is False
+    assert localized["localized_view"]["status"] == "ready"
+    assert localized["localized_view"]["generator_version"] == LOCALIZED_EN_GENERATOR_VERSION
+    assert localized["record"]["localized_en_status"] == "ready"
+    assert localized["record"]["localized_en_source_hash"] == _canonical_payload_hash(_battle_localization_seed(canonical_record))
+    assert localized["localized_view"]["summary"]["reason_one_liner"] == "B came out ahead."
 
 
 def test_normalize_summary_keeps_or_builds_gemini_quote():

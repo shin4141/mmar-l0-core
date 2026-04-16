@@ -969,10 +969,19 @@ function polishEnglishBattleView(view) {
 function currentLocalizedBattleView() {
   if (!isBattleMode() || currentBattleLang !== "en") return null;
   const loadedViews = normalizeLocalizedViews(currentLoadedRecord?.localized_views);
-  if (loadedViews.en) return loadedViews.en;
+  if (loadedViews.en && String(loadedViews.en.status || "").trim().toLowerCase() === "ready") return loadedViews.en;
   const resultViews = normalizeLocalizedViews(currentResult?.localized_views);
-  if (resultViews.en) return resultViews.en;
+  if (resultViews.en && String(resultViews.en.status || "").trim().toLowerCase() === "ready") return resultViews.en;
   return null;
+}
+
+function currentLocalizedBattleStatus() {
+  if (!isBattleMode() || currentBattleLang !== "en") return "";
+  const loadedViews = normalizeLocalizedViews(currentLoadedRecord?.localized_views);
+  if (loadedViews.en) return String(loadedViews.en.status || currentLoadedRecord?.localized_en_status || "").trim().toLowerCase();
+  const resultViews = normalizeLocalizedViews(currentResult?.localized_views);
+  if (resultViews.en) return String(resultViews.en.status || currentResult?.localized_en_status || "").trim().toLowerCase();
+  return String(currentLoadedRecord?.localized_en_status || currentResult?.localized_en_status || "").trim().toLowerCase();
 }
 
 function currentBattleDisplayView() {
@@ -1034,6 +1043,7 @@ async function ensureLocalizedViewForCurrentBattle() {
   if (!isBattleMode() || currentBattleLang !== "en") return null;
   const localized = currentLocalizedBattleView();
   if (localized?.status === "ready") return localized;
+  if (currentLocalizedBattleStatus() === "failed") return null;
   const recordId = currentBattleShareId();
   if (!recordId) return null;
   const fetchToken = ++currentLocalizedViewFetchToken;

@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 try:
-    from debate_api import _call_gemini, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
+    from debate_api import _call_gemini, _normalize_localized_view_cache, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from debate_core_v2 import run_debate_v2
     from debate_core_v3 import run_debate_v3
     from debate_core_v4 import run_debate_v4
@@ -54,7 +54,7 @@ try:
         unpublish_record,
     )
 except ModuleNotFoundError:
-    from tools.debate_api import _call_gemini, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
+    from tools.debate_api import _call_gemini, _normalize_localized_view_cache, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
     from tools.debate_core_v2 import run_debate_v2
     from tools.debate_core_v3 import run_debate_v3
     from tools.debate_core_v4 import run_debate_v4
@@ -515,6 +515,10 @@ def _record_turn_count(record: dict, debate_result: dict | None) -> int:
 def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
     if not isinstance(record, dict):
         return {}
+    try:
+        record = _normalize_localized_view_cache(record, lang="en")
+    except Exception:
+        record = dict(record)
     nested_run = record.get("run_json") if isinstance(record.get("run_json"), dict) else {}
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
     judge_result = record.get("judge_result") if isinstance(record.get("judge_result"), dict) else {}
@@ -742,6 +746,22 @@ class Handler(BaseHTTPRequestHandler):
                     localized = localize_battle_record(record, lang=requested_lang)
                 except Exception as exc:
                     reason = exc.reason if isinstance(exc, LocalizeError) else "localize_unavailable"
+                    try:
+                        failed_record = _normalize_localized_view_cache(record, lang=requested_lang)
+                        if requested_lang == "en":
+                            failed_views = failed_record.get("localized_views") if isinstance(failed_record.get("localized_views"), dict) else {}
+                            failed_view = dict(failed_views.get("en") or {}) if isinstance(failed_views.get("en"), dict) else {}
+                            failed_view["status"] = "failed"
+                            failed_view["error_reason"] = reason
+                            failed_views["en"] = failed_view
+                            failed_record["localized_views"] = failed_views
+                            failed_record["localized_en_payload"] = failed_view
+                            failed_record["localized_en_status"] = "failed"
+                            failed_record["localized_en_source_hash"] = str(failed_view.get("source_hash") or failed_record.get("localized_en_source_hash") or "")
+                            failed_record["localized_en_generator_version"] = str(failed_view.get("generator_version") or failed_record.get("localized_en_generator_version") or "")
+                        save_run_record(failed_record)
+                    except Exception:
+                        pass
                     self._send_json(502, {"ok": False, "error": "localize_unavailable", "reason": reason})
                     return
                 try:
