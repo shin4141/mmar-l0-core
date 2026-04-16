@@ -563,6 +563,26 @@ body.public-fixed-demo #run-button {
   gap: 10px;
 }
 
+.result-hero-media-block {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(177, 57, 34, 0.16);
+  background: linear-gradient(135deg, rgba(255, 241, 231, 0.96), rgba(241, 211, 194, 0.86));
+}
+
+.result-hero-media-shell {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.result-hero-media-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .chip-stack {
   display: flex;
   flex-wrap: wrap;
@@ -2352,22 +2372,6 @@ button:disabled {
 
   body.mobile-ui .run-row {
     width: 100%;
-  }
-
-  body.mobile-ui .verdict-strip-block {
-    order: 0;
-  }
-
-  body.mobile-ui .gemini-quote-block {
-    order: 1;
-  }
-
-  body.mobile-ui #analysis-panel {
-    order: 3;
-  }
-
-  body.mobile-ui .output-block:first-of-type {
-    order: 2;
   }
 
   body.mobile-ui .gemini-quote-copy {

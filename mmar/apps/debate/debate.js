@@ -147,6 +147,7 @@ let battleSourceCardEl = null;
 let battleSourceSummaryEl = null;
 let battleSourceLinkEl = null;
 let battleSourcePlaceholderEl = null;
+let resultHeroMediaEl = null;
 let battleXBuildInFlight = false;
 let currentLocalizedViewFetchToken = 0;
 
@@ -776,6 +777,37 @@ function renderBattleSourceCard() {
   battleSourceSummaryEl.textContent = `${battleCopy().sourcePrefix}: ${currentBattleSourceSummary()}`;
   safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
   battleSourceLinkEl.hidden = false;
+}
+
+function ensureResultHeroMedia() {
+  if (resultHeroMediaEl) return;
+  resultHeroMediaEl = document.createElement("section");
+  resultHeroMediaEl.id = "result-hero-media";
+  resultHeroMediaEl.className = "output-block result-hero-media-block";
+  if (outputPanelEl.firstElementChild) {
+    outputPanelEl.insertBefore(resultHeroMediaEl, outputPanelEl.firstElementChild);
+    return;
+  }
+  outputPanelEl.appendChild(resultHeroMediaEl);
+}
+
+function renderResultHeroMedia() {
+  ensureResultHeroMedia();
+  if (!resultHeroMediaEl) return;
+  if (!currentResult || !isBattleMode()) {
+    resultHeroMediaEl.hidden = true;
+    resultHeroMediaEl.innerHTML = "";
+    return;
+  }
+  const battleIssue = currentBattleIssue() || currentResult?.debate?.topic || "";
+  const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
+    || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
+  resultHeroMediaEl.hidden = false;
+  resultHeroMediaEl.innerHTML = `
+    <div class="result-hero-media-shell">
+      <img class="result-hero-media-image" src="${escapeHtml(heroImage)}" alt="${escapeHtml(battleIssue || battleCopy().battleBadge)}" />
+    </div>
+  `;
 }
 
 function currentBattleShareId() {
@@ -3611,9 +3643,9 @@ function endpointUrl(path) {
 
 function renderSummary(summary) {
   ensureExpansionIntro();
-  ensureVerdictStrip();
-  ensureGeminiQuote();
   ensureAnalysisPanel();
+  ensureGeminiQuote();
+  ensureVerdictStrip();
   syncMobileAnalysisPanel();
   const localized = currentLocalizedBattleView();
   const uiCopy = battleSummaryCopy();
@@ -3724,11 +3756,6 @@ function renderSummary(summary) {
           <div class="flip-copy">${escapeHtml(flipCondition)}</div>
         </section>
       </div>
-      <section class="gemini-takeaway-card">
-        <div class="summary-label">${escapeHtml(uiCopy.geminiTakeawayLabel)}</div>
-        ${takeawayLines.map((line) => `<div class="gemini-takeaway-line">${escapeHtml(line)}</div>`).join("")}
-        ${takeawayQuote ? `<div class="gemini-takeaway-quote">${escapeHtml(takeawayQuote)}</div>` : ""}
-      </section>
       ${PUBLIC_ASK_DISABLED ? "" : `
       <div class="verdict-strip-actions">
         <div class="ask-cta-copy">
@@ -3766,12 +3793,6 @@ function renderSummary(summary) {
         <div class="summary-value summary-issue-copy">${escapeHtml(battleIssue)}</div>
       </article>
       ${battleSourceMarkup}
-      <article class="summary-card summary-card-verdict tone-winner">
-        <div class="summary-label">${escapeHtml(battleLabels.winnerLabel)}</div>
-        <div class="summary-kicker">${escapeHtml(uiCopy.battleResultKicker)}</div>
-        <div class="summary-value summary-emphasis">${escapeHtml(formatBattleSideLabel(winner.side))}</div>
-        ${displayWinnerReason ? `<div class="summary-subvalue summary-winner-reason">${escapeHtml(displayWinnerReason)}</div>` : ""}
-      </article>
       <button type="button" class="summary-card tone-fatal summary-jump-card" data-jump-target="fatal">
         <div class="summary-label">${escapeHtml(battleLabels.decisiveLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(fatal.role || "decisive_lock"))}</div>
@@ -3789,6 +3810,11 @@ function renderSummary(summary) {
         <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(summary?.why_role || "verdict_summary"))}</div>
         <div class="summary-value summary-why-copy">${escapeHtml(why)}</div>
+      </article>
+      <article class="summary-card gemini-takeaway-card">
+        <div class="summary-label">${escapeHtml(uiCopy.geminiTakeawayLabel)}</div>
+        ${takeawayLines.map((line) => `<div class="gemini-takeaway-line">${escapeHtml(line)}</div>`).join("")}
+        ${takeawayQuote ? `<div class="gemini-takeaway-quote">${escapeHtml(takeawayQuote)}</div>` : ""}
       </article>
     `;
     spotlightGridEl.innerHTML = `
@@ -3930,6 +3956,14 @@ function ensureVerdictStrip() {
   verdictStripEl = document.createElement("section");
   verdictStripEl.id = "verdict-strip";
   verdictStripEl.className = "output-block verdict-strip-block";
+  if (geminiQuoteEl && geminiQuoteEl.parentNode === outputPanelEl) {
+    outputPanelEl.insertBefore(verdictStripEl, geminiQuoteEl.nextSibling);
+    return;
+  }
+  if (analysisPanelEl && analysisPanelEl.parentNode === outputPanelEl) {
+    outputPanelEl.insertBefore(verdictStripEl, analysisPanelEl.nextSibling);
+    return;
+  }
   outputPanelEl.appendChild(verdictStripEl);
 }
 
@@ -3946,7 +3980,7 @@ function ensureGeminiQuote() {
   geminiQuoteEl.id = "gemini-quote";
   geminiQuoteEl.className = "output-block gemini-quote-block";
   if (analysisPanelEl && analysisPanelEl.parentNode === outputPanelEl) {
-    outputPanelEl.insertBefore(geminiQuoteEl, analysisPanelEl);
+    outputPanelEl.insertBefore(geminiQuoteEl, analysisPanelEl.nextSibling);
     return;
   }
   outputPanelEl.appendChild(geminiQuoteEl);
@@ -3979,11 +4013,7 @@ function ensureAnalysisPanel() {
       <div id="detail-panel" class="detail-panel"></div>
     </div>
   `;
-  if (geminiQuoteEl && geminiQuoteEl.parentNode === outputPanelEl) {
-    outputPanelEl.insertBefore(analysisPanelEl, geminiQuoteEl.nextSibling);
-  } else {
-    outputPanelEl.appendChild(analysisPanelEl);
-  }
+  outputPanelEl.appendChild(analysisPanelEl);
   verdictGridEl = analysisPanelEl.querySelector("#verdict-grid");
   spotlightGridEl = analysisPanelEl.querySelector("#spotlight-grid");
   detailPanelEl = analysisPanelEl.querySelector("#detail-panel");
@@ -4180,6 +4210,7 @@ function refreshOutput() {
   outputMetaEl.hidden = false;
   outputMetaEl.style.display = "";
   renderRuntimeFingerprint();
+  renderResultHeroMedia();
   renderTurns(turns, displaySummary, !analysisHidden);
   syncDetailLikeButton();
 
