@@ -57,6 +57,7 @@ const publicSummaryEl = document.querySelector("#public-summary");
 const publicSummaryWinnerEl = document.querySelector("#public-summary-winner");
 const publicSummaryReasonEl = document.querySelector("#public-summary-reason");
 const outputPanelEl = document.querySelector(".output-panel");
+const outputHeroEl = document.querySelector(".output-panel > .hero");
 const pageShellEl = document.querySelector(".page-shell");
 const inputPanelEl = document.querySelector(".input-panel");
 const apiBaseInput = document.querySelector("#api-base");
@@ -802,6 +803,12 @@ function renderResultHeroMedia() {
   const battleIssue = currentBattleIssue() || currentResult?.debate?.topic || "";
   const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
+  resultHeroMediaEl.className = "output-block result-hero-media-block";
+  if (outputHeroEl?.nextSibling) {
+    outputPanelEl.insertBefore(resultHeroMediaEl, outputHeroEl.nextSibling);
+  } else if (outputHeroEl) {
+    outputPanelEl.appendChild(resultHeroMediaEl);
+  }
   resultHeroMediaEl.hidden = false;
   resultHeroMediaEl.innerHTML = `
     <div class="result-hero-media-shell">
