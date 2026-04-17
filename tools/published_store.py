@@ -120,6 +120,10 @@ def _postgres_conn():
                 )
                 """
             )
+            for column in ("opens", "shares", "saves"):
+                conn.execute(
+                    f"ALTER TABLE published_cards ADD COLUMN IF NOT EXISTS {column} BIGINT NOT NULL DEFAULT 0"
+                )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_published_cards_visible ON published_cards(hidden, promoted_at DESC)"
             )
