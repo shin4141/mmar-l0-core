@@ -107,6 +107,18 @@ button:disabled {
   justify-content: flex-end;
 }
 
+.admin-toolbar-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #e6dccd;
+  color: #1e1d1a;
+  padding: 11px 16px;
+  font-size: 14px;
+  text-decoration: none;
+}
+
 .admin-filter-row {
   margin-top: 14px;
   display: flex;
@@ -259,6 +271,119 @@ button:disabled {
   background: rgba(35, 83, 168, 0.12);
   border-color: rgba(35, 83, 168, 0.2);
   color: #1d4d8f;
+}
+
+.admin-data-shell {
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.admin-data-card {
+  width: min(1240px, 100%);
+}
+
+.admin-data-controls {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.admin-filter-group {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-filter-label,
+.admin-total-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7d6445;
+}
+
+.admin-data-totals {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-total-card {
+  border: 1px solid #dfd1bf;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-total-card strong {
+  font-size: 28px;
+}
+
+.admin-data-table-wrap {
+  margin-top: 18px;
+  overflow: auto;
+}
+
+.admin-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #dfd1bf;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.admin-data-table th,
+.admin-data-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #efe4d3;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-data-table th {
+  background: #fff6ea;
+  color: #5e513f;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-sort-button,
+.admin-data-link {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+.admin-sort-button {
+  font-size: 13px;
+}
+
+.admin-sort-button.is-active {
+  color: #1e1d1a;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.admin-data-link {
+  text-align: left;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.admin-table-empty {
+  color: #6b5d49;
+}
+
+@media (max-width: 960px) {
+  .admin-data-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .admin-mode-badge-battle {

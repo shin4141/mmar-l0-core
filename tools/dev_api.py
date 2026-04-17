@@ -30,10 +30,13 @@ try:
         get_history_record,
         get_run_record,
         increment_history_metric,
+        increment_run_metric,
         archive_run,
         list_published_run_ids,
         list_history_records,
         list_run_records,
+        log_metric_event,
+        metric_event_counts,
         promote_run_to_history,
         remove_run_from_history,
         restore_run,
@@ -66,10 +69,13 @@ except ModuleNotFoundError:
         get_history_record,
         get_run_record,
         increment_history_metric,
+        increment_run_metric,
         archive_run,
         list_published_run_ids,
         list_history_records,
         list_run_records,
+        log_metric_event,
+        metric_event_counts,
         promote_run_to_history,
         remove_run_from_history,
         restore_run,
@@ -134,6 +140,7 @@ ADMIN_PASSWORD = str(
     or "shin-admin"
 ).strip()
 ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
+ADMIN_DATA_SORT_KEYS = {"views", "opens", "shares", "saves"}
 
 
 def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
@@ -419,9 +426,11 @@ def _admin_page_path(path: str) -> Path | None:
     mapping = {
         "/admin/login": REPO / "mmar" / "apps" / "debate" / "admin_login.html",
         "/admin/history": REPO / "mmar" / "apps" / "debate" / "admin_history.html",
+        "/admin/data": REPO / "mmar" / "apps" / "debate" / "admin_data.html",
         "/admin/admin.css": REPO / "mmar" / "apps" / "debate" / "admin.css",
         "/admin/admin_login.js": REPO / "mmar" / "apps" / "debate" / "admin_login.js",
         "/admin/admin_history.js": REPO / "mmar" / "apps" / "debate" / "admin_history.js",
+        "/admin/admin_data.js": REPO / "mmar" / "apps" / "debate" / "admin_data.js",
     }
     candidate = mapping.get(path)
     if not candidate:
@@ -553,6 +562,10 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or nested_run.get("source_summary") or nested_debate_result.get("source_summary") or ""),
         "canonical_lang": str(record.get("canonical_lang") or debate_result.get("canonical_lang") or nested_run.get("canonical_lang") or nested_debate_result.get("canonical_lang") or "ja"),
         "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else (nested_run.get("localized_views") if isinstance(nested_run.get("localized_views"), dict) else {}),
+        "views": int(record.get("views", nested_run.get("views", 0)) or 0),
+        "opens": int(record.get("opens", nested_run.get("opens", 0)) or 0),
+        "shares": int(record.get("shares", nested_run.get("shares", 0)) or 0),
+        "saves": int(record.get("saves", nested_run.get("saves", 0)) or 0),
         "turn_count": turn_count,
         "raw_turns": raw_turns,
         "display_turns": display_turns or raw_turns or transcript,
@@ -572,6 +585,94 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "record_state": lifecycle_state,
     }
     return flattened
+
+
+def _range_days_from_key(range_key: str) -> int | None:
+    key = str(range_key or "7d").strip().lower()
+    if key == "7d":
+        return 7
+    if key == "14d":
+        return 14
+    return None
+
+
+def _normalize_admin_sort_key(sort_key: str) -> str:
+    key = str(sort_key or "views").strip().lower()
+    return key if key in ADMIN_DATA_SORT_KEYS else "views"
+
+
+def _title_for_admin_item(item: dict) -> str:
+    topic = str(item.get("topic") or "").strip()
+    if topic:
+        return topic
+    issue = str(item.get("issue") or "").strip()
+    if issue:
+        return issue
+    return "(no title)"
+
+
+def _metric_snapshot_for_item(item: dict, counts: dict[str, int] | None = None) -> dict[str, int]:
+    source = counts or {}
+    return {
+        "views": int(source.get("views", item.get("views", 0)) or 0),
+        "opens": int(source.get("opens", item.get("opens", 0)) or 0),
+        "shares": int(source.get("shares", item.get("shares", 0)) or 0),
+        "saves": int(source.get("saves", item.get("saves", 0)) or 0),
+    }
+
+
+def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str) -> dict[str, object]:
+    normalized_state = str(state_filter or "all").strip().lower()
+    normalized_range = str(range_key or "7d").strip().lower()
+    normalized_sort = _normalize_admin_sort_key(sort_key)
+    items = _flatten_run_records_for_admin(list_run_records(limit=500))
+    if normalized_state in {"all", "candidate", "published", "failed", "archived", "deleted", "trash"}:
+        items = [item for item in items if _state_filter_matches(item, normalized_state)]
+    range_days = _range_days_from_key(normalized_range)
+    event_counts = metric_event_counts(range_days=range_days) if normalized_range in {"7d", "14d"} else {}
+    table_rows: list[dict[str, object]] = []
+    for item in items:
+        record_id = str(item.get("id") or item.get("run_id") or item.get("session_id") or "").strip()
+        counts = _metric_snapshot_for_item(item, event_counts.get(record_id) if event_counts else None)
+        table_rows.append(
+            {
+                "id": record_id,
+                "run_id": str(item.get("run_id") or record_id),
+                "session_id": str(item.get("session_id") or record_id),
+                "title": _title_for_admin_item(item),
+                "status": str(item.get("record_state") or "candidate"),
+                "created_at": str(item.get("created_at") or ""),
+                **counts,
+            }
+        )
+    table_rows.sort(
+        key=lambda row: (
+            -int(row.get(normalized_sort, 0) or 0),
+            -int(row.get("views", 0) or 0),
+            str(row.get("created_at") or ""),
+        )
+    )
+    totals = {
+        metric: sum(int(row.get(metric, 0) or 0) for row in table_rows)
+        for metric in ("views", "opens", "shares", "saves")
+    }
+    return {
+        "range": normalized_range,
+        "status": normalized_state,
+        "sort": normalized_sort,
+        "top_cards": table_rows[:50],
+        "totals": totals,
+    }
+
+
+def _increment_battle_metric(record_id: str, metric: str) -> tuple[dict | None, bool]:
+    published_record = increment_published_metric(record_id, metric)
+    run_record = increment_run_metric(record_id, metric)
+    try:
+        log_metric_event(record_id, metric)
+    except Exception:
+        pass
+    return published_record or run_record, bool(published_record)
 
 
 def _flatten_run_records_for_admin(records: list[dict]) -> list[dict]:
@@ -838,6 +939,17 @@ class Handler(BaseHTTPRequestHandler):
                     "item": _flatten_saved_record(item, curated=(session_id in list_published_run_ids())),
                 },
             )
+            return
+        if path == "/api/admin/data/summary":
+            if not _admin_session(self):
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            query = parse_qs(parsed_url.query or "")
+            range_key = str(query.get("range", ["7d"])[0] or "7d")
+            state_filter = str(query.get("status", ["all"])[0] or "all")
+            sort_key = str(query.get("sort", ["views"])[0] or "views")
+            summary = _admin_data_summary(range_key=range_key, state_filter=state_filter, sort_key=sort_key)
+            self._send_json(200, {"ok": True, **summary})
             return
         admin_page = _admin_page_path(path)
         if admin_page:
@@ -1510,11 +1622,35 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/battle/") and path.endswith("/view"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/view").strip()
-                record = increment_published_metric(record_id, "views") or increment_history_metric(record_id, "views")
+                record, curated = _increment_battle_metric(record_id, "views")
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
-                self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=True)})
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=curated)})
+                return
+            if path.startswith("/api/battle/") and path.endswith("/open"):
+                record_id = path.removeprefix("/api/battle/").removesuffix("/open").strip()
+                record, curated = _increment_battle_metric(record_id, "opens")
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=curated)})
+                return
+            if path.startswith("/api/battle/") and path.endswith("/share"):
+                record_id = path.removeprefix("/api/battle/").removesuffix("/share").strip()
+                record, curated = _increment_battle_metric(record_id, "shares")
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=curated)})
+                return
+            if path.startswith("/api/battle/") and path.endswith("/save"):
+                record_id = path.removeprefix("/api/battle/").removesuffix("/save").strip()
+                record, curated = _increment_battle_metric(record_id, "saves")
+                if not record:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                self._send_json(200, {"ok": True, "item": _flatten_saved_record(record, curated=curated)})
                 return
             if path.startswith("/api/history/like/"):
                 record_id = path.removeprefix("/api/history/like/").strip()
@@ -1554,8 +1690,10 @@ def main() -> int:
     print(f"[dev_api] GET  /api/history/{{id}}")
     print(f"[dev_api] GET  /api/admin/session")
     print(f"[dev_api] GET  /api/admin/runs")
+    print(f"[dev_api] GET  /api/admin/data/summary")
     print(f"[dev_api] GET  /admin/login")
     print(f"[dev_api] GET  /admin/history")
+    print(f"[dev_api] GET  /admin/data")
     print(f"[dev_api] POST /api/debate")
     print(f"[dev_api] POST /api/battle_from_x_url")
     print(f"[dev_api] POST /api/ask_match")
@@ -1565,6 +1703,9 @@ def main() -> int:
     print(f"[dev_api] POST /api/admin/logout")
     print(f"[dev_api] POST /api/admin/history/add")
     print(f"[dev_api] POST /api/history/view/{{id}}")
+    print(f"[dev_api] POST /api/battle/{{id}}/open")
+    print(f"[dev_api] POST /api/battle/{{id}}/share")
+    print(f"[dev_api] POST /api/battle/{{id}}/save")
     print(f"[dev_api] POST /api/history/like/{{id}}")
     print(
         "[dev_api] env "

@@ -18,6 +18,7 @@ const ADMIN_HISTORY_REMOVE_PATH = "/api/admin/history/remove";
 const ADMIN_RUN_DELETE_PATH = "/api/admin/runs/delete";
 const ADMIN_RUN_ARCHIVE_PATH = "/api/admin/runs/archive";
 const ADMIN_RUN_RESTORE_PATH = "/api/admin/runs/restore";
+const initialSessionId = new URLSearchParams(window.location.search).get("session_id") || "";
 
 let runs = [];
 let activeSessionId = "";
@@ -329,6 +330,9 @@ async function loadRuns() {
   runs = Array.isArray(data.items) ? data.items : [];
   const visibleRuns = filteredRuns();
   const visibleSessionIds = new Set(visibleRuns.map((run) => run.session_id));
+  if (initialSessionId && visibleSessionIds.has(initialSessionId)) {
+    activeSessionId = initialSessionId;
+  }
   if (!activeSessionId || !visibleSessionIds.has(activeSessionId)) {
     activeSessionId = visibleRuns[0]?.session_id || "";
   }

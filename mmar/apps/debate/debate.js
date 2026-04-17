@@ -2593,6 +2593,16 @@ async function incrementHistoryMetric(recordId, metric) {
   return record;
 }
 
+function sendBattleMetric(recordId, metric) {
+  const id = String(recordId || "").trim();
+  const action = String(metric || "").trim();
+  if (!id || !action) return;
+  fetch(endpointUrl(`/api/battle/${encodeURIComponent(id)}/${encodeURIComponent(action)}`), {
+    method: "POST",
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function matchFingerprint(result, payload) {
   const debate = result?.debate || {};
   const summary = debate.summary || {};
@@ -2731,6 +2741,7 @@ async function copyBattleShareLink() {
     const id = await ensureBattleShareId();
     const url = buildBattleShareUrl(id);
     await navigator.clipboard.writeText(url);
+    sendBattleMetric(id, "share");
     setStatus("ok", currentBattleLang === "en" ? "Copied share link" : "共有リンクをコピーしました");
     setHint(url);
   } catch (error) {
@@ -2779,6 +2790,7 @@ async function shareBattleOnX() {
     const shareText = buildBattleShareText(id) || `${battleCopy().shareFallback}\n${buildBattleShareUrl(id)}`;
     const intentUrl = buildBattleXIntentUrl(shareText);
     window.open(intentUrl, "_blank", "noopener,noreferrer");
+    sendBattleMetric(id, "share");
     setStatus("ok", battleCopy().shareOpened);
     setHint(buildBattleShareUrl(id));
   } catch (error) {
@@ -3410,6 +3422,7 @@ async function saveCurrentMatch() {
   if (!currentResult || analysisHidden || !currentPayload) return;
   const record = buildBattleRecord(currentResult, currentPayload);
   const saved = await saveHistoryRecordToServer(record);
+  sendBattleMetric(record.run_id || saved.run_id || saved.session_id || currentBattleShareId(), "save");
   currentRecordId = saved.id;
   currentLoadedRecord = saved;
   renderHistoryList();

@@ -70,11 +70,18 @@ def _connect_sqlite() -> sqlite3.Connection:
           updated_at TEXT NOT NULL,
           hidden INTEGER NOT NULL DEFAULT 0,
           views INTEGER NOT NULL DEFAULT 0,
+          opens INTEGER NOT NULL DEFAULT 0,
+          shares INTEGER NOT NULL DEFAULT 0,
+          saves INTEGER NOT NULL DEFAULT 0,
           likes INTEGER NOT NULL DEFAULT 0,
           record_json TEXT NOT NULL
         )
         """
     )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(published_cards)").fetchall()}
+    for column in ("opens", "shares", "saves"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE published_cards ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_published_cards_visible ON published_cards(hidden, promoted_at DESC)"
     )
@@ -105,6 +112,9 @@ def _postgres_conn():
                   updated_at TEXT NOT NULL,
                   hidden BOOLEAN NOT NULL DEFAULT FALSE,
                   views BIGINT NOT NULL DEFAULT 0,
+                  opens BIGINT NOT NULL DEFAULT 0,
+                  shares BIGINT NOT NULL DEFAULT 0,
+                  saves BIGINT NOT NULL DEFAULT 0,
                   likes BIGINT NOT NULL DEFAULT 0,
                   record_json TEXT NOT NULL
                 )
@@ -151,6 +161,9 @@ def _normalize_record(record: dict) -> dict:
     normalized.setdefault("created_at", _now_iso())
     normalized["promoted_at"] = str(normalized.get("promoted_at") or _now_iso())
     normalized["views"] = int(normalized.get("views", 0) or 0)
+    normalized["opens"] = int(normalized.get("opens", 0) or 0)
+    normalized["shares"] = int(normalized.get("shares", 0) or 0)
+    normalized["saves"] = int(normalized.get("saves", 0) or 0)
     normalized["likes"] = int(normalized.get("likes", 0) or 0)
     return normalized
 
@@ -166,15 +179,21 @@ def _row_value(row, key: str, default=None):
         "id": 0,
         "promoted_at": 1,
         "views": 2,
-        "likes": 3,
-        "record_json": 4,
+        "opens": 3,
+        "shares": 4,
+        "saves": 5,
+        "likes": 6,
+        "record_json": 7,
     }
     index_map_full = {
         "id": 0,
         "promoted_at": 1,
         "views": 4,
-        "likes": 5,
-        "record_json": 6,
+        "opens": 5,
+        "shares": 6,
+        "saves": 7,
+        "likes": 8,
+        "record_json": 9,
     }
     try:
         row_len = len(row)
@@ -197,6 +216,9 @@ def _record_from_row(row) -> dict:
     record["run_id"] = str(record.get("run_id") or record["id"])
     record["promoted_at"] = _row_value(row, "promoted_at")
     record["views"] = int(_row_value(row, "views", 0) or 0)
+    record["opens"] = int(_row_value(row, "opens", 0) or 0)
+    record["shares"] = int(_row_value(row, "shares", 0) or 0)
+    record["saves"] = int(_row_value(row, "saves", 0) or 0)
     record["likes"] = int(_row_value(row, "likes", 0) or 0)
     return record
 
@@ -209,8 +231,8 @@ def publish_record(record: dict) -> dict:
         with _connect_sqlite() as conn:
             conn.execute(
                 """
-                INSERT INTO published_cards (id, promoted_at, updated_at, hidden, views, likes, record_json)
-                VALUES (?, ?, ?, 0, ?, ?, ?)
+                INSERT INTO published_cards (id, promoted_at, updated_at, hidden, views, opens, shares, saves, likes, record_json)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   promoted_at=excluded.promoted_at,
                   updated_at=excluded.updated_at,
@@ -222,6 +244,9 @@ def publish_record(record: dict) -> dict:
                     normalized["promoted_at"],
                     now,
                     normalized["views"],
+                    normalized["opens"],
+                    normalized["shares"],
+                    normalized["saves"],
                     normalized["likes"],
                     payload,
                 ),
@@ -235,8 +260,8 @@ def publish_record(record: dict) -> dict:
     with _postgres_conn() as conn:
         conn.execute(
             """
-            INSERT INTO published_cards (id, promoted_at, updated_at, hidden, views, likes, record_json)
-            VALUES (%s, %s, %s, FALSE, %s, %s, %s)
+            INSERT INTO published_cards (id, promoted_at, updated_at, hidden, views, opens, shares, saves, likes, record_json)
+            VALUES (%s, %s, %s, FALSE, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
               promoted_at=EXCLUDED.promoted_at,
               updated_at=EXCLUDED.updated_at,
@@ -248,12 +273,15 @@ def publish_record(record: dict) -> dict:
                 normalized["promoted_at"],
                 now,
                 normalized["views"],
+                normalized["opens"],
+                normalized["shares"],
+                normalized["saves"],
                 normalized["likes"],
                 payload,
             ),
         )
         row = conn.execute(
-            "SELECT id, promoted_at, views, likes, record_json FROM published_cards WHERE id = %s",
+            "SELECT id, promoted_at, views, opens, shares, saves, likes, record_json FROM published_cards WHERE id = %s",
             (normalized["id"],),
         ).fetchone()
         return _record_from_row(row)
@@ -298,7 +326,7 @@ def get_published_card(record_id: str) -> dict | None:
             return _record_from_row(row) if row else None
     with _postgres_conn() as conn:
         row = conn.execute(
-            "SELECT id, promoted_at, views, likes, record_json FROM published_cards WHERE id = %s AND hidden = FALSE",
+            "SELECT id, promoted_at, views, opens, shares, saves, likes, record_json FROM published_cards WHERE id = %s AND hidden = FALSE",
             (record_id,),
         ).fetchone()
         return _record_from_row(row) if row else None
@@ -318,7 +346,7 @@ def list_published_cards(sort: str = "recent") -> list[dict]:
             return [_record_from_row(row) for row in rows]
     with _postgres_conn() as conn:
         rows = conn.execute(
-            f"SELECT id, promoted_at, views, likes, record_json FROM published_cards WHERE hidden = FALSE {order}"
+            f"SELECT id, promoted_at, views, opens, shares, saves, likes, record_json FROM published_cards WHERE hidden = FALSE {order}"
         ).fetchall()
         return [_record_from_row(row) for row in rows]
 
@@ -345,7 +373,7 @@ def list_published_card_ids() -> set[str]:
 
 def increment_published_metric(record_id: str, metric: str) -> dict | None:
     record_id = str(record_id or "").strip()
-    if not record_id or metric not in {"views", "likes"}:
+    if not record_id or metric not in {"views", "opens", "shares", "saves", "likes"}:
         return None
     if published_store_kind() == "sqlite":
         with _connect_sqlite() as conn:
@@ -371,7 +399,7 @@ def increment_published_metric(record_id: str, metric: str) -> dict | None:
             UPDATE published_cards
             SET {metric} = {metric} + 1, updated_at = %s
             WHERE id = %s AND hidden = FALSE
-            RETURNING id, promoted_at, views, likes, record_json
+            RETURNING id, promoted_at, views, opens, shares, saves, likes, record_json
             """,
             (_now_iso(), record_id),
         ).fetchone()

@@ -108,16 +108,36 @@ def _init_schema(conn: sqlite3.Connection) -> None:
           promoted_at TEXT NOT NULL,
           hidden INTEGER NOT NULL DEFAULT 0,
           views INTEGER NOT NULL DEFAULT 0,
+          opens INTEGER NOT NULL DEFAULT 0,
+          shares INTEGER NOT NULL DEFAULT 0,
+          saves INTEGER NOT NULL DEFAULT 0,
           likes INTEGER NOT NULL DEFAULT 0,
           FOREIGN KEY(session_id) REFERENCES runs(session_id)
         )
         """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metric_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          metric TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_metric_events_session_metric_created ON metric_events(session_id, metric, created_at DESC)"
     )
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(history_records)").fetchall()}
     if "views" not in columns:
         conn.execute("ALTER TABLE history_records ADD COLUMN views INTEGER NOT NULL DEFAULT 0")
     if "likes" not in columns:
         conn.execute("ALTER TABLE history_records ADD COLUMN likes INTEGER NOT NULL DEFAULT 0")
+    item_columns = {row["name"] for row in conn.execute("PRAGMA table_info(history_items)").fetchall()}
+    for column in ("opens", "shares", "saves"):
+        if column not in item_columns:
+            conn.execute(f"ALTER TABLE history_items ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -137,6 +157,10 @@ def _normalize_run_record(record: dict) -> dict:
     normalized.setdefault("status", "debate_complete")
     normalized.setdefault("debate_result", {})
     normalized.setdefault("judge_result", {})
+    normalized.setdefault("views", 0)
+    normalized.setdefault("opens", 0)
+    normalized.setdefault("shares", 0)
+    normalized.setdefault("saves", 0)
     normalized.setdefault("deleted_at", "")
     normalized.setdefault("deleted_by", "")
     normalized.setdefault("archived_at", "")
@@ -160,6 +184,10 @@ def _run_record_from_row(row: sqlite3.Row) -> dict:
     record["status"] = row["status"]
     record["debate_result"] = json.loads(row["debate_result_json"] or "{}")
     record["judge_result"] = json.loads(row["judge_result_json"] or "{}")
+    record["views"] = int(record.get("views", 0) or 0)
+    record["opens"] = int(record.get("opens", 0) or 0)
+    record["shares"] = int(record.get("shares", 0) or 0)
+    record["saves"] = int(record.get("saves", 0) or 0)
     return record
 
 
@@ -455,6 +483,9 @@ def list_history_records(db_path: Path | None = None, sort: str = "recent") -> l
               hi.promoted_at,
               hi.hidden,
               hi.views,
+              hi.opens,
+              hi.shares,
+              hi.saves,
               hi.likes,
               r.*
             FROM history_items hi
@@ -475,6 +506,9 @@ def list_history_records(db_path: Path | None = None, sort: str = "recent") -> l
         run_record["promoted_at"] = row["promoted_at"]
         run_record["hidden"] = bool(row["hidden"])
         run_record["views"] = int(row["views"] or 0)
+        run_record["opens"] = int(row["opens"] or 0)
+        run_record["shares"] = int(row["shares"] or 0)
+        run_record["saves"] = int(row["saves"] or 0)
         run_record["likes"] = int(row["likes"] or 0)
         records.append(run_record)
     return records
@@ -502,6 +536,9 @@ def get_history_record(record_id: str, db_path: Path | None = None) -> dict | No
               hi.promoted_at,
               hi.hidden,
               hi.views,
+              hi.opens,
+              hi.shares,
+              hi.saves,
               hi.likes,
               r.*
             FROM history_items hi
@@ -518,12 +555,15 @@ def get_history_record(record_id: str, db_path: Path | None = None) -> dict | No
     record["promoted_at"] = row["promoted_at"]
     record["hidden"] = bool(row["hidden"])
     record["views"] = int(row["views"] or 0)
+    record["opens"] = int(row["opens"] or 0)
+    record["shares"] = int(row["shares"] or 0)
+    record["saves"] = int(row["saves"] or 0)
     record["likes"] = int(row["likes"] or 0)
     return record
 
 
 def increment_history_metric(record_id: str, metric: str, db_path: Path | None = None) -> dict | None:
-    if metric not in {"views", "likes"}:
+    if metric not in {"views", "opens", "shares", "saves", "likes"}:
         raise ValueError("invalid metric")
     with _connect(db_path) as conn:
         conn.execute(
@@ -532,6 +572,59 @@ def increment_history_metric(record_id: str, metric: str, db_path: Path | None =
         )
         conn.commit()
     return get_history_record(record_id, db_path=db_path)
+
+
+def increment_run_metric(session_id: str, metric: str, db_path: Path | None = None) -> dict | None:
+    if metric not in {"views", "opens", "shares", "saves"}:
+        raise ValueError("invalid metric")
+    record = get_run_record(session_id, db_path=db_path)
+    if not record:
+        return None
+    record[metric] = int(record.get(metric, 0) or 0) + 1
+    return save_run_record(record, db_path=db_path).get("record")
+
+
+def log_metric_event(session_id: str, metric: str, db_path: Path | None = None) -> None:
+    if metric not in {"views", "opens", "shares", "saves"}:
+        raise ValueError("invalid metric")
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO metric_events (session_id, metric, created_at) VALUES (?, ?, ?)",
+            (str(session_id or "").strip(), metric, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+def metric_event_counts(
+    *,
+    range_days: int | None = None,
+    db_path: Path | None = None,
+) -> dict[str, dict[str, int]]:
+    params: list[object] = []
+    where = ""
+    if isinstance(range_days, int) and range_days > 0:
+        where = "WHERE datetime(created_at) >= datetime('now', ?)"
+        params.append(f"-{int(range_days)} days")
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT session_id, metric, COUNT(*) AS count
+            FROM metric_events
+            {where}
+            GROUP BY session_id, metric
+            """,
+            tuple(params),
+        ).fetchall()
+    counts: dict[str, dict[str, int]] = {}
+    for row in rows:
+        session_id = str(row["session_id"] or "").strip()
+        if not session_id:
+            continue
+        entry = counts.setdefault(session_id, {"views": 0, "opens": 0, "shares": 0, "saves": 0})
+        metric = str(row["metric"] or "").strip()
+        if metric in entry:
+            entry[metric] = int(row["count"] or 0)
+    return counts
 
 
 def backup_history_store_file(target_path: str | Path, db_path: Path | None = None) -> dict[str, object]:
@@ -590,13 +683,16 @@ def write_history_snapshot(target_path: str | Path, db_path: Path | None = None)
 def _replace_history_items(conn: sqlite3.Connection, session_id: str, record: dict) -> None:
     conn.execute(
         """
-        INSERT INTO history_items (session_id, created_at, promoted_at, hidden, views, likes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO history_items (session_id, created_at, promoted_at, hidden, views, opens, shares, saves, likes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
           created_at=excluded.created_at,
           promoted_at=excluded.promoted_at,
           hidden=excluded.hidden,
           views=excluded.views,
+          opens=excluded.opens,
+          shares=excluded.shares,
+          saves=excluded.saves,
           likes=excluded.likes
         """,
         (
@@ -605,6 +701,9 @@ def _replace_history_items(conn: sqlite3.Connection, session_id: str, record: di
             str(record.get("promoted_at") or datetime.now(timezone.utc).isoformat()),
             1 if bool(record.get("hidden")) else 0,
             int(record.get("views") or 0),
+            int(record.get("opens") or 0),
+            int(record.get("shares") or 0),
+            int(record.get("saves") or 0),
             int(record.get("likes") or 0),
         ),
     )

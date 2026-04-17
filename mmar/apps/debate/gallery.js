@@ -59,6 +59,16 @@ function endpointUrl(path) {
   return path;
 }
 
+function sendBattleMetric(recordId, metric) {
+  const id = String(recordId || "").trim();
+  const action = String(metric || "").trim();
+  if (!id || !action) return;
+  fetch(endpointUrl(`/api/battle/${encodeURIComponent(id)}/${encodeURIComponent(action)}`), {
+    method: "POST",
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function shouldShowGalleryRuntime(health = currentHealthInfo) {
   void health;
   return queryParams.get("debug") === "1";
@@ -204,7 +214,7 @@ function buildCardMarkup(record) {
     ? `/battle/${encodeURIComponent(id)}?lang=en`
     : `/battle/${encodeURIComponent(id)}`;
   return `
-    <a class="gallery-card" href="${escapeHtml(href)}">
+    <a class="gallery-card" href="${escapeHtml(href)}" data-record-id="${escapeHtml(id)}">
       <div class="gallery-card-media">
         <img class="gallery-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(issue)}" loading="lazy" />
         <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
@@ -250,6 +260,11 @@ function renderGallery(records) {
     return;
   }
   galleryGridEl.innerHTML = markup.join("");
+  galleryGridEl.querySelectorAll(".gallery-card[data-record-id]").forEach((card) => {
+    card.addEventListener("click", () => {
+      sendBattleMetric(card.dataset.recordId || "", "open");
+    });
+  });
 }
 
 async function loadGallery() {

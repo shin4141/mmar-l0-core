@@ -7,7 +7,10 @@ from tools.history_store import (
     archive_run,
     get_history_record,
     increment_history_metric,
+    increment_run_metric,
     list_history_records,
+    log_metric_event,
+    metric_event_counts,
     restore_run,
     run_lifecycle_state,
     save_history_record,
@@ -3237,3 +3240,75 @@ def test_admin_hidden_record_helper_detects_deleted_and_archived_runs():
     archived_candidate = {"session_id": "run_2", "archived_at": "2026-04-16T00:00:00+00:00"}
     assert dev_api._is_admin_hidden_record(archived_candidate) is True
     assert dev_api._is_admin_hidden_record({"session_id": "run_3"}) is False
+
+
+def test_history_metric_events_and_run_metric_round_trip(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    save_run_record(
+        {
+            "session_id": "run_metric_1",
+            "created_at": "2026-04-17T00:00:00+00:00",
+            "updated_at": "2026-04-17T00:00:00+00:00",
+            "topic": "metric target",
+            "stance_a": "A",
+            "stance_b": "B",
+            "status": "judge_complete",
+        },
+        db_path,
+    )
+
+    increment_run_metric("run_metric_1", "views", db_path)
+    increment_run_metric("run_metric_1", "shares", db_path)
+    log_metric_event("run_metric_1", "views", db_path)
+    log_metric_event("run_metric_1", "shares", db_path)
+
+    counts = metric_event_counts(db_path=db_path)
+    assert counts["run_metric_1"]["views"] == 1
+    assert counts["run_metric_1"]["shares"] == 1
+
+
+def test_admin_data_summary_uses_event_counts_for_window(monkeypatch):
+    monkeypatch.setattr(
+        dev_api,
+        "list_run_records",
+        lambda limit=500: [
+            {
+                "session_id": "run_a",
+                "topic": "Alpha",
+                "created_at": "2026-04-17T00:00:00+00:00",
+                "status": "judge_complete",
+                "views": 9,
+                "opens": 2,
+                "shares": 1,
+                "saves": 0,
+            },
+            {
+                "session_id": "run_b",
+                "topic": "Beta",
+                "created_at": "2026-04-16T00:00:00+00:00",
+                "status": "judge_complete",
+                "views": 3,
+                "opens": 5,
+                "shares": 0,
+                "saves": 1,
+            },
+        ],
+    )
+    monkeypatch.setattr(dev_api, "list_published_run_ids", lambda: ["run_b"])
+    monkeypatch.setattr(
+        dev_api,
+        "metric_event_counts",
+        lambda range_days=None: {
+            "run_a": {"views": 2, "opens": 1, "shares": 0, "saves": 0},
+            "run_b": {"views": 7, "opens": 3, "shares": 2, "saves": 1},
+        },
+    )
+
+    summary = dev_api._admin_data_summary(range_key="7d", state_filter="all", sort_key="views")
+
+    assert summary["range"] == "7d"
+    assert summary["sort"] == "views"
+    assert summary["top_cards"][0]["id"] == "run_b"
+    assert summary["top_cards"][0]["status"] == "published"
+    assert summary["top_cards"][0]["views"] == 7
+    assert summary["top_cards"][1]["title"] == "Alpha"

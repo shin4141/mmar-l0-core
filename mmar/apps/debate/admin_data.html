@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VerdAIct Admin Data</title>
+  <link rel="stylesheet" href="/admin/admin.css?v=20260417a" />
+</head>
+<body>
+  <main class="admin-shell admin-data-shell">
+    <section class="admin-card admin-data-card">
+      <div class="admin-toolbar">
+        <div>
+          <div class="admin-eyebrow">VerdAIct Admin</div>
+          <h1>Data</h1>
+          <div class="admin-copy">何が見られ、何が反応されているかをすぐ見返すための最小計器です。</div>
+        </div>
+        <div class="admin-toolbar-actions">
+          <a href="/admin/history" class="admin-toolbar-link">History</a>
+          <button id="admin-data-refresh" type="button" class="secondary-button">Refresh</button>
+          <button id="admin-data-logout" type="button" class="secondary-button">Logout</button>
+        </div>
+      </div>
+
+      <div class="admin-data-controls">
+        <div class="admin-filter-group">
+          <span class="admin-filter-label">Range</span>
+          <div class="admin-filter-row" role="tablist" aria-label="Range filters">
+            <button type="button" class="secondary-button admin-filter-button is-active" data-range-filter="7d">7d</button>
+            <button type="button" class="secondary-button admin-filter-button" data-range-filter="14d">14d</button>
+            <button type="button" class="secondary-button admin-filter-button" data-range-filter="all">All</button>
+          </div>
+        </div>
+        <div class="admin-filter-group">
+          <span class="admin-filter-label">Status</span>
+          <div class="admin-filter-row" role="tablist" aria-label="Status filters">
+            <button type="button" class="secondary-button admin-filter-button is-active" data-status-filter="all">All</button>
+            <button type="button" class="secondary-button admin-filter-button" data-status-filter="candidate">Candidate</button>
+            <button type="button" class="secondary-button admin-filter-button" data-status-filter="published">Published</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="admin-data-totals" class="admin-data-totals"></div>
+      <div id="admin-data-status" class="admin-status" hidden></div>
+
+      <div class="admin-data-table-wrap">
+        <table class="admin-data-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Status</th>
+              <th><button type="button" class="admin-sort-button is-active" data-sort-key="views">Views</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="opens">Opens</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="shares">Shares</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="saves">Saves</button></th>
+            </tr>
+          </thead>
+          <tbody id="admin-data-table-body">
+            <tr><td colspan="6" class="admin-table-empty">Loading data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/admin/admin_data.js?v=20260417a"></script>
+</body>
+</html>
