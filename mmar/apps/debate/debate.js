@@ -1110,7 +1110,6 @@ async function ensureLocalizedViewForCurrentBattle() {
   if (!isBattleMode() || currentBattleLang !== "en") return null;
   const localized = currentLocalizedBattleView();
   if (localized?.status === "ready") return localized;
-  if (currentLocalizedBattleStatus() === "failed") return null;
   const recordId = currentBattleShareId();
   if (!recordId) return null;
   const fetchToken = ++currentLocalizedViewFetchToken;
