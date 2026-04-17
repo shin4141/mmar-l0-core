@@ -859,7 +859,7 @@ function buildBattleShareUrl(id) {
 }
 
 function buildBattleGalleryUrl() {
-  const url = new URL("/mmar/apps/debate/gallery.html", window.location.origin);
+  const url = new URL("/gallery", window.location.origin);
   if (currentBattleLang === "en") url.searchParams.set("lang", "en");
   return url.toString();
 }

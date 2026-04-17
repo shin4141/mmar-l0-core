@@ -1002,6 +1002,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path == "/gallery":
+            gallery_page = REPO / "mmar" / "apps" / "debate" / "gallery.html"
+            body = gallery_page.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Build-SHA", GIT_SHA)
+            _cors_headers(self)
+            self.end_headers()
+            self.wfile.write(body)
+            return
         static_path = _safe_static_path(path)
         if static_path:
             body = static_path.read_bytes()
