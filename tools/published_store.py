@@ -199,7 +199,7 @@ def _row_value(row, key: str, default=None):
         row_len = len(row)
     except Exception:
         return default
-    index_map = index_map_full if row_len >= 7 else index_map_short
+    index_map = index_map_full if row_len >= 10 else index_map_short
     index = index_map.get(key)
     if index is None or index >= row_len:
         return default

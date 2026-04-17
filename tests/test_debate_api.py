@@ -17,6 +17,7 @@ from tools.history_store import (
     save_run_record,
     soft_delete_run,
 )
+from tools.published_store import _record_from_row as published_record_from_row
 from tools import dev_api
 
 
@@ -3265,6 +3266,29 @@ def test_history_metric_events_and_run_metric_round_trip(tmp_path):
     counts = metric_event_counts(db_path=db_path)
     assert counts["run_metric_1"]["views"] == 1
     assert counts["run_metric_1"]["shares"] == 1
+
+
+def test_published_record_from_postgres_metric_row_reads_record_json():
+    row = (
+        "run_pub_1",
+        "2026-04-17T00:00:00+00:00",
+        12,
+        5,
+        3,
+        2,
+        1,
+        json.dumps({"id": "run_pub_1", "topic": "Published title"}, ensure_ascii=False),
+    )
+
+    record = published_record_from_row(row)
+
+    assert record["id"] == "run_pub_1"
+    assert record["topic"] == "Published title"
+    assert record["views"] == 12
+    assert record["opens"] == 5
+    assert record["shares"] == 3
+    assert record["saves"] == 2
+    assert record["likes"] == 1
 
 
 def test_metric_event_counts_respects_audience_bucket(tmp_path):
