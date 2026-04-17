@@ -148,6 +148,7 @@ let battleSourceCardEl = null;
 let battleSourceSummaryEl = null;
 let battleSourceLinkEl = null;
 let battleSourcePlaceholderEl = null;
+let resultTopGridEl = null;
 let resultHeroMediaEl = null;
 let battleXBuildInFlight = false;
 let currentLocalizedViewFetchToken = 0;
@@ -785,35 +786,62 @@ function ensureResultHeroMedia() {
   resultHeroMediaEl = document.createElement("section");
   resultHeroMediaEl.id = "result-hero-media";
   resultHeroMediaEl.className = "output-block result-hero-media-block";
-  if (outputPanelEl.firstElementChild) {
-    outputPanelEl.insertBefore(resultHeroMediaEl, outputPanelEl.firstElementChild);
+}
+
+function ensureResultTopGrid() {
+  if (resultTopGridEl) return;
+  resultTopGridEl = document.createElement("section");
+  resultTopGridEl.id = "result-top-grid";
+  resultTopGridEl.className = "result-top-grid";
+  if (outputHeroEl?.parentElement === outputPanelEl) {
+    outputPanelEl.insertBefore(resultTopGridEl, outputHeroEl);
     return;
   }
-  outputPanelEl.appendChild(resultHeroMediaEl);
+  if (outputPanelEl.firstElementChild) {
+    outputPanelEl.insertBefore(resultTopGridEl, outputPanelEl.firstElementChild);
+    return;
+  }
+  outputPanelEl.appendChild(resultTopGridEl);
+}
+
+function restoreOutputHeroPosition() {
+  if (!outputHeroEl || !outputPanelEl) return;
+  if (resultTopGridEl?.contains(outputHeroEl)) {
+    outputPanelEl.insertBefore(outputHeroEl, resultTopGridEl);
+  }
 }
 
 function renderResultHeroMedia() {
+  ensureResultTopGrid();
   ensureResultHeroMedia();
   if (!resultHeroMediaEl) return;
   if (!currentResult || !isBattleMode()) {
+    restoreOutputHeroPosition();
+    if (resultTopGridEl) resultTopGridEl.hidden = true;
     resultHeroMediaEl.hidden = true;
     resultHeroMediaEl.innerHTML = "";
     return;
   }
   const battleIssue = currentBattleIssue() || currentResult?.debate?.topic || "";
+  const battleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
+  const battleSourceSummary = currentBattleSourceSummary();
   const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
-  resultHeroMediaEl.className = "output-block result-hero-media-block";
-  if (outputHeroEl?.nextSibling) {
-    outputPanelEl.insertBefore(resultHeroMediaEl, outputHeroEl.nextSibling);
-  } else if (outputHeroEl) {
-    outputPanelEl.appendChild(resultHeroMediaEl);
+  if (resultTopGridEl) {
+    resultTopGridEl.hidden = false;
+    if (!resultTopGridEl.contains(resultHeroMediaEl)) resultTopGridEl.appendChild(resultHeroMediaEl);
+    if (outputHeroEl && !resultTopGridEl.contains(outputHeroEl)) resultTopGridEl.appendChild(outputHeroEl);
   }
   resultHeroMediaEl.hidden = false;
   resultHeroMediaEl.innerHTML = `
+    <div class="result-source-card-head">
+      <div class="summary-label">${escapeHtml(battleCopy().sourceLabel)}</div>
+      ${battleSourceUrl ? `<a class="result-source-link" href="${escapeHtml(battleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleCopy().sourceLink)}</a>` : ""}
+    </div>
     <div class="result-hero-media-shell">
       <img class="result-hero-media-image" src="${escapeHtml(heroImage)}" alt="${escapeHtml(battleIssue || battleCopy().battleBadge)}" />
     </div>
+    ${battleSourceSummary ? `<div class="result-source-summary">${escapeHtml(battleSourceSummary)}</div>` : ""}
   `;
 }
 
