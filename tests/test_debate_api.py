@@ -3267,6 +3267,36 @@ def test_history_metric_events_and_run_metric_round_trip(tmp_path):
     assert counts["run_metric_1"]["shares"] == 1
 
 
+def test_metric_event_counts_respects_audience_bucket(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    save_run_record(
+        {
+            "session_id": "run_metric_audience",
+            "created_at": "2026-04-17T00:00:00+00:00",
+            "updated_at": "2026-04-17T00:00:00+00:00",
+            "topic": "metric audience",
+            "stance_a": "A",
+            "stance_b": "B",
+            "status": "judge_complete",
+        },
+        db_path,
+    )
+
+    log_metric_event("run_metric_audience", "views", db_path, audience="internal")
+    log_metric_event("run_metric_audience", "views", db_path, audience="external")
+    log_metric_event("run_metric_audience", "shares", db_path, audience="external")
+
+    internal_counts = metric_event_counts(db_path=db_path, audience="internal")
+    external_counts = metric_event_counts(db_path=db_path, audience="external")
+    all_counts = metric_event_counts(db_path=db_path, audience="all")
+
+    assert internal_counts["run_metric_audience"]["views"] == 1
+    assert internal_counts["run_metric_audience"]["shares"] == 0
+    assert external_counts["run_metric_audience"]["views"] == 1
+    assert external_counts["run_metric_audience"]["shares"] == 1
+    assert all_counts["run_metric_audience"]["views"] == 2
+
+
 def test_admin_data_summary_uses_event_counts_for_window(monkeypatch):
     monkeypatch.setattr(
         dev_api,
@@ -3298,16 +3328,17 @@ def test_admin_data_summary_uses_event_counts_for_window(monkeypatch):
     monkeypatch.setattr(
         dev_api,
         "metric_event_counts",
-        lambda range_days=None: {
+        lambda range_days=None, audience="all": {
             "run_a": {"views": 2, "opens": 1, "shares": 0, "saves": 0},
             "run_b": {"views": 7, "opens": 3, "shares": 2, "saves": 1},
         },
     )
 
-    summary = dev_api._admin_data_summary(range_key="7d", state_filter="all", sort_key="views")
+    summary = dev_api._admin_data_summary(range_key="7d", state_filter="all", sort_key="views", audience_key="external")
 
     assert summary["range"] == "7d"
     assert summary["sort"] == "views"
+    assert summary["audience"] == "external"
     assert summary["top_cards"][0]["id"] == "run_b"
     assert summary["top_cards"][0]["status"] == "published"
     assert summary["top_cards"][0]["views"] == 7

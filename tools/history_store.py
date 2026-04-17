@@ -122,6 +122,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           session_id TEXT NOT NULL,
           metric TEXT NOT NULL,
+          audience TEXT NOT NULL DEFAULT 'internal',
           created_at TEXT NOT NULL
         )
         """
@@ -138,6 +139,12 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     for column in ("opens", "shares", "saves"):
         if column not in item_columns:
             conn.execute(f"ALTER TABLE history_items ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+    event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(metric_events)").fetchall()}
+    if "audience" not in event_columns:
+        conn.execute("ALTER TABLE metric_events ADD COLUMN audience TEXT NOT NULL DEFAULT 'internal'")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_metric_events_metric_audience_created ON metric_events(metric, audience, created_at DESC)"
+    )
     conn.commit()
 
 
@@ -584,13 +591,16 @@ def increment_run_metric(session_id: str, metric: str, db_path: Path | None = No
     return save_run_record(record, db_path=db_path).get("record")
 
 
-def log_metric_event(session_id: str, metric: str, db_path: Path | None = None) -> None:
+def log_metric_event(session_id: str, metric: str, db_path: Path | None = None, *, audience: str = "internal") -> None:
     if metric not in {"views", "opens", "shares", "saves"}:
         raise ValueError("invalid metric")
+    normalized_audience = str(audience or "internal").strip().lower()
+    if normalized_audience not in {"internal", "external"}:
+        normalized_audience = "internal"
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO metric_events (session_id, metric, created_at) VALUES (?, ?, ?)",
-            (str(session_id or "").strip(), metric, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO metric_events (session_id, metric, audience, created_at) VALUES (?, ?, ?, ?)",
+            (str(session_id or "").strip(), metric, normalized_audience, datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
 
@@ -598,13 +608,19 @@ def log_metric_event(session_id: str, metric: str, db_path: Path | None = None) 
 def metric_event_counts(
     *,
     range_days: int | None = None,
+    audience: str = "all",
     db_path: Path | None = None,
 ) -> dict[str, dict[str, int]]:
     params: list[object] = []
-    where = ""
+    where_parts: list[str] = []
+    normalized_audience = str(audience or "all").strip().lower()
     if isinstance(range_days, int) and range_days > 0:
-        where = "WHERE datetime(created_at) >= datetime('now', ?)"
+        where_parts.append("datetime(created_at) >= datetime('now', ?)")
         params.append(f"-{int(range_days)} days")
+    if normalized_audience in {"internal", "external"}:
+        where_parts.append("audience = ?")
+        params.append(normalized_audience)
+    where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     with _connect(db_path) as conn:
         rows = conn.execute(
             f"""

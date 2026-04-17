@@ -5,10 +5,12 @@ const refreshButton = document.querySelector("#admin-data-refresh");
 const logoutButton = document.querySelector("#admin-data-logout");
 const rangeButtons = Array.from(document.querySelectorAll("[data-range-filter]"));
 const statusButtons = Array.from(document.querySelectorAll("[data-status-filter]"));
+const audienceButtons = Array.from(document.querySelectorAll("[data-audience-filter]"));
 const sortButtons = Array.from(document.querySelectorAll("[data-sort-key]"));
 
 let activeRange = "7d";
 let activeStatus = "all";
+let activeAudience = "external";
 let activeSort = "views";
 
 function setStatus(text) {
@@ -29,6 +31,7 @@ function escapeHtml(value) {
 function syncButtons() {
   rangeButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.rangeFilter === activeRange));
   statusButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.statusFilter === activeStatus));
+  audienceButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.audienceFilter === activeAudience));
   sortButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.sortKey === activeSort));
 }
 
@@ -87,7 +90,7 @@ async function loadSummary() {
   syncButtons();
   setStatus("Loading data...");
   const response = await fetch(
-    `/api/admin/data/summary?range=${encodeURIComponent(activeRange)}&status=${encodeURIComponent(activeStatus)}&sort=${encodeURIComponent(activeSort)}`,
+    `/api/admin/data/summary?range=${encodeURIComponent(activeRange)}&status=${encodeURIComponent(activeStatus)}&audience=${encodeURIComponent(activeAudience)}&sort=${encodeURIComponent(activeSort)}`,
     { credentials: "same-origin" },
   );
   if (response.status === 401) {
@@ -114,6 +117,14 @@ function bindUi() {
       const next = button.dataset.statusFilter || "all";
       if (next === activeStatus) return;
       activeStatus = next;
+      void loadSummary();
+    });
+  });
+  audienceButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = button.dataset.audienceFilter || "external";
+      if (next === activeAudience) return;
+      activeAudience = next;
       void loadSummary();
     });
   });

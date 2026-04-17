@@ -601,6 +601,11 @@ def _normalize_admin_sort_key(sort_key: str) -> str:
     return key if key in ADMIN_DATA_SORT_KEYS else "views"
 
 
+def _normalize_admin_audience(audience_key: str) -> str:
+    key = str(audience_key or "external").strip().lower()
+    return key if key in {"external", "internal", "all"} else "external"
+
+
 def _title_for_admin_item(item: dict) -> str:
     topic = str(item.get("topic") or "").strip()
     if topic:
@@ -621,19 +626,23 @@ def _metric_snapshot_for_item(item: dict, counts: dict[str, int] | None = None) 
     }
 
 
-def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str) -> dict[str, object]:
+def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, audience_key: str) -> dict[str, object]:
     normalized_state = str(state_filter or "all").strip().lower()
     normalized_range = str(range_key or "7d").strip().lower()
     normalized_sort = _normalize_admin_sort_key(sort_key)
+    normalized_audience = _normalize_admin_audience(audience_key)
     items = _flatten_run_records_for_admin(list_run_records(limit=500))
     if normalized_state in {"all", "candidate", "published", "failed", "archived", "deleted", "trash"}:
         items = [item for item in items if _state_filter_matches(item, normalized_state)]
     range_days = _range_days_from_key(normalized_range)
-    event_counts = metric_event_counts(range_days=range_days) if normalized_range in {"7d", "14d"} else {}
+    event_counts = metric_event_counts(range_days=range_days, audience=normalized_audience)
     table_rows: list[dict[str, object]] = []
     for item in items:
         record_id = str(item.get("id") or item.get("run_id") or item.get("session_id") or "").strip()
-        counts = _metric_snapshot_for_item(item, event_counts.get(record_id) if event_counts else None)
+        counts = _metric_snapshot_for_item(
+            item,
+            (event_counts.get(record_id) or {"views": 0, "opens": 0, "shares": 0, "saves": 0}),
+        )
         table_rows.append(
             {
                 "id": record_id,
@@ -660,16 +669,27 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str) -> 
         "range": normalized_range,
         "status": normalized_state,
         "sort": normalized_sort,
+        "audience": normalized_audience,
         "top_cards": table_rows[:50],
         "totals": totals,
     }
 
 
-def _increment_battle_metric(record_id: str, metric: str) -> tuple[dict | None, bool]:
+def _metric_audience_for_request(handler: BaseHTTPRequestHandler) -> str:
+    if history_env_tag() != "public":
+        return "internal"
+    referer = str(handler.headers.get("Referer") or "").strip().lower()
+    origin = str(handler.headers.get("Origin") or "").strip().lower()
+    if "/admin/" in referer or "/admin/" in origin:
+        return "internal"
+    return "external"
+
+
+def _increment_battle_metric(record_id: str, metric: str, *, audience: str) -> tuple[dict | None, bool]:
     published_record = increment_published_metric(record_id, metric)
     run_record = increment_run_metric(record_id, metric)
     try:
-        log_metric_event(record_id, metric)
+        log_metric_event(record_id, metric, audience=audience)
     except Exception:
         pass
     return published_record or run_record, bool(published_record)
@@ -948,7 +968,13 @@ class Handler(BaseHTTPRequestHandler):
             range_key = str(query.get("range", ["7d"])[0] or "7d")
             state_filter = str(query.get("status", ["all"])[0] or "all")
             sort_key = str(query.get("sort", ["views"])[0] or "views")
-            summary = _admin_data_summary(range_key=range_key, state_filter=state_filter, sort_key=sort_key)
+            audience_key = str(query.get("audience", ["external"])[0] or "external")
+            summary = _admin_data_summary(
+                range_key=range_key,
+                state_filter=state_filter,
+                sort_key=sort_key,
+                audience_key=audience_key,
+            )
             self._send_json(200, {"ok": True, **summary})
             return
         admin_page = _admin_page_path(path)
@@ -1622,7 +1648,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/battle/") and path.endswith("/view"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/view").strip()
-                record, curated = _increment_battle_metric(record_id, "views")
+                record, curated = _increment_battle_metric(record_id, "views", audience=_metric_audience_for_request(self))
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
@@ -1630,7 +1656,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/battle/") and path.endswith("/open"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/open").strip()
-                record, curated = _increment_battle_metric(record_id, "opens")
+                record, curated = _increment_battle_metric(record_id, "opens", audience=_metric_audience_for_request(self))
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
@@ -1638,7 +1664,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/battle/") and path.endswith("/share"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/share").strip()
-                record, curated = _increment_battle_metric(record_id, "shares")
+                record, curated = _increment_battle_metric(record_id, "shares", audience=_metric_audience_for_request(self))
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
@@ -1646,7 +1672,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/battle/") and path.endswith("/save"):
                 record_id = path.removeprefix("/api/battle/").removesuffix("/save").strip()
-                record, curated = _increment_battle_metric(record_id, "saves")
+                record, curated = _increment_battle_metric(record_id, "saves", audience=_metric_audience_for_request(self))
                 if not record:
                     self._send_json(404, {"ok": False, "error": "not found"})
                     return
