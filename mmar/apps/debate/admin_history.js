@@ -99,6 +99,18 @@ function renderXOEmbedFallback(text) {
   xCardPreviewEl.classList.remove("is-empty");
 }
 
+function xOEmbedFailureLabel(errorCode) {
+  if (errorCode === "x_forbidden") return "X側の制限により埋め込めません（403）";
+  if (errorCode === "invalid_x_post_url" || errorCode === "missing_url") return "URL無効";
+  return "一時的に取得できませんでした";
+}
+
+function xOEmbedFailureFallback(errorCode) {
+  if (errorCode === "x_forbidden") return "X側の制限により埋め込めません（403）";
+  if (errorCode === "invalid_x_post_url" || errorCode === "missing_url") return "URL無効";
+  return "一時的に取得できませんでした";
+}
+
 function syncXOEmbedPanel(run) {
   const sourceUrl = String(run?.source_url || "").trim();
   clearXOEmbedPreview();
@@ -159,8 +171,9 @@ async function fetchXOEmbedPreview() {
     const response = await fetch(`/api/x/oembed?url=${encodeURIComponent(sourceUrl)}`, { credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok || !data?.ok || !data?.html) {
-      setXOEmbedStatus(data?.error === "invalid_x_post_url" ? "URL無効" : "取得失敗");
-      renderXOEmbedFallback("Post unavailable");
+      const errorCode = String(data?.error || "");
+      setXOEmbedStatus(xOEmbedFailureLabel(errorCode));
+      renderXOEmbedFallback(xOEmbedFailureFallback(errorCode));
       return;
     }
     xCardPreviewEl.innerHTML = data.html;
@@ -171,8 +184,8 @@ async function fetchXOEmbedPreview() {
     setXOEmbedStatus("取得済み");
   } catch (error) {
     console.error("[admin-history] x oembed fetch failed", error);
-    setXOEmbedStatus("取得失敗");
-    renderXOEmbedFallback("Post unavailable");
+    setXOEmbedStatus("一時的に取得できませんでした");
+    renderXOEmbedFallback("一時的に取得できませんでした");
   } finally {
     xCardFetchButton.disabled = false;
   }

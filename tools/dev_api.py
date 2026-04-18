@@ -202,7 +202,7 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
             body_preview=_truncate_debug_text(body),
             error_type=type(exc).__name__,
         )
-        raise
+        raise RuntimeError(f"x_oembed_http_{int(exc.code or 0)}")
     except urllib_error.URLError as exc:
         _x_oembed_log(
             "url_error",
@@ -211,7 +211,7 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
             reason=_truncate_debug_text(str(getattr(exc, "reason", exc) or "")),
             error_type=type(exc).__name__,
         )
-        raise
+        raise RuntimeError("x_oembed_network")
     except TimeoutError as exc:
         _x_oembed_log(
             "timeout",
@@ -219,7 +219,7 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
             request_url=request_url,
             error_type=type(exc).__name__,
         )
-        raise
+        raise RuntimeError("x_oembed_timeout")
     except Exception as exc:
         _x_oembed_log(
             "exception",
@@ -246,7 +246,7 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
             upstream_status=status,
             payload_keys=sorted(payload.keys()),
         )
-        raise RuntimeError("missing_oembed_html")
+        raise RuntimeError("x_oembed_missing_html")
     return {
         "ok": True,
         "url": normalized,
@@ -1058,7 +1058,17 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 self._send_json(400, {"ok": False, "error": "invalid_x_post_url"})
                 return
-            except Exception:
+            except Exception as exc:
+                reason = str(exc or "").strip()
+                if reason == "x_oembed_http_403":
+                    self._send_json(403, {"ok": False, "error": "x_forbidden"})
+                    return
+                if reason == "x_oembed_missing_html":
+                    self._send_json(502, {"ok": False, "error": "missing_html"})
+                    return
+                if reason in {"x_oembed_timeout", "x_oembed_network"}:
+                    self._send_json(502, {"ok": False, "error": "oembed_unavailable"})
+                    return
                 self._send_json(502, {"ok": False, "error": "oembed_unavailable"})
                 return
             self._send_json(200, payload)
