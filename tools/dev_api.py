@@ -265,6 +265,7 @@ ADMIN_PASSWORD = str(
 ).strip()
 ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
 ADMIN_DATA_SORT_KEYS = {"views", "opens", "shares", "saves"}
+ADMIN_X_EMBED_STATUSES = {"success", "x_forbidden", "invalid", "temporary_error", "missing_html"}
 
 
 def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
@@ -284,6 +285,25 @@ def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
     if reason == "timeout":
         return 504, reason
     return 502, reason
+
+
+def _sanitize_admin_x_embed_payload(payload: dict) -> dict[str, str]:
+    status = str(payload.get("x_embed_status") or "").strip()
+    if status not in ADMIN_X_EMBED_STATUSES:
+        status = "temporary_error"
+    html = str(payload.get("x_embed_html") or "").strip()
+    if status != "success" or "twitter-tweet" not in html:
+        html = ""
+    source_url = str(payload.get("x_embed_source_url") or "").strip()
+    checked_at = str(payload.get("x_embed_checked_at") or datetime.now(timezone.utc).isoformat()).strip()
+    error_code = str(payload.get("x_embed_error") or "").strip()
+    return {
+        "x_embed_status": status,
+        "x_embed_html": html,
+        "x_embed_source_url": source_url,
+        "x_embed_checked_at": checked_at,
+        "x_embed_error": error_code,
+    }
 
 
 def _requested_experience_mode(payload: dict) -> str:
@@ -1201,6 +1221,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/admin/gallery/publish",
             "/api/admin/gallery/remove",
             "/api/admin/runs/import",
+            "/api/admin/runs/x_embed",
             "/api/admin/runs/delete",
             "/api/admin/runs/archive",
             "/api/admin/runs/restore",
@@ -1270,6 +1291,29 @@ class Handler(BaseHTTPRequestHandler):
                 _maybe_sync_candidate_to_admin(saved.get("record") or {})
                 saved_record = _flatten_saved_record(saved.get("record") or {}, curated=False)
                 self._send_json(200, {"ok": True, **saved, "history_item": None, "record": saved_record})
+                return
+            if path == "/api/admin/runs/x_embed":
+                if not _admin_session(self):
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
+                session_id = str(payload.get("session_id") or "").strip()
+                if not session_id:
+                    self._send_json(400, {"ok": False, "error": "missing_session_id"})
+                    return
+                item = get_run_record(session_id)
+                if not item:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                merged = dict(item)
+                merged.update(_sanitize_admin_x_embed_payload(payload))
+                saved = save_run_record(merged)
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "item": _flatten_saved_record(saved.get("record") or merged, curated=bool(get_published_card(session_id))),
+                    },
+                )
                 return
             if path in {"/api/admin/history/add", "/api/admin/gallery/publish"}:
                 if not (_admin_session(self) or _service_sync_authorized(self)):

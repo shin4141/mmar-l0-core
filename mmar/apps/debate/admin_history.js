@@ -111,6 +111,50 @@ function xOEmbedFailureFallback(errorCode) {
   return "一時的に取得できませんでした";
 }
 
+function getSavedXOEmbedState(run) {
+  if (!run) return null;
+  const currentSourceUrl = String(run.source_url || "").trim();
+  const savedSourceUrl = String(run.x_embed_source_url || "").trim();
+  if (!currentSourceUrl || !savedSourceUrl || currentSourceUrl !== savedSourceUrl) return null;
+  const status = String(run.x_embed_status || "").trim();
+  if (!status) return null;
+  return {
+    status,
+    html: String(run.x_embed_html || "").trim(),
+    error: String(run.x_embed_error || "").trim(),
+    checkedAt: String(run.x_embed_checked_at || "").trim(),
+  };
+}
+
+async function saveXOEmbedState(snapshot) {
+  if (!activeRun?.session_id) return;
+  try {
+    const response = await fetch("/api/admin/runs/x_embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        session_id: activeRun.session_id,
+        x_embed_status: snapshot.x_embed_status,
+        x_embed_html: snapshot.x_embed_html || "",
+        x_embed_source_url: snapshot.x_embed_source_url || "",
+        x_embed_checked_at: snapshot.x_embed_checked_at || "",
+        x_embed_error: snapshot.x_embed_error || "",
+      }),
+    });
+    if (response.status === 401) {
+      window.location.href = "/admin/login";
+      return;
+    }
+    const data = await response.json();
+    if (response.ok && data?.item) {
+      activeRun = data.item;
+    }
+  } catch (error) {
+    console.error("[admin-history] x embed save failed", error);
+  }
+}
+
 function syncXOEmbedPanel(run) {
   const sourceUrl = String(run?.source_url || "").trim();
   clearXOEmbedPreview();
@@ -136,8 +180,22 @@ function syncXOEmbedPanel(run) {
   xCardFetchButton.hidden = false;
   xCardFetchButton.disabled = false;
   xCardFetchButton.dataset.sourceUrl = sourceUrl;
-  xCardFetchButton.textContent = "Xカード取得";
-  setXOEmbedStatus("未取得");
+  const saved = getSavedXOEmbedState(run);
+  if (!saved) {
+    xCardFetchButton.textContent = "Xカード取得";
+    setXOEmbedStatus("未取得");
+    return;
+  }
+  xCardFetchButton.textContent = "Xカード再取得";
+  if (saved.status === "success" && saved.html) {
+    xCardPreviewEl.innerHTML = saved.html;
+    xCardPreviewEl.classList.remove("is-empty");
+    setXOEmbedStatus("取得済み");
+    void ensureXWidgetsScript().then(() => window.twttr?.widgets?.load?.(xCardPreviewEl)).catch(() => {});
+    return;
+  }
+  setXOEmbedStatus(xOEmbedFailureLabel(saved.error || saved.status));
+  renderXOEmbedFallback(xOEmbedFailureFallback(saved.error || saved.status));
 }
 
 let xWidgetsPromise = null;
@@ -174,6 +232,20 @@ async function fetchXOEmbedPreview() {
       const errorCode = String(data?.error || "");
       setXOEmbedStatus(xOEmbedFailureLabel(errorCode));
       renderXOEmbedFallback(xOEmbedFailureFallback(errorCode));
+      await saveXOEmbedState({
+        x_embed_status:
+          errorCode === "x_forbidden"
+            ? "x_forbidden"
+            : errorCode === "invalid_x_post_url" || errorCode === "missing_url"
+              ? "invalid"
+              : errorCode === "missing_html"
+                ? "missing_html"
+                : "temporary_error",
+        x_embed_html: "",
+        x_embed_source_url: sourceUrl,
+        x_embed_checked_at: new Date().toISOString(),
+        x_embed_error: errorCode || "oembed_unavailable",
+      });
       return;
     }
     xCardPreviewEl.innerHTML = data.html;
@@ -182,10 +254,24 @@ async function fetchXOEmbedPreview() {
     window.twttr?.widgets?.load?.(xCardPreviewEl);
     xCardFetchButton.textContent = "Xカード再取得";
     setXOEmbedStatus("取得済み");
+    await saveXOEmbedState({
+      x_embed_status: "success",
+      x_embed_html: data.html,
+      x_embed_source_url: sourceUrl,
+      x_embed_checked_at: new Date().toISOString(),
+      x_embed_error: "",
+    });
   } catch (error) {
     console.error("[admin-history] x oembed fetch failed", error);
     setXOEmbedStatus("一時的に取得できませんでした");
     renderXOEmbedFallback("一時的に取得できませんでした");
+    await saveXOEmbedState({
+      x_embed_status: "temporary_error",
+      x_embed_html: "",
+      x_embed_source_url: sourceUrl,
+      x_embed_checked_at: new Date().toISOString(),
+      x_embed_error: "oembed_unavailable",
+    });
   } finally {
     xCardFetchButton.disabled = false;
   }
