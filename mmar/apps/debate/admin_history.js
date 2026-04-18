@@ -106,6 +106,7 @@ function syncXOEmbedPanel(run) {
     xCardPanelEl.hidden = true;
     xCardFetchButton.hidden = true;
     xCardFetchButton.disabled = true;
+    xCardFetchButton.dataset.sourceUrl = "";
     xCardUrlEl.textContent = "";
     setXOEmbedStatus("");
     return;
@@ -115,12 +116,14 @@ function syncXOEmbedPanel(run) {
   if (!isEmbeddableXPostUrl(sourceUrl)) {
     xCardFetchButton.hidden = true;
     xCardFetchButton.disabled = true;
+    xCardFetchButton.dataset.sourceUrl = "";
     setXOEmbedStatus("URL無効");
     renderXOEmbedFallback("Post unavailable");
     return;
   }
   xCardFetchButton.hidden = false;
   xCardFetchButton.disabled = false;
+  xCardFetchButton.dataset.sourceUrl = sourceUrl;
   xCardFetchButton.textContent = "Xカード取得";
   setXOEmbedStatus("未取得");
 }
@@ -148,8 +151,7 @@ function ensureXWidgetsScript() {
 }
 
 async function fetchXOEmbedPreview() {
-  if (!activeRun) return;
-  const sourceUrl = String(activeRun.source_url || "").trim();
+  const sourceUrl = String(xCardFetchButton.dataset.sourceUrl || activeRun?.source_url || "").trim();
   if (!isEmbeddableXPostUrl(sourceUrl)) return;
   xCardFetchButton.disabled = true;
   setXOEmbedStatus("取得中...");
