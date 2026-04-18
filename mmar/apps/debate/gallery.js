@@ -334,7 +334,6 @@ function buildCardMarkup(record) {
         ? `
           <div class="gallery-card-media gallery-card-media-fixed">
             <img class="gallery-card-image" src="${escapeHtml(xEmbedMediaUrl)}" alt="${escapeHtml(issue)}" loading="lazy" onerror="this.onerror=null;this.src='${escapeHtml(buildPlaceholderImage(issue))}'" />
-            <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
           </div>
         `
         : `
@@ -357,7 +356,6 @@ function buildCardMarkup(record) {
       : `
         <div class="gallery-card-media gallery-card-media-fixed">
           <img class="gallery-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(issue)}" loading="lazy" />
-          <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
         </div>
       `;
   return `
