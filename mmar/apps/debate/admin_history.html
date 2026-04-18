@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>VerdAIct Admin</title>
-  <link rel="stylesheet" href="/admin/admin.css?v=20260410a" />
+  <link rel="stylesheet" href="/admin/admin.css?v=20260418c" />
 </head>
 <body>
   <main class="admin-shell admin-history-shell">
@@ -47,11 +47,22 @@
         </div>
       </div>
       <div id="admin-action-note" class="admin-action-note"></div>
+      <section id="admin-x-card-panel" class="admin-x-card-panel" hidden>
+        <div class="admin-x-card-head">
+          <div>
+            <div class="admin-section-title">X Card Preview</div>
+            <div id="admin-x-card-url" class="admin-meta"></div>
+          </div>
+          <button id="admin-x-card-fetch" type="button" class="secondary-button" hidden>Xカード取得</button>
+        </div>
+        <div id="admin-x-card-status" class="admin-meta">未取得</div>
+        <div id="admin-x-card-preview" class="admin-x-card-preview"></div>
+      </section>
       <div id="admin-detail-meta" class="admin-meta">Select a run.</div>
       <div id="admin-detail-json" class="admin-detail-body">Select a run.</div>
       <div id="admin-history-status" class="admin-status" hidden></div>
     </section>
   </main>
-  <script type="module" src="/admin/admin_history.js?v=20260418b"></script>
+  <script type="module" src="/admin/admin_history.js?v=20260418c"></script>
 </body>
 </html>

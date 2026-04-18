@@ -189,6 +189,43 @@ button:disabled {
   font-size: 13px;
 }
 
+.admin-x-card-panel {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dfd1bf;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.admin-x-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-x-card-preview {
+  min-height: 24px;
+}
+
+.admin-x-card-preview.is-empty {
+  display: none;
+}
+
+.admin-x-card-fallback {
+  border-radius: 12px;
+  background: #f7f0e2;
+  color: #5e513f;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.admin-x-card-preview blockquote.twitter-tweet {
+  margin: 0 !important;
+}
+
 .admin-json {
   margin-top: 14px;
   background: #201d18;

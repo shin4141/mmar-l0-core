@@ -12,6 +12,11 @@ const refreshButton = document.querySelector("#admin-refresh");
 const logoutButton = document.querySelector("#admin-logout");
 const statusEl = document.querySelector("#admin-history-status");
 const actionNoteEl = document.querySelector("#admin-action-note");
+const xCardPanelEl = document.querySelector("#admin-x-card-panel");
+const xCardUrlEl = document.querySelector("#admin-x-card-url");
+const xCardStatusEl = document.querySelector("#admin-x-card-status");
+const xCardPreviewEl = document.querySelector("#admin-x-card-preview");
+const xCardFetchButton = document.querySelector("#admin-x-card-fetch");
 const filterButtons = Array.from(document.querySelectorAll("[data-state-filter]"));
 const ADMIN_HISTORY_ADD_PATH = "/api/admin/history/add";
 const ADMIN_HISTORY_REMOVE_PATH = "/api/admin/history/remove";
@@ -40,7 +45,12 @@ function hasRequiredDom() {
     refreshButton &&
     logoutButton &&
     statusEl &&
-    actionNoteEl
+    actionNoteEl &&
+    xCardPanelEl &&
+    xCardUrlEl &&
+    xCardStatusEl &&
+    xCardPreviewEl &&
+    xCardFetchButton
   );
 }
 
@@ -62,6 +72,108 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function isEmbeddableXPostUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    const host = (parsed.hostname || "").toLowerCase();
+    if (!["x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(host)) return false;
+    return /\/status\/\d+/.test(parsed.pathname || "");
+  } catch {
+    return false;
+  }
+}
+
+function clearXOEmbedPreview() {
+  xCardPreviewEl.innerHTML = "";
+  xCardPreviewEl.classList.add("is-empty");
+}
+
+function setXOEmbedStatus(text) {
+  xCardStatusEl.textContent = text || "";
+}
+
+function renderXOEmbedFallback(text) {
+  xCardPreviewEl.innerHTML = `<div class="admin-x-card-fallback">${escapeHtml(text || "Post unavailable")}</div>`;
+  xCardPreviewEl.classList.remove("is-empty");
+}
+
+function syncXOEmbedPanel(run) {
+  const sourceUrl = String(run?.source_url || "").trim();
+  clearXOEmbedPreview();
+  if (!run || !sourceUrl) {
+    xCardPanelEl.hidden = true;
+    xCardFetchButton.hidden = true;
+    xCardFetchButton.disabled = true;
+    xCardUrlEl.textContent = "";
+    setXOEmbedStatus("");
+    return;
+  }
+  xCardPanelEl.hidden = false;
+  xCardUrlEl.textContent = sourceUrl;
+  if (!isEmbeddableXPostUrl(sourceUrl)) {
+    xCardFetchButton.hidden = true;
+    xCardFetchButton.disabled = true;
+    setXOEmbedStatus("URL無効");
+    renderXOEmbedFallback("Post unavailable");
+    return;
+  }
+  xCardFetchButton.hidden = false;
+  xCardFetchButton.disabled = false;
+  xCardFetchButton.textContent = "Xカード取得";
+  setXOEmbedStatus("未取得");
+}
+
+let xWidgetsPromise = null;
+function ensureXWidgetsScript() {
+  if (window.twttr?.widgets?.load) return Promise.resolve(window.twttr);
+  if (xWidgetsPromise) return xWidgetsPromise;
+  xWidgetsPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-x-widgets="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.twttr), { once: true });
+      existing.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://platform.x.com/widgets.js";
+    script.async = true;
+    script.dataset.xWidgets = "true";
+    script.addEventListener("load", () => resolve(window.twttr), { once: true });
+    script.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
+    document.head.appendChild(script);
+  });
+  return xWidgetsPromise;
+}
+
+async function fetchXOEmbedPreview() {
+  if (!activeRun) return;
+  const sourceUrl = String(activeRun.source_url || "").trim();
+  if (!isEmbeddableXPostUrl(sourceUrl)) return;
+  xCardFetchButton.disabled = true;
+  setXOEmbedStatus("取得中...");
+  try {
+    const response = await fetch(`/api/x/oembed?url=${encodeURIComponent(sourceUrl)}`, { credentials: "same-origin" });
+    const data = await response.json();
+    if (!response.ok || !data?.ok || !data?.html) {
+      setXOEmbedStatus(data?.error === "invalid_x_post_url" ? "URL無効" : "取得失敗");
+      renderXOEmbedFallback("Post unavailable");
+      return;
+    }
+    xCardPreviewEl.innerHTML = data.html;
+    xCardPreviewEl.classList.remove("is-empty");
+    await ensureXWidgetsScript();
+    window.twttr?.widgets?.load?.(xCardPreviewEl);
+    xCardFetchButton.textContent = "Xカード再取得";
+    setXOEmbedStatus("取得済み");
+  } catch (error) {
+    console.error("[admin-history] x oembed fetch failed", error);
+    setXOEmbedStatus("取得失敗");
+    renderXOEmbedFallback("Post unavailable");
+  } finally {
+    xCardFetchButton.disabled = false;
+  }
 }
 
 function getTurns(run) {
@@ -274,6 +386,7 @@ function renderDetail(run) {
     detailModeBadgeEl.hidden = true;
     detailStateBadgeEl.hidden = true;
     syncActionButtons(null);
+    syncXOEmbedPanel(null);
     return;
   }
   const turnCount = run.turn_count || getTurns(run).length || 0;
@@ -308,6 +421,7 @@ function renderDetail(run) {
     </section>
   `;
   syncActionButtons(run);
+  syncXOEmbedPanel(run);
 }
 
 async function requireSession() {
@@ -471,6 +585,9 @@ function bindUi() {
       credentials: "same-origin",
     });
     window.location.href = "/admin/login";
+  });
+  xCardFetchButton.addEventListener("click", () => {
+    void fetchXOEmbedPreview();
   });
   return true;
 }

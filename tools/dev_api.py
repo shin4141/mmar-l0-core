@@ -15,7 +15,7 @@ from http import cookies
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 try:
     from debate_api import _call_gemini, _normalize_localized_view_cache, _normalize_summary, LocalizeError, ask_match_gemini, build_battle_from_x_url, localize_battle_record, run_debate, run_live_judge
@@ -104,6 +104,7 @@ REPO = Path(__file__).resolve().parents[1]
 ENV_PATH = REPO / ".env"
 ADMIN_SYNC_ORIGIN = str(os.getenv("MMAR_ADMIN_SYNC_ORIGIN") or "").strip().rstrip("/")
 ADMIN_SYNC_TOKEN = str(os.getenv("MMAR_ADMIN_SYNC_TOKEN") or "").strip()
+X_OEMBED_URL = "https://publish.x.com/oembed"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -130,6 +131,62 @@ def _git_sha_short() -> str:
         return out.strip() or "unknown"
     except Exception:
         return "unknown"
+
+
+def _normalize_x_post_url(raw: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    host = (parsed.netloc or "").strip().lower()
+    if host not in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}:
+        return ""
+    path = parsed.path or ""
+    if "/status/" not in path:
+        return ""
+    parts = [segment for segment in path.split("/") if segment]
+    try:
+        status_index = parts.index("status")
+    except ValueError:
+        return ""
+    if status_index < 1 or status_index + 1 >= len(parts):
+        return ""
+    screen_name = parts[status_index - 1]
+    status_id = parts[status_index + 1]
+    if not screen_name or not status_id.isdigit():
+        return ""
+    return f"https://x.com/{screen_name}/status/{status_id}"
+
+
+def _fetch_x_oembed(post_url: str) -> dict[str, object]:
+    normalized = _normalize_x_post_url(post_url)
+    if not normalized:
+        raise ValueError("invalid_x_post_url")
+    request_url = (
+        f"{X_OEMBED_URL}?url={quote(normalized, safe='')}"
+        "&omit_script=1&dnt=true&maxwidth=550"
+    )
+    request = urllib_request.Request(
+        request_url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "MMAR/1.0 (+https://mmar-debate-preview.onrender.com)",
+        },
+        method="GET",
+    )
+    with urllib_request.urlopen(request, timeout=6) as response:
+        body = response.read().decode("utf-8")
+    payload = json.loads(body or "{}")
+    html = str(payload.get("html") or "").strip()
+    if not html:
+        raise RuntimeError("missing_oembed_html")
+    return {
+        "ok": True,
+        "url": normalized,
+        "html": html,
+        "cache_age": str(payload.get("cache_age") or "").strip(),
+        "provider_name": str(payload.get("provider_name") or "").strip(),
+    }
 
 
 GIT_SHA = _git_sha_short()
@@ -922,6 +979,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
             self._send_json(200, {"ok": True, "record": _flatten_saved_record(record, curated=bool(published_record))})
+            return
+        if path == "/api/x/oembed":
+            query = parse_qs(parsed_url.query or "")
+            post_url = str(query.get("url", [""])[0] or "").strip()
+            if not post_url:
+                self._send_json(400, {"ok": False, "error": "missing_url"})
+                return
+            try:
+                payload = _fetch_x_oembed(post_url)
+            except ValueError:
+                self._send_json(400, {"ok": False, "error": "invalid_x_post_url"})
+                return
+            except Exception:
+                self._send_json(502, {"ok": False, "error": "oembed_unavailable"})
+                return
+            self._send_json(200, payload)
             return
         if path.startswith("/api/history/"):
             record_id = path.removeprefix("/api/history/").strip()
