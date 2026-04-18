@@ -159,6 +159,60 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function xEmbedFailureLabel(errorCode) {
+  if (errorCode === "x_forbidden") return "X側の制限により埋め込めません（403）";
+  if (errorCode === "invalid" || errorCode === "invalid_x_post_url" || errorCode === "missing_url") return "URL無効";
+  return "一時的に取得できませんでした";
+}
+
+function xEmbedStateForRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  const currentSourceUrl = String(record.source_url || "").trim();
+  const savedSourceUrl = String(record.x_embed_source_url || "").trim();
+  if (!currentSourceUrl || !savedSourceUrl || currentSourceUrl !== savedSourceUrl) return null;
+  const status = String(record.x_embed_status || "").trim();
+  if (!status) return null;
+  if (status === "success") {
+    const html = String(record.x_embed_html || "").trim();
+    if (!html || !html.includes("twitter-tweet")) return null;
+    return { status, html };
+  }
+  return {
+    status,
+    error: String(record.x_embed_error || status).trim(),
+  };
+}
+
+let xWidgetsPromise = null;
+function ensureXWidgetsScript() {
+  if (window.twttr?.widgets?.load) return Promise.resolve(window.twttr);
+  if (xWidgetsPromise) return xWidgetsPromise;
+  xWidgetsPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-x-widgets="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.twttr), { once: true });
+      existing.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://platform.x.com/widgets.js";
+    script.async = true;
+    script.dataset.xWidgets = "true";
+    script.addEventListener("load", () => resolve(window.twttr), { once: true });
+    script.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
+    document.head.appendChild(script);
+  });
+  return xWidgetsPromise;
+}
+
+function hydrateGalleryXEmbeds() {
+  const embeds = galleryGridEl?.querySelectorAll?.("[data-gallery-x-embed='1']");
+  if (!embeds?.length) return;
+  void ensureXWidgetsScript()
+    .then(() => window.twttr?.widgets?.load?.(galleryGridEl))
+    .catch(() => {});
+}
+
 function englishCardCopy(record, localized) {
   const copy = galleryCopy();
   if (!englishViewReady(record, localized)) {
@@ -197,6 +251,7 @@ function sortRecords(records) {
 
 function buildCardMarkup(record) {
   const localized = localizedViewForRecord(record);
+  const xEmbed = xEmbedStateForRecord(record);
   const copy = galleryCopy();
   const englishCard = currentLang === "en" ? englishCardCopy(record, localized) : null;
   const issue = currentLang === "en"
@@ -213,17 +268,36 @@ function buildCardMarkup(record) {
   const href = currentLang === "en"
     ? `/battle/${encodeURIComponent(id)}?lang=en`
     : `/battle/${encodeURIComponent(id)}`;
-  return `
-    <a class="gallery-card" href="${escapeHtml(href)}" data-record-id="${escapeHtml(id)}">
-      <div class="gallery-card-media">
-        <img class="gallery-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(issue)}" loading="lazy" />
+  const mediaMarkup = xEmbed?.status === "success"
+    ? `
+      <div class="gallery-card-media gallery-card-media-xembed">
         <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
+        <div class="gallery-x-embed-shell">
+          <div class="gallery-x-embed" data-gallery-x-embed="1">${xEmbed.html}</div>
+        </div>
       </div>
+    `
+    : xEmbed
+      ? `
+        <div class="gallery-card-media gallery-card-media-xembed">
+          <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
+          <div class="gallery-x-embed-fallback">${escapeHtml(xEmbedFailureLabel(xEmbed.error || xEmbed.status))}</div>
+        </div>
+      `
+      : `
+        <div class="gallery-card-media">
+          <img class="gallery-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(issue)}" loading="lazy" />
+          <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
+        </div>
+      `;
+  return `
+    <article class="gallery-card" data-record-id="${escapeHtml(id)}" data-href="${escapeHtml(href)}">
+      ${mediaMarkup}
       <div class="gallery-card-copy">
-        <div class="gallery-card-issue">${escapeHtml(issue)}</div>
+        <a class="gallery-card-title-link" href="${escapeHtml(href)}">${escapeHtml(issue)}</a>
         ${excerpt ? `<div class="gallery-card-excerpt">${escapeHtml(excerpt)}</div>` : ""}
       </div>
-    </a>
+    </article>
   `;
 }
 
@@ -261,10 +335,21 @@ function renderGallery(records) {
   }
   galleryGridEl.innerHTML = markup.join("");
   galleryGridEl.querySelectorAll(".gallery-card[data-record-id]").forEach((card) => {
-    card.addEventListener("click", () => {
-      sendBattleMetric(card.dataset.recordId || "", "open");
+    const recordId = card.dataset.recordId || "";
+    const href = card.dataset.href || "";
+    const handleMetric = () => sendBattleMetric(recordId, "open");
+    card.querySelectorAll(".gallery-card-title-link").forEach((link) => {
+      link.addEventListener("click", handleMetric);
+    });
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return;
+      if (event.target.closest(".gallery-x-embed")) return;
+      if (!href) return;
+      handleMetric();
+      window.location.href = href;
     });
   });
+  hydrateGalleryXEmbeds();
 }
 
 async function loadGallery() {

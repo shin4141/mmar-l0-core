@@ -706,6 +706,11 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or nested_run.get("source_summary") or nested_debate_result.get("source_summary") or ""),
         "canonical_lang": str(record.get("canonical_lang") or debate_result.get("canonical_lang") or nested_run.get("canonical_lang") or nested_debate_result.get("canonical_lang") or "ja"),
         "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else (nested_run.get("localized_views") if isinstance(nested_run.get("localized_views"), dict) else {}),
+        "x_embed_status": str(record.get("x_embed_status") or nested_run.get("x_embed_status") or ""),
+        "x_embed_html": str(record.get("x_embed_html") or nested_run.get("x_embed_html") or ""),
+        "x_embed_source_url": str(record.get("x_embed_source_url") or nested_run.get("x_embed_source_url") or ""),
+        "x_embed_checked_at": str(record.get("x_embed_checked_at") or nested_run.get("x_embed_checked_at") or ""),
+        "x_embed_error": str(record.get("x_embed_error") or nested_run.get("x_embed_error") or ""),
         "views": int(record.get("views", nested_run.get("views", 0)) or 0),
         "opens": int(record.get("opens", nested_run.get("opens", 0)) or 0),
         "shares": int(record.get("shares", nested_run.get("shares", 0)) or 0),
@@ -1307,11 +1312,17 @@ class Handler(BaseHTTPRequestHandler):
                 merged = dict(item)
                 merged.update(_sanitize_admin_x_embed_payload(payload))
                 saved = save_run_record(merged)
+                published_record = get_published_card(session_id)
+                if published_record:
+                    try:
+                        publish_record(saved.get("record") or merged)
+                    except Exception:
+                        pass
                 self._send_json(
                     200,
                     {
                         "ok": True,
-                        "item": _flatten_saved_record(saved.get("record") or merged, curated=bool(get_published_card(session_id))),
+                        "item": _flatten_saved_record(saved.get("record") or merged, curated=bool(published_record)),
                     },
                 )
                 return

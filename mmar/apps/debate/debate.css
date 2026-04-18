@@ -629,6 +629,37 @@ body.public-fixed-demo #run-button {
   line-height: 1.55;
 }
 
+.result-x-embed-shell {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 241, 231, 0.96), rgba(241, 211, 194, 0.72));
+  padding: 14px 12px;
+}
+
+.result-x-embed {
+  width: 100%;
+  max-width: 100%;
+}
+
+.result-x-embed blockquote.twitter-tweet {
+  margin: 0 !important;
+}
+
+.result-x-embed-fallback {
+  display: grid;
+  align-items: center;
+  min-height: 160px;
+  border-radius: 12px;
+  background: rgba(255, 250, 243, 0.96);
+  color: var(--muted);
+  padding: 18px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 @media (max-width: 720px) {
   .result-top-grid {
     grid-template-columns: 1fr;
@@ -643,6 +674,10 @@ body.public-fixed-demo #run-button {
 
   .result-hero-media-image {
     max-height: 320px;
+  }
+
+  .result-x-embed-shell {
+    padding: 12px 8px;
   }
 }
 

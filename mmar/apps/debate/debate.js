@@ -825,6 +825,7 @@ function renderResultHeroMedia() {
   const battleIssue = currentBattleIssue() || currentResult?.debate?.topic || "";
   const battleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
   const battleSourceSummary = currentBattleSourceSummary();
+  const xEmbed = currentBattleXEmbedState();
   const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
   if (resultTopGridEl) {
@@ -833,16 +834,32 @@ function renderResultHeroMedia() {
     if (outputHeroEl && !resultTopGridEl.contains(outputHeroEl)) resultTopGridEl.appendChild(outputHeroEl);
   }
   resultHeroMediaEl.hidden = false;
+  const embedMarkup = xEmbed?.status === "success"
+    ? `
+      <div class="result-x-embed-shell">
+        <div class="result-x-embed" data-battle-x-embed="1">${xEmbed.html}</div>
+      </div>
+    `
+    : xEmbed
+      ? `<div class="result-x-embed-fallback">${escapeHtml(battleXEmbedFailureLabel(xEmbed.error || xEmbed.status))}</div>`
+      : `
+        <div class="result-hero-media-shell">
+          <img class="result-hero-media-image" src="${escapeHtml(heroImage)}" alt="${escapeHtml(battleIssue || battleCopy().battleBadge)}" />
+        </div>
+      `;
   resultHeroMediaEl.innerHTML = `
     <div class="result-source-card-head">
       <div class="summary-label">${escapeHtml(battleCopy().sourceLabel)}</div>
       ${battleSourceUrl ? `<a class="result-source-link" href="${escapeHtml(battleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleCopy().sourceLink)}</a>` : ""}
     </div>
-    <div class="result-hero-media-shell">
-      <img class="result-hero-media-image" src="${escapeHtml(heroImage)}" alt="${escapeHtml(battleIssue || battleCopy().battleBadge)}" />
-    </div>
+    ${embedMarkup}
     ${battleSourceSummary ? `<div class="result-source-summary">${escapeHtml(battleSourceSummary)}</div>` : ""}
   `;
+  if (xEmbed?.status === "success") {
+    void ensureBattleXWidgetsScript()
+      .then(() => window.twttr?.widgets?.load?.(resultHeroMediaEl))
+      .catch(() => {});
+  }
 }
 
 function currentBattleShareId() {
@@ -1094,6 +1111,59 @@ function currentBattleSourceSummary() {
   const localized = currentBattleDisplayView();
   if (localized?.source_summary) return String(localized.source_summary).trim();
   return String(currentBattleSource?.source_summary || "").trim();
+}
+
+function currentBattleXEmbedState() {
+  const sourceUrl = String(currentBattleSource?.source_url || currentLoadedRecord?.source_url || "").trim();
+  const savedSourceUrl = String(currentLoadedRecord?.x_embed_source_url || currentResult?.x_embed_source_url || "").trim();
+  if (!sourceUrl || !savedSourceUrl || sourceUrl !== savedSourceUrl) return null;
+  const status = String(currentLoadedRecord?.x_embed_status || currentResult?.x_embed_status || "").trim();
+  if (!status) return null;
+  if (status === "success") {
+    const html = String(currentLoadedRecord?.x_embed_html || currentResult?.x_embed_html || "").trim();
+    if (!html || !html.includes("twitter-tweet")) return null;
+    return { status, html };
+  }
+  return {
+    status,
+    error: String(currentLoadedRecord?.x_embed_error || currentResult?.x_embed_error || status).trim(),
+  };
+}
+
+function battleXEmbedFailureLabel(errorCode) {
+  if (errorCode === "x_forbidden") {
+    return currentBattleLang === "en"
+      ? "Embedding unavailable on X (403)"
+      : "X側の制限により埋め込めません（403）";
+  }
+  if (errorCode === "invalid" || errorCode === "invalid_x_post_url" || errorCode === "missing_url") {
+    return currentBattleLang === "en" ? "Invalid URL" : "URL無効";
+  }
+  return currentBattleLang === "en"
+    ? "Temporarily unavailable"
+    : "一時的に取得できませんでした";
+}
+
+let battleXWidgetsPromise = null;
+function ensureBattleXWidgetsScript() {
+  if (window.twttr?.widgets?.load) return Promise.resolve(window.twttr);
+  if (battleXWidgetsPromise) return battleXWidgetsPromise;
+  battleXWidgetsPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-x-widgets="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.twttr), { once: true });
+      existing.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://platform.x.com/widgets.js";
+    script.async = true;
+    script.dataset.xWidgets = "true";
+    script.addEventListener("load", () => resolve(window.twttr), { once: true });
+    script.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
+    document.head.appendChild(script);
+  });
+  return battleXWidgetsPromise;
 }
 
 async function fetchLocalizedBattleView(recordId, lang = currentBattleLang) {
