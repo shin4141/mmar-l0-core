@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import hashlib
 import secrets
@@ -170,6 +171,44 @@ def _truncate_debug_text(value: str, limit: int = 280) -> str:
     return text[:limit] + "...(truncated)"
 
 
+def _extract_x_media_url(post_url: str) -> str:
+    normalized = _normalize_x_post_url(post_url)
+    if not normalized:
+        return ""
+    request = urllib_request.Request(
+        normalized,
+        headers={
+            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": "MMAR/1.0 (+https://mmar-debate-preview.onrender.com)",
+        },
+        method="GET",
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=6) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        _x_oembed_log(
+            "media_url_error",
+            normalized_url=normalized,
+            error_type=type(exc).__name__,
+            error_message=_truncate_debug_text(str(exc or "")),
+        )
+        return ""
+    match = re.search(
+        r'(?:property|name)=["\'](?:og:image|twitter:image)["\']\s+content=["\']([^"\']+)["\']',
+        body,
+        flags=re.IGNORECASE,
+    )
+    media_url = str(match.group(1) if match else "").strip()
+    _x_oembed_log(
+        "media_url",
+        normalized_url=normalized,
+        found=bool(media_url),
+        media_url=_truncate_debug_text(media_url, limit=180),
+    )
+    return media_url
+
+
 def _fetch_x_oembed(post_url: str) -> dict[str, object]:
     normalized = _normalize_x_post_url(post_url)
     _x_oembed_log("normalize", source_url=str(post_url or ""), normalized_url=normalized)
@@ -251,6 +290,7 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
         "ok": True,
         "url": normalized,
         "html": html,
+        "media_url": _extract_x_media_url(normalized),
         "cache_age": str(payload.get("cache_age") or "").strip(),
         "provider_name": str(payload.get("provider_name") or "").strip(),
     }
@@ -294,12 +334,16 @@ def _sanitize_admin_x_embed_payload(payload: dict) -> dict[str, str]:
     html = str(payload.get("x_embed_html") or "").strip()
     if status != "success" or "twitter-tweet" not in html:
         html = ""
+    media_url = str(payload.get("x_embed_media_url") or "").strip()
+    if not media_url.startswith(("https://", "http://")):
+        media_url = ""
     source_url = str(payload.get("x_embed_source_url") or "").strip()
     checked_at = str(payload.get("x_embed_checked_at") or datetime.now(timezone.utc).isoformat()).strip()
     error_code = str(payload.get("x_embed_error") or "").strip()
     return {
         "x_embed_status": status,
         "x_embed_html": html,
+        "x_embed_media_url": media_url,
         "x_embed_source_url": source_url,
         "x_embed_checked_at": checked_at,
         "x_embed_error": error_code,
@@ -708,6 +752,7 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else (nested_run.get("localized_views") if isinstance(nested_run.get("localized_views"), dict) else {}),
         "x_embed_status": str(record.get("x_embed_status") or nested_run.get("x_embed_status") or ""),
         "x_embed_html": str(record.get("x_embed_html") or nested_run.get("x_embed_html") or ""),
+        "x_embed_media_url": str(record.get("x_embed_media_url") or nested_run.get("x_embed_media_url") or ""),
         "x_embed_source_url": str(record.get("x_embed_source_url") or nested_run.get("x_embed_source_url") or ""),
         "x_embed_checked_at": str(record.get("x_embed_checked_at") or nested_run.get("x_embed_checked_at") or ""),
         "x_embed_error": str(record.get("x_embed_error") or nested_run.get("x_embed_error") or ""),

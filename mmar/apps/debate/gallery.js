@@ -175,7 +175,8 @@ function xEmbedStateForRecord(record) {
   if (status === "success") {
     const html = String(record.x_embed_html || "").trim();
     if (!html || !html.includes("twitter-tweet")) return null;
-    return { status, html };
+    const mediaUrl = String(record.x_embed_media_url || "").trim();
+    return { status, html, mediaUrl };
   }
   return {
     status,
@@ -211,6 +212,13 @@ function extractXEmbedText(html) {
 
 function sourceLinkLabel() {
   return currentLang === "en" ? "Open original" : "元URLを開く";
+}
+
+function galleryRenderableXMediaUrl(xEmbed) {
+  if (!xEmbed || xEmbed.status !== "success") return "";
+  const mediaUrl = String(xEmbed.mediaUrl || "").trim();
+  if (!mediaUrl.startsWith("https://") && !mediaUrl.startsWith("http://")) return "";
+  return mediaUrl;
 }
 
 function gallerySummaryText(record, issue, localized) {
@@ -291,6 +299,7 @@ function buildCardMarkup(record) {
   const image = String(record.source_image || "").trim() || buildPlaceholderImage(issue);
   const sourceUrl = String(record.source_url || "").trim();
   const xEmbedText = xEmbed?.status === "success" ? extractXEmbedText(xEmbed.html) : "";
+  const xEmbedMediaUrl = galleryRenderableXMediaUrl(xEmbed);
   const id = String(record.id || record.run_id || "").trim();
   if (!id) {
     return "";
@@ -300,10 +309,10 @@ function buildCardMarkup(record) {
     : `/battle/${encodeURIComponent(id)}`;
   const mediaMarkup = xEmbed?.status === "success"
     ? (
-      String(record.source_image || "").trim()
+      xEmbedMediaUrl
         ? `
           <div class="gallery-card-media gallery-card-media-fixed">
-            <img class="gallery-card-image" src="${escapeHtml(String(record.source_image || "").trim())}" alt="${escapeHtml(issue)}" loading="lazy" />
+            <img class="gallery-card-image" src="${escapeHtml(xEmbedMediaUrl)}" alt="${escapeHtml(issue)}" loading="lazy" onerror="this.onerror=null;this.src='${escapeHtml(buildPlaceholderImage(issue))}'" />
             <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
           </div>
         `

@@ -121,6 +121,7 @@ function getSavedXOEmbedState(run) {
   return {
     status,
     html: String(run.x_embed_html || "").trim(),
+    mediaUrl: String(run.x_embed_media_url || "").trim(),
     error: String(run.x_embed_error || "").trim(),
     checkedAt: String(run.x_embed_checked_at || "").trim(),
   };
@@ -137,6 +138,7 @@ async function saveXOEmbedState(snapshot) {
         session_id: activeRun.session_id,
         x_embed_status: snapshot.x_embed_status,
         x_embed_html: snapshot.x_embed_html || "",
+        x_embed_media_url: snapshot.x_embed_media_url || "",
         x_embed_source_url: snapshot.x_embed_source_url || "",
         x_embed_checked_at: snapshot.x_embed_checked_at || "",
         x_embed_error: snapshot.x_embed_error || "",
@@ -242,6 +244,7 @@ async function fetchXOEmbedPreview() {
                 ? "missing_html"
                 : "temporary_error",
         x_embed_html: "",
+        x_embed_media_url: "",
         x_embed_source_url: sourceUrl,
         x_embed_checked_at: new Date().toISOString(),
         x_embed_error: errorCode || "oembed_unavailable",
@@ -257,6 +260,7 @@ async function fetchXOEmbedPreview() {
     await saveXOEmbedState({
       x_embed_status: "success",
       x_embed_html: data.html,
+      x_embed_media_url: String(data.media_url || "").trim(),
       x_embed_source_url: sourceUrl,
       x_embed_checked_at: new Date().toISOString(),
       x_embed_error: "",
@@ -268,6 +272,7 @@ async function fetchXOEmbedPreview() {
     await saveXOEmbedState({
       x_embed_status: "temporary_error",
       x_embed_html: "",
+      x_embed_media_url: "",
       x_embed_source_url: sourceUrl,
       x_embed_checked_at: new Date().toISOString(),
       x_embed_error: "oembed_unavailable",
