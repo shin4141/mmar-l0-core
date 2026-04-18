@@ -256,6 +256,16 @@ function renderLifecycleMeta(run) {
   `;
 }
 
+function renderSourceUrl(run) {
+  const sourceUrl = String(run?.source_url || "").trim();
+  return `
+    <section class="admin-section">
+      <div class="admin-section-title">Source URL</div>
+      <div class="admin-section-copy admin-source-url">${escapeHtml(sourceUrl || "—")}</div>
+    </section>
+  `;
+}
+
 function renderDetail(run) {
   activeRun = run || null;
   if (!run) {
@@ -286,6 +296,7 @@ function renderDetail(run) {
       <div class="admin-section-copy"><strong>A:</strong> ${escapeHtml(run.stance_a || "")}</div>
       <div class="admin-section-copy"><strong>B:</strong> ${escapeHtml(run.stance_b || "")}</div>
     </section>
+    ${renderSourceUrl(run)}
     ${renderLifecycleMeta(run)}
     <section class="admin-section">
       <div class="admin-section-title">Turns</div>

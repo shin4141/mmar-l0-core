@@ -223,6 +223,10 @@ button:disabled {
   line-height: 1.6;
 }
 
+.admin-source-url {
+  word-break: break-word;
+}
+
 .admin-turn-card,
 .admin-judge-card {
   border: 1px solid #dfd1bf;
