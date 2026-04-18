@@ -221,6 +221,27 @@ function galleryRenderableXMediaUrl(xEmbed) {
   return mediaUrl;
 }
 
+function applyGalleryMediaOrientation(root = galleryGridEl) {
+  if (!root) return;
+  const images = Array.from(root.querySelectorAll(".gallery-card-media .gallery-card-image"));
+  images.forEach((img) => {
+    const mediaEl = img.closest(".gallery-card-media");
+    if (!mediaEl) return;
+    const syncOrientation = () => {
+      const naturalWidth = Number(img.naturalWidth || 0);
+      const naturalHeight = Number(img.naturalHeight || 0);
+      const isPortrait = naturalWidth > 0 && naturalHeight > naturalWidth * 1.05;
+      mediaEl.classList.toggle("is-portrait", isPortrait);
+    };
+    if (img.complete) {
+      syncOrientation();
+      return;
+    }
+    img.addEventListener("load", syncOrientation, { once: true });
+    img.addEventListener("error", () => mediaEl.classList.remove("is-portrait"), { once: true });
+  });
+}
+
 function gallerySummaryText(record, issue, localized) {
   const englishCard = currentLang === "en" ? englishCardCopy(record, localized) : null;
   const summary = currentLang === "en"
@@ -384,6 +405,7 @@ function renderGallery(records) {
     return;
   }
   galleryGridEl.innerHTML = markup.join("");
+  applyGalleryMediaOrientation(galleryGridEl);
   galleryGridEl.querySelectorAll(".gallery-card[data-record-id]").forEach((card) => {
     const recordId = card.dataset.recordId || "";
     const href = card.dataset.href || "";

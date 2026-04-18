@@ -144,7 +144,19 @@ body {
   height: 100%;
   display: block;
   object-fit: cover;
+  object-position: center;
   transition: filter 160ms ease;
+}
+
+.gallery-card-media.is-portrait {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 236, 227, 0.96)),
+    linear-gradient(135deg, rgba(177, 57, 34, 0.08), rgba(29, 77, 143, 0.08));
+}
+
+.gallery-card-media.is-portrait .gallery-card-image {
+  object-fit: contain;
+  padding: 10px 0;
 }
 
 .gallery-card-badge {
