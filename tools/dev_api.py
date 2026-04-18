@@ -10,6 +10,7 @@ import hashlib
 import secrets
 import time
 import uuid
+from html import unescape
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from http import cookies
@@ -195,11 +196,11 @@ def _extract_x_media_url(post_url: str) -> str:
         )
         return ""
     match = re.search(
-        r'(?:property|name)=["\'](?:og:image|twitter:image)["\']\s+content=["\']([^"\']+)["\']',
+        r'(https://pbs\.twimg\.com/(?:media|amplify_video_thumb)[^"\'\s>]+)',
         body,
         flags=re.IGNORECASE,
     )
-    media_url = str(match.group(1) if match else "").strip()
+    media_url = unescape(str(match.group(1) if match else "").strip())
     _x_oembed_log(
         "media_url",
         normalized_url=normalized,
