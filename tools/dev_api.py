@@ -158,8 +158,21 @@ def _normalize_x_post_url(raw: str) -> str:
     return f"https://x.com/{screen_name}/status/{status_id}"
 
 
+def _x_oembed_log(event: str, **payload: object) -> None:
+    safe_payload = {key: value for key, value in payload.items()}
+    print("[x-oembed] " + json.dumps({"event": event, **safe_payload}, ensure_ascii=False))
+
+
+def _truncate_debug_text(value: str, limit: int = 280) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "...(truncated)"
+
+
 def _fetch_x_oembed(post_url: str) -> dict[str, object]:
     normalized = _normalize_x_post_url(post_url)
+    _x_oembed_log("normalize", source_url=str(post_url or ""), normalized_url=normalized)
     if not normalized:
         raise ValueError("invalid_x_post_url")
     request_url = (
@@ -174,11 +187,65 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
         },
         method="GET",
     )
-    with urllib_request.urlopen(request, timeout=6) as response:
-        body = response.read().decode("utf-8")
+    _x_oembed_log("request", normalized_url=normalized, request_url=request_url)
+    try:
+        with urllib_request.urlopen(request, timeout=6) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            body = response.read().decode("utf-8")
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        _x_oembed_log(
+            "http_error",
+            normalized_url=normalized,
+            request_url=request_url,
+            upstream_status=int(exc.code or 0),
+            body_preview=_truncate_debug_text(body),
+            error_type=type(exc).__name__,
+        )
+        raise
+    except urllib_error.URLError as exc:
+        _x_oembed_log(
+            "url_error",
+            normalized_url=normalized,
+            request_url=request_url,
+            reason=_truncate_debug_text(str(getattr(exc, "reason", exc) or "")),
+            error_type=type(exc).__name__,
+        )
+        raise
+    except TimeoutError as exc:
+        _x_oembed_log(
+            "timeout",
+            normalized_url=normalized,
+            request_url=request_url,
+            error_type=type(exc).__name__,
+        )
+        raise
+    except Exception as exc:
+        _x_oembed_log(
+            "exception",
+            normalized_url=normalized,
+            request_url=request_url,
+            error_type=type(exc).__name__,
+            error_message=_truncate_debug_text(str(exc or "")),
+        )
+        raise
+    _x_oembed_log(
+        "response",
+        normalized_url=normalized,
+        request_url=request_url,
+        upstream_status=status,
+        body_preview=_truncate_debug_text(body),
+    )
     payload = json.loads(body or "{}")
     html = str(payload.get("html") or "").strip()
     if not html:
+        _x_oembed_log(
+            "missing_html",
+            normalized_url=normalized,
+            request_url=request_url,
+            upstream_status=status,
+            payload_keys=sorted(payload.keys()),
+        )
         raise RuntimeError("missing_oembed_html")
     return {
         "ok": True,
