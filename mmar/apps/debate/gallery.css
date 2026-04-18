@@ -134,10 +134,9 @@ body {
   background: linear-gradient(135deg, rgba(177, 57, 34, 0.12), rgba(29, 77, 143, 0.08));
 }
 
-.gallery-card-media-xembed {
-  aspect-ratio: auto;
-  min-height: 188px;
-  padding: 16px 14px 14px;
+.gallery-card-media-fixed {
+  min-height: 228px;
+  max-height: 228px;
 }
 
 .gallery-card-image {
@@ -166,8 +165,8 @@ body {
 
 .gallery-card-copy {
   display: grid;
-  gap: 8px;
-  padding: 16px;
+  gap: 10px;
+  padding: 16px 16px 18px;
 }
 
 .gallery-card-title-link {
@@ -197,6 +196,27 @@ body {
   line-height: 1.45;
 }
 
+.gallery-card-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.52;
+}
+
+.gallery-card-source-link {
+  color: var(--accent-alt);
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.gallery-card-source-link:hover {
+  text-decoration: underline;
+}
+
 .gallery-empty {
   grid-column: 1 / -1;
   padding: 28px;
@@ -207,36 +227,52 @@ body {
   background: rgba(255, 255, 255, 0.58);
 }
 
-.gallery-x-embed-shell {
+.gallery-card-media-textonly,
+.gallery-card-media-fallback {
+  padding: 16px;
+}
+
+.gallery-x-media-faux,
+.gallery-x-media-fallback {
   position: relative;
   z-index: 1;
-  display: grid;
-  justify-items: center;
   width: 100%;
-  overflow: hidden;
-}
-
-.gallery-x-embed {
-  width: 100%;
-  max-width: 100%;
-}
-
-.gallery-x-embed blockquote.twitter-tweet {
-  margin: 0 !important;
-}
-
-.gallery-x-embed-fallback {
-  position: relative;
-  z-index: 1;
   display: grid;
   align-items: center;
-  min-height: 140px;
+  min-height: 100%;
   border-radius: 16px;
   background: rgba(255, 250, 243, 0.94);
   color: var(--muted);
   padding: 18px 16px;
   font-size: 0.95rem;
   line-height: 1.5;
+}
+
+.gallery-x-media-faux {
+  align-content: start;
+  gap: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 246, 238, 0.96)),
+    linear-gradient(135deg, rgba(177, 57, 34, 0.08), rgba(29, 77, 143, 0.08));
+}
+
+.gallery-x-media-mark {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.gallery-x-media-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.98rem;
+  line-height: 1.45;
+  font-weight: 700;
 }
 
 @media (max-width: 1040px) {

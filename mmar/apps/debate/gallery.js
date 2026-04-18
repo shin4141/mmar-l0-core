@@ -183,34 +183,61 @@ function xEmbedStateForRecord(record) {
   };
 }
 
-let xWidgetsPromise = null;
-function ensureXWidgetsScript() {
-  if (window.twttr?.widgets?.load) return Promise.resolve(window.twttr);
-  if (xWidgetsPromise) return xWidgetsPromise;
-  xWidgetsPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-x-widgets="true"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve(window.twttr), { once: true });
-      existing.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://platform.x.com/widgets.js";
-    script.async = true;
-    script.dataset.xWidgets = "true";
-    script.addEventListener("load", () => resolve(window.twttr), { once: true });
-    script.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
-    document.head.appendChild(script);
-  });
-  return xWidgetsPromise;
+function normalizeCompareText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[「」"'`.,!?()[\]{}:;/-]/g, "")
+    .trim();
 }
 
-function hydrateGalleryXEmbeds() {
-  const embeds = galleryGridEl?.querySelectorAll?.("[data-gallery-x-embed='1']");
-  if (!embeds?.length) return;
-  void ensureXWidgetsScript()
-    .then(() => window.twttr?.widgets?.load?.(galleryGridEl))
-    .catch(() => {});
+function extractXEmbedText(html) {
+  const markup = String(html || "").trim();
+  if (!markup) return "";
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(markup, "text/html");
+    const blockquote = doc.querySelector("blockquote.twitter-tweet");
+    const text = String(blockquote?.textContent || doc.body?.textContent || "")
+      .replace(/https?:\/\/\S+/g, " ")
+      .replace(/pic\.twitter\.com\/\S+/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+function sourceLinkLabel() {
+  return currentLang === "en" ? "Open original" : "元URLを開く";
+}
+
+function gallerySummaryText(record, issue, localized) {
+  const englishCard = currentLang === "en" ? englishCardCopy(record, localized) : null;
+  const summary = currentLang === "en"
+    ? firstNonEmpty(
+      localized?.source_summary,
+      englishCard?.ready ? englishCard.excerpt : "",
+      record.source_summary,
+      record.excerpt,
+      record.tease,
+    )
+    : firstNonEmpty(
+      localized?.source_summary,
+      record.source_summary,
+      record.excerpt,
+      record.tease,
+    );
+  const cleanSummary = String(summary || "").trim();
+  if (!cleanSummary) return "";
+  const issueKey = normalizeCompareText(issue);
+  const summaryKey = normalizeCompareText(cleanSummary);
+  if (!summaryKey) return "";
+  if (summaryKey === issueKey || summaryKey.includes(issueKey) || issueKey.includes(summaryKey)) {
+    return "";
+  }
+  return cleanSummary;
 }
 
 function englishCardCopy(record, localized) {
@@ -260,7 +287,10 @@ function buildCardMarkup(record) {
   const excerpt = currentLang === "en"
     ? englishCard.excerpt
     : firstNonEmpty(record.excerpt, record.tease, "");
+  const summary = gallerySummaryText(record, issue, localized);
   const image = String(record.source_image || "").trim() || buildPlaceholderImage(issue);
+  const sourceUrl = String(record.source_url || "").trim();
+  const xEmbedText = xEmbed?.status === "success" ? extractXEmbedText(xEmbed.html) : "";
   const id = String(record.id || record.run_id || "").trim();
   if (!id) {
     return "";
@@ -269,23 +299,33 @@ function buildCardMarkup(record) {
     ? `/battle/${encodeURIComponent(id)}?lang=en`
     : `/battle/${encodeURIComponent(id)}`;
   const mediaMarkup = xEmbed?.status === "success"
-    ? `
-      <div class="gallery-card-media gallery-card-media-xembed">
-        <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
-        <div class="gallery-x-embed-shell">
-          <div class="gallery-x-embed" data-gallery-x-embed="1">${xEmbed.html}</div>
-        </div>
-      </div>
-    `
+    ? (
+      String(record.source_image || "").trim()
+        ? `
+          <div class="gallery-card-media gallery-card-media-fixed">
+            <img class="gallery-card-image" src="${escapeHtml(String(record.source_image || "").trim())}" alt="${escapeHtml(issue)}" loading="lazy" />
+            <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
+          </div>
+        `
+        : `
+          <div class="gallery-card-media gallery-card-media-fixed gallery-card-media-textonly">
+            <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
+            <div class="gallery-x-media-faux">
+              <div class="gallery-x-media-mark">X POST</div>
+              <div class="gallery-x-media-text">${escapeHtml(xEmbedText || issue)}</div>
+            </div>
+          </div>
+        `
+    )
     : xEmbed
       ? `
-        <div class="gallery-card-media gallery-card-media-xembed">
+        <div class="gallery-card-media gallery-card-media-fixed gallery-card-media-fallback">
           <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
-          <div class="gallery-x-embed-fallback">${escapeHtml(xEmbedFailureLabel(xEmbed.error || xEmbed.status))}</div>
+          <div class="gallery-x-media-fallback">${escapeHtml(xEmbedFailureLabel(xEmbed.error || xEmbed.status))}</div>
         </div>
       `
       : `
-        <div class="gallery-card-media">
+        <div class="gallery-card-media gallery-card-media-fixed">
           <img class="gallery-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(issue)}" loading="lazy" />
           <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
         </div>
@@ -295,7 +335,8 @@ function buildCardMarkup(record) {
       ${mediaMarkup}
       <div class="gallery-card-copy">
         <a class="gallery-card-title-link" href="${escapeHtml(href)}">${escapeHtml(issue)}</a>
-        ${excerpt ? `<div class="gallery-card-excerpt">${escapeHtml(excerpt)}</div>` : ""}
+        ${summary ? `<div class="gallery-card-summary">${escapeHtml(summary)}</div>` : (excerpt ? `<div class="gallery-card-excerpt">${escapeHtml(excerpt)}</div>` : "")}
+        ${sourceUrl ? `<a class="gallery-card-source-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLinkLabel())}</a>` : ""}
       </div>
     </article>
   `;
@@ -349,7 +390,6 @@ function renderGallery(records) {
       window.location.href = href;
     });
   });
-  hydrateGalleryXEmbeds();
 }
 
 async function loadGallery() {
