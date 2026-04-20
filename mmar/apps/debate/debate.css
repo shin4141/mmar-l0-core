@@ -611,6 +611,18 @@ body.public-fixed-demo #run-button {
   overflow: hidden;
 }
 
+.battle-output-right-copy-ab {
+  display: grid;
+  gap: 6px;
+}
+
+.battle-output-right-copy-ab-line {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 600;
+}
+
 .battle-output-right-copy-link {
   color: var(--accent-alt);
   font-size: 13px;

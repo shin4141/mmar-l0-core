@@ -816,11 +816,20 @@ function removeBattleOutputRightCopy() {
   outputHeroEl?.querySelector("#battle-output-right-copy")?.remove();
 }
 
+function battleOutputRightAbCopy() {
+  if (currentBattleShareId() !== BATTLE_OUTPUT_RIGHT_COPY_TARGET_ID) return null;
+  return {
+    a: battleLocaleText("A: 売り続けた運営の責任を問う", "A: Hold the operator responsible for continuing service"),
+    b: battleLocaleText("B: 飲み過ぎた本人の自己責任を重くみる", "B: Put more weight on the passenger's own choices"),
+  };
+}
+
 function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
   if (!outputHeroEl || !topicDisplayEl || !summary || !sourceUrl) {
     removeBattleOutputRightCopy();
     return;
   }
+  const abCopy = battleOutputRightAbCopy();
   let sourceCopyEl = outputHeroEl.querySelector("#battle-output-right-copy");
   if (!sourceCopyEl) {
     sourceCopyEl = document.createElement("section");
@@ -831,6 +840,12 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
   sourceCopyEl.innerHTML = `
     <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
     <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
+    ${abCopy ? `
+      <div class="battle-output-right-copy-ab" aria-label="battle entry points">
+        <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.a)}</div>
+        <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.b)}</div>
+      </div>
+    ` : ""}
     <a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>
   `;
 }
