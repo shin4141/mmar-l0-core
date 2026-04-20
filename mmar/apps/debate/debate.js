@@ -50,7 +50,6 @@ const readerBackButton = document.querySelector("#reader-back-button");
 const readerNextButton = document.querySelector("#reader-next-button");
 const runMetaEl = document.querySelector("#run-meta");
 const outputMetaEl = document.querySelector("#output-meta");
-const BATTLE_OUTPUT_RIGHT_COPY_TARGET_ID = "56fc22772711";
 const turnLogTitleEl = document.querySelector("#turn-log-title");
 const turnLogEl = document.querySelector("#turn-log");
 const turnLogEmptyStateEl = document.querySelector("#turn-log-empty-state");
@@ -816,12 +815,30 @@ function removeBattleOutputRightCopy() {
   outputHeroEl?.querySelector("#battle-output-right-copy")?.remove();
 }
 
+function currentBattleStances() {
+  const sideA = String(currentLoadedRecord?.stance_a || currentResult?.stance_a || currentLoadedRecord?.side_a || currentResult?.side_a || "").trim();
+  const sideB = String(currentLoadedRecord?.stance_b || currentResult?.stance_b || currentLoadedRecord?.side_b || currentResult?.side_b || "").trim();
+  if (!sideA || !sideB) return null;
+  return { sideA, sideB };
+}
+
+function shouldUseBattleOutputRightCopy() {
+  const xEmbed = currentBattleXEmbedState();
+  return isBattleMode() && xEmbed?.status === "success" && !!String(xEmbed.mediaUrl || "").trim();
+}
+
 function battleOutputRightAbCopy() {
-  if (currentBattleShareId() !== BATTLE_OUTPUT_RIGHT_COPY_TARGET_ID) return null;
+  const stances = currentBattleStances();
+  if (!stances) return null;
   return {
-    a: battleLocaleText("A: 売り続けた運営の責任を問う", "A: Hold the operator responsible for continuing service"),
-    b: battleLocaleText("B: 飲み過ぎた本人の自己責任を重くみる", "B: Put more weight on the passenger's own choices"),
+    a: `A: ${stances.sideA}`,
+    b: `B: ${stances.sideB}`,
   };
+}
+
+function battleOutputRightNextStepCopy() {
+  if (!shouldUseBattleOutputRightCopy()) return "";
+  return battleLocaleText("次の問い：あなたはどちらの判断を支持する？", "Next question: Which side of this judgment would you support?");
 }
 
 function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
@@ -830,6 +847,7 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
     return;
   }
   const abCopy = battleOutputRightAbCopy();
+  const nextStepCopy = battleOutputRightNextStepCopy();
   let sourceCopyEl = outputHeroEl.querySelector("#battle-output-right-copy");
   if (!sourceCopyEl) {
     sourceCopyEl = document.createElement("section");
@@ -847,6 +865,7 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
       </div>
     ` : ""}
     <a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>
+    ${nextStepCopy ? `<div class="battle-output-right-copy-next">${escapeHtml(nextStepCopy)}</div>` : ""}
   `;
 }
 
@@ -866,7 +885,7 @@ function renderResultHeroMedia() {
   const battleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
   const battleSourceSummary = currentBattleSourceSummary();
   const xEmbed = currentBattleXEmbedState();
-  const isOutputRightCopyTrial = currentBattleShareId() === BATTLE_OUTPUT_RIGHT_COPY_TARGET_ID;
+  const isOutputRightCopyTrial = shouldUseBattleOutputRightCopy();
   const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
   if (resultTopGridEl) {
@@ -1171,8 +1190,9 @@ function currentBattleXEmbedState() {
   if (!status) return null;
   if (status === "success") {
     const html = String(currentLoadedRecord?.x_embed_html || currentResult?.x_embed_html || "").trim();
+    const mediaUrl = String(currentLoadedRecord?.x_embed_media_url || currentResult?.x_embed_media_url || "").trim();
     if (!html || !html.includes("twitter-tweet")) return null;
-    return { status, html };
+    return { status, html, mediaUrl };
   }
   return {
     status,
