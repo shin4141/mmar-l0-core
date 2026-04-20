@@ -136,7 +136,7 @@ body.viewer-mode .input-panel {
 }
 
 .page-shell.reading-mode .output-panel {
-  padding: 30px 34px;
+  padding: 30px 18px 30px 26px;
   box-shadow: 0 28px 76px rgba(32, 22, 15, 0.18);
 }
 
@@ -490,10 +490,10 @@ h2 {
 
 .output-panel #topic-display {
   display: block;
-  width: calc(100% + 18px);
+  width: calc(100% + 34px);
   max-width: none;
   min-width: 0;
-  margin-right: -18px;
+  margin-right: -34px;
   padding-right: 0;
   font-size: clamp(1.82rem, 3.15vw, 2.42rem);
   line-height: 1.16;
@@ -624,7 +624,8 @@ body.public-fixed-demo #run-button {
   display: grid;
   gap: 10px;
   margin-top: 14px;
-  max-width: 58ch;
+  width: 100%;
+  max-width: none;
 }
 
 .battle-output-right-copy-kicker {
