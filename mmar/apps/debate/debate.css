@@ -75,7 +75,7 @@ body::before {
 }
 
 .page-shell.reading-mode {
-  grid-template-columns: minmax(92px, 124px) minmax(0, 1fr);
+  grid-template-columns: clamp(56px, 5vw, 72px) minmax(0, 1fr);
   gap: 12px;
 }
 
