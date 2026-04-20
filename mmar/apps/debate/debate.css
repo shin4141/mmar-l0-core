@@ -489,6 +489,10 @@ h2 {
 }
 
 .output-panel #topic-display {
+  display: block;
+  width: 100%;
+  max-width: none;
+  padding-right: 0;
   font-size: clamp(1.82rem, 3.15vw, 2.42rem);
   line-height: 1.16;
   font-weight: 800;
@@ -500,9 +504,12 @@ h2 {
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   align-items: start;
+  justify-items: stretch;
 }
 
-.output-panel > .hero > :first-child {
+.output-panel > .hero > div:first-child {
+  width: 100%;
+  max-width: none;
   min-width: 0;
 }
 
