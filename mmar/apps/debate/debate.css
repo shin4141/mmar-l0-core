@@ -490,8 +490,10 @@ h2 {
 
 .output-panel #topic-display {
   display: block;
-  width: 100%;
+  width: calc(100% + 18px);
   max-width: none;
+  min-width: 0;
+  margin-right: -18px;
   padding-right: 0;
   font-size: clamp(1.82rem, 3.15vw, 2.42rem);
   line-height: 1.16;
