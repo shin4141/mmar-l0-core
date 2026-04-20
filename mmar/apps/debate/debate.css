@@ -488,6 +488,31 @@ h2 {
   line-height: 1.05;
 }
 
+.output-panel #topic-display {
+  font-size: clamp(1.82rem, 3.15vw, 2.42rem);
+  line-height: 1.16;
+  font-weight: 800;
+  letter-spacing: -0.012em;
+}
+
+.output-panel > .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.output-panel > .hero > :first-child {
+  min-width: 0;
+}
+
+.output-panel > .hero > .chip-stack {
+  width: 100%;
+  justify-self: stretch;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
 h3 {
   font-size: 1rem;
 }
@@ -588,8 +613,8 @@ body.public-fixed-demo #run-button {
 
 .battle-output-right-copy {
   display: grid;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 14px;
   max-width: 58ch;
 }
 
@@ -613,7 +638,9 @@ body.public-fixed-demo #run-button {
 
 .battle-output-right-copy-ab {
   display: grid;
-  gap: 6px;
+  gap: 5px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(79, 55, 33, 0.10);
 }
 
 .battle-output-right-copy-ab-line {
@@ -628,10 +655,25 @@ body.public-fixed-demo #run-button {
   font-size: 13px;
   font-weight: 700;
   text-decoration: none;
+  display: inline-flex;
+  align-self: flex-start;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(79, 55, 33, 0.12);
 }
 
 .battle-output-right-copy-link:hover {
   text-decoration: underline;
+}
+
+.battle-output-right-copy-next {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-top: 8px;
+  border-top: 1px solid rgba(79, 55, 33, 0.08);
 }
 
 .result-source-card-head {
@@ -2507,7 +2549,12 @@ button:disabled {
   }
 
   body.mobile-ui #topic-display {
-    font-size: clamp(1.35rem, 7vw, 1.8rem);
+    font-size: clamp(1.55rem, 7.4vw, 2.02rem);
+    line-height: 1.18;
+  }
+
+  body.mobile-ui .output-panel > .hero > .chip-stack {
+    margin-top: 4px;
   }
 
   body.mobile-ui #run-button {
