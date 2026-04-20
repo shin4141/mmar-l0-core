@@ -50,6 +50,7 @@ const readerBackButton = document.querySelector("#reader-back-button");
 const readerNextButton = document.querySelector("#reader-next-button");
 const runMetaEl = document.querySelector("#run-meta");
 const outputMetaEl = document.querySelector("#output-meta");
+const BATTLE_OUTPUT_RIGHT_COPY_TARGET_ID = "56fc22772711";
 const turnLogTitleEl = document.querySelector("#turn-log-title");
 const turnLogEl = document.querySelector("#turn-log");
 const turnLogEmptyStateEl = document.querySelector("#turn-log-empty-state");
@@ -811,11 +812,35 @@ function restoreOutputHeroPosition() {
   }
 }
 
+function removeBattleOutputRightCopy() {
+  outputHeroEl?.querySelector("#battle-output-right-copy")?.remove();
+}
+
+function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
+  if (!outputHeroEl || !topicDisplayEl || !summary || !sourceUrl) {
+    removeBattleOutputRightCopy();
+    return;
+  }
+  let sourceCopyEl = outputHeroEl.querySelector("#battle-output-right-copy");
+  if (!sourceCopyEl) {
+    sourceCopyEl = document.createElement("section");
+    sourceCopyEl.id = "battle-output-right-copy";
+    sourceCopyEl.className = "battle-output-right-copy";
+    topicDisplayEl.insertAdjacentElement("afterend", sourceCopyEl);
+  }
+  sourceCopyEl.innerHTML = `
+    <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
+    <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
+    <a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>
+  `;
+}
+
 function renderResultHeroMedia() {
   ensureResultTopGrid();
   ensureResultHeroMedia();
   if (!resultHeroMediaEl) return;
   if (!currentResult || !isBattleMode()) {
+    removeBattleOutputRightCopy();
     restoreOutputHeroPosition();
     if (resultTopGridEl) resultTopGridEl.hidden = true;
     resultHeroMediaEl.hidden = true;
@@ -826,6 +851,7 @@ function renderResultHeroMedia() {
   const battleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
   const battleSourceSummary = currentBattleSourceSummary();
   const xEmbed = currentBattleXEmbedState();
+  const isOutputRightCopyTrial = currentBattleShareId() === BATTLE_OUTPUT_RIGHT_COPY_TARGET_ID;
   const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
   if (resultTopGridEl) {
@@ -834,6 +860,15 @@ function renderResultHeroMedia() {
     if (outputHeroEl && !resultTopGridEl.contains(outputHeroEl)) resultTopGridEl.appendChild(outputHeroEl);
   }
   resultHeroMediaEl.hidden = false;
+  if (isOutputRightCopyTrial) {
+    renderBattleOutputRightCopy({
+      summary: battleSourceSummary,
+      sourceUrl: battleSourceUrl,
+      copy: battleCopy(),
+    });
+  } else {
+    removeBattleOutputRightCopy();
+  }
   const embedMarkup = xEmbed?.status === "success"
     ? `
       <div class="result-x-embed-shell">
@@ -848,12 +883,12 @@ function renderResultHeroMedia() {
         </div>
       `;
   resultHeroMediaEl.innerHTML = `
-    <div class="result-source-card-head">
+    ${isOutputRightCopyTrial ? "" : `<div class="result-source-card-head">
       <div class="summary-label">${escapeHtml(battleCopy().sourceLabel)}</div>
       ${battleSourceUrl ? `<a class="result-source-link" href="${escapeHtml(battleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleCopy().sourceLink)}</a>` : ""}
-    </div>
+    </div>`}
     ${embedMarkup}
-    ${battleSourceSummary ? `<div class="result-source-summary">${escapeHtml(battleSourceSummary)}</div>` : ""}
+    ${isOutputRightCopyTrial ? "" : (battleSourceSummary ? `<div class="result-source-summary">${escapeHtml(battleSourceSummary)}</div>` : "")}
   `;
   if (xEmbed?.status === "success") {
     void ensureBattleXWidgetsScript()

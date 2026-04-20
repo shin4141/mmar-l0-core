@@ -586,6 +586,42 @@ body.public-fixed-demo #run-button {
   margin: 0;
 }
 
+.battle-output-right-copy {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  max-width: 58ch;
+}
+
+.battle-output-right-copy-kicker {
+  color: var(--accent-alt);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.battle-output-right-copy-text {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.battle-output-right-copy-link {
+  color: var(--accent-alt);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.battle-output-right-copy-link:hover {
+  text-decoration: underline;
+}
+
 .result-source-card-head {
   display: flex;
   align-items: center;
