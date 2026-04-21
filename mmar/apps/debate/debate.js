@@ -875,24 +875,26 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
       outputHeroEl.appendChild(bodyEl);
     }
   }
-  if (actionStackEl && actionStackEl.parentElement !== bodyEl) {
-    bodyEl.appendChild(actionStackEl);
-  }
   if (!bodyEl.contains(sourceCopyEl)) {
     bodyEl.appendChild(sourceCopyEl);
   }
   sourceCopyEl.innerHTML = `
-    <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
-    <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
-    ${abCopy ? `
-      <div class="battle-output-right-copy-ab" aria-label="battle entry points">
-        <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.a)}</div>
-        <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.b)}</div>
-      </div>
-    ` : ""}
-    <a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>
-    ${nextStepCopy ? `<div class="battle-output-right-copy-next">${escapeHtml(nextStepCopy)}</div>` : ""}
+    <div class="battle-output-right-copy-main">
+      <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
+      <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
+      ${abCopy ? `
+        <div class="battle-output-right-copy-ab" aria-label="battle entry points">
+          <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.a)}</div>
+          <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.b)}</div>
+        </div>
+      ` : ""}
+      <a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>
+      ${nextStepCopy ? `<div class="battle-output-right-copy-next">${escapeHtml(nextStepCopy)}</div>` : ""}
+    </div>
   `;
+  if (actionStackEl && actionStackEl.parentElement !== sourceCopyEl) {
+    sourceCopyEl.insertBefore(actionStackEl, sourceCopyEl.firstChild);
+  }
 }
 
 function renderResultHeroMedia() {

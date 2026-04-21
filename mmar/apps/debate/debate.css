@@ -622,33 +622,40 @@ body.public-fixed-demo #run-button {
 
 .battle-output-right-copy {
   display: grid;
-  gap: 10px;
-  width: min(100%, 58ch);
-  max-width: 58ch;
-  justify-self: start;
+  grid-template-columns: minmax(0, 0.76fr) minmax(124px, 0.24fr);
+  grid-template-areas: "main actions";
+  gap: 18px;
+  width: 100%;
+  max-width: none;
+  align-items: start;
 }
 
 .battle-output-body {
   grid-area: body;
-  display: grid;
-  grid-template-columns: minmax(0, 58ch) auto;
-  grid-template-areas: "copy actions";
-  gap: 18px;
-  align-items: start;
+  display: block;
   width: 100%;
 }
 
 .battle-output-body > .battle-output-right-copy {
-  grid-area: copy;
+  justify-self: stretch;
 }
 
-.battle-output-body > .chip-stack {
+.battle-output-right-copy > .chip-stack {
   grid-area: actions;
   width: auto;
   justify-self: end;
   align-self: start;
   justify-content: flex-end;
   margin-top: 2px;
+}
+
+.battle-output-right-copy-main {
+  grid-area: main;
+  display: grid;
+  gap: 10px;
+  width: min(100%, 58ch);
+  max-width: 58ch;
+  justify-self: start;
 }
 
 .battle-output-right-copy-kicker {
