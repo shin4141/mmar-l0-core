@@ -812,6 +812,12 @@ function restoreOutputHeroPosition() {
 }
 
 function removeBattleOutputRightCopy() {
+  const bodyEl = outputHeroEl?.querySelector("#battle-output-body");
+  const actionStackEl = bodyEl?.querySelector(".chip-stack");
+  if (bodyEl && actionStackEl && outputHeroEl && !outputHeroEl.contains(actionStackEl)) {
+    outputHeroEl.insertBefore(actionStackEl, bodyEl);
+  }
+  bodyEl?.remove();
   outputHeroEl?.querySelector("#battle-output-right-copy")?.remove();
 }
 
@@ -853,7 +859,27 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
     sourceCopyEl = document.createElement("section");
     sourceCopyEl.id = "battle-output-right-copy";
     sourceCopyEl.className = "battle-output-right-copy";
-    topicDisplayEl.insertAdjacentElement("afterend", sourceCopyEl);
+  }
+  const actionStackEl = outputHeroEl.querySelector(".chip-stack");
+  let bodyEl = outputHeroEl.querySelector("#battle-output-body");
+  if (!bodyEl) {
+    bodyEl = document.createElement("section");
+    bodyEl.id = "battle-output-body";
+    bodyEl.className = "battle-output-body";
+  }
+  const titleBlockEl = outputHeroEl.querySelector(":scope > div:first-child");
+  if (!outputHeroEl.contains(bodyEl)) {
+    if (titleBlockEl?.nextSibling) {
+      outputHeroEl.insertBefore(bodyEl, titleBlockEl.nextSibling);
+    } else {
+      outputHeroEl.appendChild(bodyEl);
+    }
+  }
+  if (actionStackEl && actionStackEl.parentElement !== bodyEl) {
+    bodyEl.appendChild(actionStackEl);
+  }
+  if (!bodyEl.contains(sourceCopyEl)) {
+    bodyEl.appendChild(sourceCopyEl);
   }
   sourceCopyEl.innerHTML = `
     <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>

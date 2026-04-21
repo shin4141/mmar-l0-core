@@ -136,7 +136,7 @@ body.viewer-mode .input-panel {
 }
 
 .page-shell.reading-mode .output-panel {
-  padding: 30px 10px 30px 24px;
+  padding: 30px 18px 30px 26px;
   box-shadow: 0 28px 76px rgba(32, 22, 15, 0.18);
 }
 
@@ -490,10 +490,10 @@ h2 {
 
 .output-panel #topic-display {
   display: block;
-  width: calc(100% + 42px);
+  width: 100%;
   max-width: none;
   min-width: 0;
-  margin-right: -42px;
+  margin-right: 0;
   padding-right: 0;
   font-size: clamp(1.82rem, 3.15vw, 2.42rem);
   line-height: 1.16;
@@ -501,25 +501,25 @@ h2 {
   letter-spacing: -0.012em;
 }
 
+.result-top-grid > .hero,
 .output-panel > .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  grid-template-areas:
+    "title"
+    "body";
+  gap: 14px;
   align-items: start;
   justify-items: stretch;
 }
 
+.result-top-grid > .hero > div:first-child,
 .output-panel > .hero > div:first-child {
+  grid-area: title;
   width: 100%;
   max-width: none;
   min-width: 0;
-}
-
-.output-panel > .hero > .chip-stack {
-  width: 100%;
   justify-self: stretch;
-  justify-content: flex-end;
-  margin-top: 2px;
 }
 
 h3 {
@@ -623,9 +623,32 @@ body.public-fixed-demo #run-button {
 .battle-output-right-copy {
   display: grid;
   gap: 10px;
-  margin-top: 14px;
+  width: min(100%, 58ch);
+  max-width: 58ch;
+  justify-self: start;
+}
+
+.battle-output-body {
+  grid-area: body;
+  display: grid;
+  grid-template-columns: minmax(0, 58ch) auto;
+  grid-template-areas: "copy actions";
+  gap: 18px;
+  align-items: start;
   width: 100%;
-  max-width: none;
+}
+
+.battle-output-body > .battle-output-right-copy {
+  grid-area: copy;
+}
+
+.battle-output-body > .chip-stack {
+  grid-area: actions;
+  width: auto;
+  justify-self: end;
+  align-self: start;
+  justify-content: flex-end;
+  margin-top: 2px;
 }
 
 .battle-output-right-copy-kicker {
