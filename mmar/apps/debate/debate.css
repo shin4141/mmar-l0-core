@@ -716,6 +716,10 @@ body.public-fixed-demo #run-button {
   border-top: 1px solid rgba(79, 55, 33, 0.08);
 }
 
+body.battle-mode #output-meta {
+  display: none !important;
+}
+
 .result-source-card-head {
   display: flex;
   align-items: center;
