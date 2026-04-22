@@ -822,15 +822,30 @@ function removeBattleOutputRightCopy() {
 }
 
 function currentBattleStances() {
-  const sideA = String(currentLoadedRecord?.stance_a || currentResult?.stance_a || currentLoadedRecord?.side_a || currentResult?.side_a || "").trim();
-  const sideB = String(currentLoadedRecord?.stance_b || currentResult?.stance_b || currentLoadedRecord?.side_b || currentResult?.side_b || "").trim();
+  const sideA = String(
+    currentLoadedRecord?.stance_a
+    || currentResult?.stance_a
+    || currentLoadedRecord?.a
+    || currentResult?.a
+    || currentLoadedRecord?.side_a
+    || currentResult?.side_a
+    || ""
+  ).trim();
+  const sideB = String(
+    currentLoadedRecord?.stance_b
+    || currentResult?.stance_b
+    || currentLoadedRecord?.b
+    || currentResult?.b
+    || currentLoadedRecord?.side_b
+    || currentResult?.side_b
+    || ""
+  ).trim();
   if (!sideA || !sideB) return null;
   return { sideA, sideB };
 }
 
 function shouldUseBattleOutputRightCopy() {
-  const xEmbed = currentBattleXEmbedState();
-  return isBattleMode() && xEmbed?.status === "success" && !!String(xEmbed.mediaUrl || "").trim();
+  return true;
 }
 
 function battleOutputRightAbCopy() {
@@ -847,8 +862,26 @@ function battleOutputRightNextStepCopy() {
   return battleLocaleText("次の問い：あなたはどちらの判断を支持する？", "Next question: Which side of this judgment would you support?");
 }
 
+function currentBattleOutputRightSummary() {
+  const localized = currentBattleDisplayView();
+  return String(
+    localized?.summary
+    || localized?.source_summary
+    || currentBattleSource?.source_summary
+    || currentLoadedRecord?.source_summary
+    || currentResult?.source_summary
+    || currentLoadedRecord?.description
+    || currentResult?.description
+    || currentLoadedRecord?.excerpt
+    || currentResult?.excerpt
+    || currentLoadedRecord?.tease
+    || currentResult?.tease
+    || ""
+  ).trim();
+}
+
 function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
-  if (!outputHeroEl || !topicDisplayEl || !summary || !sourceUrl) {
+  if (!outputHeroEl || !topicDisplayEl || !summary) {
     removeBattleOutputRightCopy();
     return;
   }
@@ -888,7 +921,7 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
           <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.b)}</div>
         </div>
       ` : ""}
-      <a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>
+      ${sourceUrl ? `<a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>` : ""}
       ${nextStepCopy ? `<div class="battle-output-right-copy-next">${escapeHtml(nextStepCopy)}</div>` : ""}
     </div>
   `;
@@ -911,7 +944,7 @@ function renderResultHeroMedia() {
   }
   const battleIssue = currentBattleIssue() || currentResult?.debate?.topic || "";
   const battleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
-  const battleSourceSummary = currentBattleSourceSummary();
+  const battleSourceSummary = currentBattleOutputRightSummary();
   const xEmbed = currentBattleXEmbedState();
   const isOutputRightCopyTrial = shouldUseBattleOutputRightCopy();
   const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
