@@ -776,7 +776,10 @@ function renderBattleSourceCard() {
     return;
   }
   battleSourcePlaceholderEl.hidden = true;
-  battleSourceSummaryEl.textContent = `${battleCopy().sourcePrefix}: ${currentBattleSourceSummary()}`;
+  battleSourceSummaryEl.innerHTML = `
+    <div>${escapeHtml(`${battleCopy().sourcePrefix}: ${currentBattleSourceSummary()}`)}</div>
+    ${battleContextCardsMarkup()}
+  `;
   safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
   battleSourceLinkEl.hidden = false;
 }
@@ -915,6 +918,7 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
     <div class="battle-output-right-copy-main">
       <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
       <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
+      ${battleContextCardsMarkup()}
       ${abCopy ? `
         <div class="battle-output-right-copy-ab" aria-label="battle entry points">
           <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.a)}</div>
@@ -1155,6 +1159,13 @@ function polishEnglishBattleView(view) {
     side_a: polishEnglishSurfaceText(raw.side_a),
     side_b: polishEnglishSurfaceText(raw.side_b),
     source_summary: polishEnglishSurfaceText(raw.source_summary),
+    context_cards: normalizeBattleContextCards(raw.context_cards).map((card) => ({
+      ...card,
+      title: polishEnglishSurfaceText(card.title),
+      body: polishEnglishSurfaceText(card.body),
+      text: polishEnglishSurfaceText(card.text),
+      why: polishEnglishSurfaceText(card.why),
+    })),
     turns: Array.isArray(raw.turns)
       ? raw.turns.map((turn, index) => ({
           turn: Number(turn?.turn) || index + 1,
@@ -1227,6 +1238,56 @@ function currentBattleSourceSummary() {
   const localized = currentBattleDisplayView();
   if (localized?.source_summary) return String(localized.source_summary).trim();
   return String(currentBattleSource?.source_summary || "").trim();
+}
+
+function normalizeBattleContextCards(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === "string") {
+        const text = item.trim();
+        return text ? { title: "", body: text, text, why: "", uncertain: false } : null;
+      }
+      if (!item || typeof item !== "object") return null;
+      const title = String(item.title || item.label || item.headline || "").trim();
+      const body = String(item.body || item.text || item.summary || item.detail || item.fact || "").trim();
+      const why = String(item.why || item.impact || item.why_it_changes_match || "").trim();
+      if (!title && !body) return null;
+      return {
+        title,
+        body: body || title,
+        text: body || title,
+        kind: String(item.kind || item.type || "fact").trim() || "fact",
+        why,
+        uncertain: Boolean(item.uncertain),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function currentBattleContextCards() {
+  const localized = currentBattleDisplayView();
+  return normalizeBattleContextCards(
+    localized?.context_cards
+    || currentBattleSource?.context_cards
+    || currentLoadedRecord?.context_cards
+    || currentResult?.debate?.context_cards
+    || currentResult?.context_cards
+  );
+}
+
+function battleContextCardsMarkup() {
+  const cards = currentBattleContextCards();
+  if (!cards.length) return "";
+  const items = cards.map((card) => `
+    <div class="battle-context-card">
+      ${card.title ? `<div class="battle-context-card-title">${escapeHtml(card.title)}</div>` : ""}
+      <div class="battle-context-card-body">${escapeHtml(card.body || card.text || "")}</div>
+      ${card.why ? `<div class="battle-context-card-why">${escapeHtml(card.why)}</div>` : ""}
+    </div>
+  `).join("");
+  return `<div class="battle-context-cards" aria-label="Turn 2 context update">${items}</div>`;
 }
 
 function safeBattleSourceImageUrl(value) {
@@ -1381,6 +1442,8 @@ function fillBattleSourceFromXSeed(data) {
     source_url: String(data.source_url || "").trim(),
     source_image: String(data.source_image || "").trim(),
     source_summary: String(data.source_summary || "").trim(),
+    context_card_mode: String(data.context_card_mode || "").trim(),
+    context_cards: normalizeBattleContextCards(data.context_cards),
     issue: String(data.issue || "").trim(),
     lang: normalizeBattleLang(data.lang || currentBattleLang),
   };
@@ -2744,6 +2807,8 @@ function normalizeSavedRecordForPreview(record) {
     experience_mode: recordExperienceMode(record),
     canonical_lang: normalizeBattleLang(record.canonical_lang || "ja"),
     battle_lang: normalizeBattleLang(record.battle_lang || record.lang || "ja"),
+    context_card_mode: String(record.context_card_mode || "").trim(),
+    context_cards: normalizeBattleContextCards(record.context_cards),
     localized_views: normalizeLocalizedViews(record.localized_views),
     run_id: record.run_id || "",
     topic_hash: record.topic_hash || "",
@@ -2861,6 +2926,8 @@ function buildBattleRecord(result, payload) {
     source_url: payload?.source_url || "",
     source_image: payload?.source_image || "",
     source_summary: payload?.source_summary || "",
+    context_card_mode: payload?.context_card_mode || "",
+    context_cards: normalizeBattleContextCards(payload?.context_cards),
     canonical_lang: "ja",
     battle_lang: normalizeBattleLang(payload?.battle_lang || currentBattleLang),
     localized_views: normalizeLocalizedViews(currentLoadedRecord?.localized_views),
@@ -2929,6 +2996,8 @@ function buildRunRecord(result, payload, status = "debate_complete") {
       source_url: record.source_url,
       source_summary: record.source_summary,
       source_image: record.source_image,
+      context_card_mode: record.context_card_mode,
+      context_cards: normalizeBattleContextCards(record.context_cards),
     },
     judge_result: status === "judge_complete" ? record.judge_json : {},
     run_json: record,
@@ -3501,6 +3570,8 @@ function buildResultFromRecord(record) {
       turns: preview.display_turns,
       raw_turns: preview.raw_turns,
       display_turns: preview.display_turns,
+      context_card_mode: preview.context_card_mode || "",
+      context_cards: normalizeBattleContextCards(preview.context_cards),
       summary: preview.judge_json,
     },
     localized_views: preview.localized_views || {},
@@ -3540,6 +3611,8 @@ function loadRecordIntoView(record, options = {}) {
     source_url: preview.source_url || "",
     source_image: preview.source_image || "",
     source_summary: preview.source_summary || "",
+    context_card_mode: preview.context_card_mode || "",
+    context_cards: normalizeBattleContextCards(preview.context_cards),
     battle_lang: resolvedBattleLang,
   };
   currentBattleSource = preview.source_url ? {
@@ -3547,6 +3620,8 @@ function loadRecordIntoView(record, options = {}) {
     source_url: preview.source_url || "",
     source_image: preview.source_image || "",
     source_summary: preview.source_summary || "",
+    context_card_mode: preview.context_card_mode || "",
+    context_cards: normalizeBattleContextCards(preview.context_cards),
     issue: preview.topic || "",
     lang: resolvedBattleLang,
   } : null;
@@ -4582,6 +4657,8 @@ function collectPayload() {
     source_url: isBattleMode() ? currentBattleSource?.source_url || "" : "",
     source_image: isBattleMode() ? currentBattleSource?.source_image || "" : "",
     source_summary: isBattleMode() ? currentBattleSource?.source_summary || "" : "",
+    context_card_mode: isBattleMode() ? currentBattleSource?.context_card_mode || "" : "",
+    context_cards: isBattleMode() ? normalizeBattleContextCards(currentBattleSource?.context_cards) : [],
     battle_lang: isBattleMode() ? currentBattleLang : "ja",
   };
 }

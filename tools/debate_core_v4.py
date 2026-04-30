@@ -75,6 +75,46 @@ def _resolve_side(payload: dict[str, Any], key: str, fallback: str) -> str:
     return _sanitize(payload.get(key)) or fallback
 
 
+def _normalize_context_cards(payload: dict[str, Any]) -> list[dict[str, str]]:
+    raw = payload.get("context_cards")
+    if not isinstance(raw, list):
+        return []
+    cards: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        title = _sanitize(item.get("title") or item.get("label") or item.get("headline"))
+        body = _sanitize(
+            item.get("body")
+            or item.get("text")
+            or item.get("content")
+            or item.get("summary")
+            or item.get("value")
+        )
+        if title or body:
+            cards.append({"title": title, "body": body})
+    return cards[:2]
+
+
+def _context_preface_block(context_cards: list[dict[str, str]]) -> str:
+    if not context_cards:
+        return ""
+    lines = ["Turn 2 Context Cards:"]
+    for idx, card in enumerate(context_cards, start=1):
+        title = card.get("title") or f"Context {idx}"
+        body = card.get("body", "")
+        lines.append(f"- {title}: {body}" if body else f"- {title}")
+    lines.extend(
+        [
+            "Before rebutting, read the opponent's Turn 1 through this context.",
+            "Use any context that helps weaken the opponent's premise.",
+            "Do not force weak context.",
+            "Your goal is to win the rebuttal, not to summarize the context.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
 def _blocked(reason: str, raw_reason: str = "", topic: str = SORA_TOPIC) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:12]
     return {
@@ -503,6 +543,7 @@ def _turn_prompt(
     turn_name: str,
     transcript: str = "",
     opponent_last: str = "",
+    context_cards: list[dict[str, str]] | None = None,
 ) -> str:
     shared = (
         f"Topic: {topic}\n"
@@ -510,6 +551,8 @@ def _turn_prompt(
         f"Thesis you must defend: {thesis}\n"
         f"Anti-thesis you must not support: {anti_thesis}\n"
     )
+    if turn_name == "turn2" and context_cards:
+        shared += _context_preface_block(context_cards)
     if opponent_last:
         shared += f"Opponent latest turn:\n{opponent_last}\n"
     if transcript:
@@ -562,6 +605,7 @@ def _style_anchor_prompt(
     turn_name: str,
     transcript: str = "",
     opponent_last: str = "",
+    context_cards: list[dict[str, str]] | None = None,
 ) -> str:
     anchors = {
         "turn1": TURN1_ANCHORS,
@@ -577,6 +621,8 @@ def _style_anchor_prompt(
         + "\n".join(f"- {anchor}" for anchor in anchors)
         + "\n"
     )
+    if turn_name == "turn2" and context_cards:
+        shared += _context_preface_block(context_cards)
     if opponent_last:
         shared += f"Opponent latest turn:\n{opponent_last}\n"
     if transcript:
@@ -681,6 +727,7 @@ def _generate_turn_pair(
     generate_turn,
     api_key: str,
     card: dict[str, str],
+    context_cards: list[dict[str, str]] | None = None,
     opponent_last_a: str = "",
     opponent_last_b: str = "",
 ) -> tuple[str, dict[str, str], list[dict[str, Any]], str, dict[str, str], list[dict[str, Any]]]:
@@ -692,6 +739,7 @@ def _generate_turn_pair(
         turn_name=turn_name,
         opponent_last=opponent_last_a,
         transcript=transcript_text,
+        context_cards=context_cards,
     )
     b_prompt = build_prompt(
         topic=topic,
@@ -701,6 +749,7 @@ def _generate_turn_pair(
         turn_name=turn_name,
         opponent_last=opponent_last_b,
         transcript=transcript_text,
+        context_cards=context_cards,
     )
     a_trace: list[dict[str, Any]] = []
     b_trace: list[dict[str, Any]] = []
@@ -748,6 +797,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
     side_a = _resolve_side(payload, "side_a", SIDE_A)
     side_b = _resolve_side(payload, "side_b", SIDE_B)
     generation_lane = _generation_lane(payload)
+    context_cards = _normalize_context_cards(payload)
     if not api_key:
         return _blocked("OpenAI key missing", "", topic)
 
@@ -778,6 +828,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             generate_turn=generate_turn,
             api_key=api_key,
             card=card,
+            context_cards=None,
         )
         provider_statuses["openai_a"] = a_status
         provider_statuses["openai_b"] = b_status
@@ -796,6 +847,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             generate_turn=generate_turn,
             api_key=api_key,
             card=card,
+            context_cards=context_cards,
             opponent_last_a=b1,
             opponent_last_b=a1,
         )
@@ -816,6 +868,7 @@ def run_debate_v4(payload: dict[str, Any]) -> dict[str, Any]:
             generate_turn=generate_turn,
             api_key=api_key,
             card=card,
+            context_cards=None,
             opponent_last_a=b2,
             opponent_last_b=a2,
         )

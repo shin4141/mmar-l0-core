@@ -69,6 +69,8 @@ class DebateConfig:
     judge_model: str = ""
     keyword: str = ""
     judge_mode: str = ""
+    context_card_mode: str = ""
+    context_cards: list[dict[str, Any]] | None = None
 
 
 class JudgeError(RuntimeError):
@@ -87,6 +89,98 @@ class LocalizeError(RuntimeError):
 def _compose_raw_reason(*parts: Any) -> str:
     values = [str(part).strip() for part in parts if str(part or "").strip()]
     return " | ".join(values)
+
+
+def _normalize_context_card_mode(value: Any) -> str:
+    normalized = _clean_text(value).lower()
+    if normalized in {"v1", "on", "true", "1", "enabled"}:
+        return "v1"
+    return ""
+
+
+def _context_text_compact(value: Any) -> str:
+    cleaned = _clean_text(value)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip(" ・-")
+
+
+def _normalize_context_candidate_item(item: Any) -> dict[str, Any]:
+    if isinstance(item, str):
+        return {"title": "", "text": _context_text_compact(item), "kind": "fact", "why": "", "uncertain": False}
+    if not isinstance(item, dict):
+        return {}
+    text = _context_text_compact(
+        item.get("text")
+        or item.get("condition")
+        or item.get("detail")
+        or item.get("fact")
+        or item.get("summary")
+        or item.get("body")
+        or item.get("card")
+        or ""
+    )
+    why = _context_text_compact(
+        item.get("why")
+        or item.get("impact")
+        or item.get("why_it_changes_match")
+        or item.get("swing")
+        or ""
+    )
+    uncertain_raw = _clean_text(item.get("uncertain") or item.get("certainty") or item.get("status") or "")
+    uncertain = uncertain_raw.lower() in {"true", "1", "yes", "uncertain", "rumor", "alleged", "reported"}
+    if isinstance(item.get("uncertain"), bool):
+        uncertain = bool(item.get("uncertain"))
+    return {
+        "title": _context_text_compact(item.get("title") or item.get("label") or item.get("headline") or ""),
+        "text": text,
+        "kind": _context_text_compact(item.get("kind") or item.get("type") or "fact") or "fact",
+        "why": why,
+        "uncertain": uncertain,
+    }
+
+
+def _normalize_context_candidates(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        candidate = _normalize_context_candidate_item(item)
+        text = _context_text_compact(candidate.get("text") or candidate.get("title") or "")
+        if len(text) < 4:
+            continue
+        dedupe_key = re.sub(r"\W+", "", text.lower())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized.append(candidate)
+        if len(normalized) >= 5:
+            break
+    return normalized
+
+
+def _select_context_cards(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for candidate in candidates:
+        text = _context_text_compact(candidate.get("text") or "")
+        title = _context_text_compact(candidate.get("title") or "")
+        if not text and title:
+            text = title
+        if not text:
+            continue
+        selected.append(
+            {
+                "title": title,
+                "body": text,
+                "text": text,
+                "kind": _context_text_compact(candidate.get("kind") or "fact") or "fact",
+                "why": _context_text_compact(candidate.get("why") or ""),
+                "uncertain": bool(candidate.get("uncertain")),
+            }
+        )
+        if len(selected) >= 2:
+            break
+    return selected
 
 
 JP_STOPWORDS = {
@@ -3584,6 +3678,7 @@ def _parse_battle_seed_json(text: str) -> dict[str, str]:
     if isinstance(parsed, dict):
         candidate = {key: _clean_text(parsed.get(key) or "") for key in ("source_summary", "issue", "side_a", "side_b")}
         if all(candidate.values()):
+            candidate["context_candidates"] = _normalize_context_candidates(parsed.get("context_candidates"))  # type: ignore[assignment]
             return candidate
     candidate: dict[str, str] = {}
     for line in raw.splitlines():
@@ -3594,7 +3689,8 @@ def _parse_battle_seed_json(text: str) -> dict[str, str]:
         if normalized_key in {"source_summary", "issue", "side_a", "side_b"}:
             candidate[normalized_key] = _clean_text(value.strip().strip('",'))
     if all(candidate.get(key) for key in ("source_summary", "issue", "side_a", "side_b")):
-        return {key: candidate[key] for key in ("source_summary", "issue", "side_a", "side_b")}
+        candidate["context_candidates"] = []  # type: ignore[assignment]
+        return candidate
     raise RuntimeError(f"invalid_xai_seed:{raw[:400]}")
 
 
@@ -3657,11 +3753,15 @@ def _normalize_x_battle_side_position(text: str) -> str:
 
 
 def _normalize_x_battle_seed(seed: dict[str, str], *, lang: str = "ja") -> dict[str, str]:
+    context_candidates = _normalize_context_candidates(seed.get("context_candidates"))  # type: ignore[arg-type]
     normalized = {
         "source_summary": _normalize_x_battle_source_summary(seed.get("source_summary") or "", seed.get("issue") or "", lang=lang),
         "issue": _clean_text(seed.get("issue") or ""),
         "side_a": _normalize_x_battle_side_position(seed.get("side_a") or ""),
         "side_b": _normalize_x_battle_side_position(seed.get("side_b") or ""),
+        "context_candidates": context_candidates,
+        "context_cards": _select_context_cards(context_candidates),
+        "context_card_mode": "v1" if context_candidates else "",
     }
     return normalized
 
@@ -3685,7 +3785,7 @@ def _translate_x_battle_seed_to_english(seed: dict[str, str], api_key: str) -> d
         return _normalize_x_battle_seed(seed, lang="en")
     prompt = (
         "Translate this AI battle seed into natural English and return strict JSON only. "
-        "Keep the exact keys source_summary, issue, side_a, side_b. "
+        "Keep the exact keys source_summary, issue, side_a, side_b, context_candidates. "
         "Keep the same concrete subject and incident. Do not generalize. "
         "issue must stay a short incident-based yes/no question. "
         "side_a and side_b must each be one short opposing line. "
@@ -3694,6 +3794,7 @@ def _translate_x_battle_seed_to_english(seed: dict[str, str], api_key: str) -> d
         f"issue: {_clean_text(seed.get('issue') or '')}\n"
         f"side_a: {_clean_text(seed.get('side_a') or '')}\n"
         f"side_b: {_clean_text(seed.get('side_b') or '')}\n"
+        f"context_candidates: {json.dumps(seed.get('context_candidates') or [], ensure_ascii=False)}\n"
     )
     try:
         text = _call_xai_text(prompt, api_key)
@@ -3731,7 +3832,7 @@ def _call_xai_x_post_battle_seed(url: str, api_key: str, *, lang: str = "ja") ->
     )
     prompt = (
         "Use x_search to inspect this X post URL and return strict JSON only. "
-        "Keys must be source_summary, issue, side_a, side_b. "
+        "Keys must be source_summary, issue, side_a, side_b, context_candidates. "
         f"Write {write_language}. "
         "source_summary must be a concrete 2 or 3 sentence situation description, not a headline and not an abstract lesson. "
         "Sentence 1: who and what happened. "
@@ -3752,6 +3853,10 @@ def _call_xai_x_post_battle_seed(url: str, api_key: str, *, lang: str = "ja") ->
         "side_a must be one stance only. side_b must be the opposite stance only. "
         "Never put both sides into one field. Never use slash-separated forms like 'X / Y'. "
         f"{side_examples}"
+        "context_candidates must be an array of up to 5 objects. "
+        "Each object should contain text, kind, why, and optional uncertain. "
+        "Use context_candidates only for concrete facts or conditions from the post that can change Turn 2 pressure after both sides have opened. "
+        "Do not include generic labels like people are debating. "
         "Prefer concrete value judgments tied to the incident, not abstract ideology. "
         "No markdown. No extra keys. "
         f"URL: {url}"
