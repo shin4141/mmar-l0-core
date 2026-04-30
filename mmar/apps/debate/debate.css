@@ -303,7 +303,6 @@ body.battle-mode .battle-x-source {
   line-height: 1.5;
 }
 
-.battle-source-original,
 .battle-context-cards {
   display: grid;
   gap: 6px;
@@ -702,10 +701,6 @@ body.public-fixed-demo #run-button {
   color: var(--text);
   font-size: 14px;
   line-height: 1.65;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  overflow: hidden;
 }
 
 .battle-output-right-copy-ab {
@@ -787,13 +782,6 @@ body.battle-mode #output-meta {
   max-height: 420px;
   display: block;
   object-fit: contain;
-}
-
-.result-source-summary {
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
 }
 
 @media (max-width: 720px) {

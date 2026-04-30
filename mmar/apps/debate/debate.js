@@ -779,10 +779,6 @@ function renderBattleSourceCard() {
   }
   battleSourcePlaceholderEl.hidden = true;
   battleSourceSummaryEl.innerHTML = `
-    <section class="battle-source-original">
-      <div class="battle-source-section-label">${escapeHtml(battleCopy().sourceLabel)}</div>
-      <div>${escapeHtml(currentBattleSourceSummary())}</div>
-    </section>
     ${battleContextCardsMarkup({ includeLabel: true })}
   `;
   safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
@@ -982,7 +978,6 @@ function renderResultHeroMedia() {
       ${battleSourceUrl ? `<a class="result-source-link" href="${escapeHtml(battleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleCopy().sourceLink)}</a>` : ""}
     </div>
     ${embedMarkup}
-    ${battleSourceSummary ? `<section class="result-source-summary"><div class="battle-source-section-label">${escapeHtml(battleCopy().sourceLabel)}</div><div>${escapeHtml(battleSourceSummary)}</div></section>` : ""}
     ${battleContextCardsMarkup({ includeLabel: true })}
   `;
 }

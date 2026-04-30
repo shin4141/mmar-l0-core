@@ -17,11 +17,16 @@ def test_battle_detail_never_renders_x_embed_html():
 
 def test_source_context_sections_stay_separate_in_detail():
     js = DEBATE_JS.read_text(encoding="utf-8")
+    css = (REPO / "mmar" / "apps" / "debate" / "debate.css").read_text(encoding="utf-8")
     assert "contextLabel: \"追加情報\"" in js
-    assert "battle-source-original" in js
     assert "battleContextCardsMarkup({ includeLabel: true })" in js
     assert "battle-output-right-copy-text" in js
     assert "battle-output-right-copy-text\">${escapeHtml(summary)}</div>\n      ${abCopy" in js
+    assert "result-source-summary" not in js
+    assert "battle-source-original" not in js
+    text_rule = css[css.index(".battle-output-right-copy-text"):css.index(".battle-output-right-copy-ab")]
+    assert "-webkit-line-clamp" not in text_rule
+    assert "overflow: hidden" not in text_rule
 
 
 def test_flatten_preserves_context_cards_from_nested_debate_result():
