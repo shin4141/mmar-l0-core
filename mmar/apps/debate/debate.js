@@ -945,7 +945,6 @@ function renderResultHeroMedia() {
   const battleIssue = currentBattleIssue() || currentResult?.debate?.topic || "";
   const battleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
   const battleSourceSummary = currentBattleOutputRightSummary();
-  const xEmbed = currentBattleXEmbedState();
   const isOutputRightCopyTrial = shouldUseBattleOutputRightCopy();
   const heroImage = resolveBattleSourceImageUrl()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
@@ -964,19 +963,11 @@ function renderResultHeroMedia() {
   } else {
     removeBattleOutputRightCopy();
   }
-  const embedMarkup = xEmbed?.status === "success"
-    ? `
-      <div class="result-x-embed-shell">
-        <div class="result-x-embed" data-battle-x-embed="1">${xEmbed.html}</div>
-      </div>
-    `
-    : xEmbed
-      ? `<div class="result-x-embed-fallback">${escapeHtml(battleXEmbedFailureLabel(xEmbed.error || xEmbed.status))}</div>`
-      : `
-        <div class="result-hero-media-shell">
-          <img class="result-hero-media-image" src="${escapeHtml(heroImage)}" alt="${escapeHtml(battleIssue || battleCopy().battleBadge)}" />
-        </div>
-      `;
+  const embedMarkup = `
+    <div class="result-hero-media-shell">
+      <img class="result-hero-media-image" src="${escapeHtml(heroImage)}" alt="${escapeHtml(battleIssue || battleCopy().battleBadge)}" />
+    </div>
+  `;
   resultHeroMediaEl.innerHTML = `
     ${isOutputRightCopyTrial ? "" : `<div class="result-source-card-head">
       <div class="summary-label">${escapeHtml(battleCopy().sourceLabel)}</div>
@@ -985,11 +976,6 @@ function renderResultHeroMedia() {
     ${embedMarkup}
     ${isOutputRightCopyTrial ? "" : (battleSourceSummary ? `<div class="result-source-summary">${escapeHtml(battleSourceSummary)}</div>` : "")}
   `;
-  if (xEmbed?.status === "success") {
-    void ensureBattleXWidgetsScript()
-      .then(() => window.twttr?.widgets?.load?.(resultHeroMediaEl))
-      .catch(() => {});
-  }
 }
 
 function currentBattleShareId() {
