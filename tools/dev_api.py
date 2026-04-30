@@ -1223,7 +1223,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if path == "/gallery":
+        if path in {"/gallery", "/debate/gallery.html"}:
             gallery_page = REPO / "mmar" / "apps" / "debate" / "gallery.html"
             body = gallery_page.read_bytes()
             self.send_response(200)
