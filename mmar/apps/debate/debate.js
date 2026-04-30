@@ -947,7 +947,7 @@ function renderResultHeroMedia() {
   const battleSourceSummary = currentBattleOutputRightSummary();
   const xEmbed = currentBattleXEmbedState();
   const isOutputRightCopyTrial = shouldUseBattleOutputRightCopy();
-  const heroImage = String(currentBattleSource?.source_image || currentLoadedRecord?.source_image || "").trim()
+  const heroImage = resolveBattleSourceImageUrl()
     || buildBattleCardPlaceholderImage(battleIssue || battleCopy().battleBadge);
   if (resultTopGridEl) {
     resultTopGridEl.hidden = false;
@@ -1241,6 +1241,39 @@ function currentBattleSourceSummary() {
   const localized = currentBattleDisplayView();
   if (localized?.source_summary) return String(localized.source_summary).trim();
   return String(currentBattleSource?.source_summary || "").trim();
+}
+
+function safeBattleSourceImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) return raw;
+  if (raw.startsWith("https://") || raw.startsWith("http://")) return raw;
+  return "";
+}
+
+function battleSourceImageValue(key) {
+  const sources = [
+    currentBattleSource,
+    currentLoadedRecord,
+    currentResult,
+    currentResult?.debate,
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const imageUrl = safeBattleSourceImageUrl(source[key]);
+    if (imageUrl) return imageUrl;
+  }
+  return "";
+}
+
+function resolveBattleSourceImageUrl() {
+  return (
+    battleSourceImageValue("x_embed_media_url")
+    || battleSourceImageValue("source_image_url")
+    || battleSourceImageValue("source_media_url")
+    || battleSourceImageValue("source_image")
+    || ""
+  );
 }
 
 function currentBattleXEmbedState() {

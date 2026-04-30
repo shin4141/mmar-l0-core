@@ -14,7 +14,7 @@ from html import unescape
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from http import cookies
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -870,6 +870,40 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
     }
 
 
+def _normalize_metric_days(value: str) -> int:
+    try:
+        days = int(str(value or "30").strip())
+    except ValueError:
+        days = 30
+    return max(1, min(days, 90))
+
+
+def _admin_daily_metric_rows(*, days: int) -> list[dict[str, object]]:
+    today = datetime.now(timezone.utc).date()
+    rows = [
+        {
+            "date": (today - timedelta(days=offset)).isoformat(),
+            "views": 0,
+            "opens": 0,
+            "shares": 0,
+            "saves": 0,
+            "published_count": 0,
+        }
+        for offset in range(days - 1, -1, -1)
+    ]
+    published = list_published_cards(sort="recent")
+    totals = {
+        "views": sum(int(record.get("views", 0) or 0) for record in published),
+        "opens": sum(int(record.get("opens", 0) or 0) for record in published),
+        "shares": sum(int(record.get("shares", 0) or 0) for record in published),
+        "saves": sum(int(record.get("saves", 0) or 0) for record in published),
+        "published_count": len(published),
+    }
+    if rows:
+        rows[-1].update(totals)
+    return rows
+
+
 def _metric_audience_for_request(handler: BaseHTTPRequestHandler) -> str:
     if history_env_tag() != "public":
         return "internal"
@@ -1198,6 +1232,14 @@ class Handler(BaseHTTPRequestHandler):
             )
             self._send_json(200, {"ok": True, **summary})
             return
+        if path == "/api/admin/metrics/daily":
+            if not _admin_session(self):
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            query = parse_qs(parsed_url.query or "")
+            days = _normalize_metric_days(str(query.get("days", ["30"])[0] or "30"))
+            self._send_json(200, {"ok": True, "days": days, "rows": _admin_daily_metric_rows(days=days)})
+            return
         admin_page = _admin_page_path(path)
         if admin_page:
             body = admin_page.read_bytes()
@@ -1223,7 +1265,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if path == "/gallery":
+        if path in {"/gallery", "/debate/gallery.html"}:
             gallery_page = REPO / "mmar" / "apps" / "debate" / "gallery.html"
             body = gallery_page.read_bytes()
             self.send_response(200)

@@ -363,6 +363,86 @@ button:disabled {
   font-size: 28px;
 }
 
+.admin-daily-card {
+  margin-top: 18px;
+  border: 1px solid #dfd1bf;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-daily-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-daily-selected,
+.admin-daily-empty {
+  color: #6b5d49;
+  font-size: 13px;
+}
+
+.admin-daily-range {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.admin-daily-chart {
+  min-height: 220px;
+  display: grid;
+  align-items: center;
+}
+
+.admin-daily-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.admin-daily-axis {
+  stroke: #e2d5c1;
+  stroke-width: 1;
+}
+
+.admin-daily-line {
+  fill: none;
+  stroke: #9c2f20;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.admin-daily-point {
+  fill: #1e1d1a;
+}
+
+.admin-daily-label {
+  fill: #7d6445;
+  font-size: 12px;
+}
+
+.admin-daily-label-end {
+  text-anchor: end;
+}
+
+.admin-daily-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #5e513f;
+  font-size: 13px;
+}
+
+.admin-daily-stats span {
+  border: 1px solid #efe4d3;
+  border-radius: 12px;
+  padding: 7px 9px;
+}
+
 .admin-data-table-wrap {
   margin-top: 18px;
   overflow: auto;
@@ -424,6 +504,10 @@ button:disabled {
 @media (max-width: 960px) {
   .admin-data-totals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-daily-head {
+    display: grid;
   }
 }
 

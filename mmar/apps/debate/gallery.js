@@ -221,6 +221,42 @@ function galleryRenderableXMediaUrl(xEmbed) {
   return mediaUrl;
 }
 
+function gallerySafeImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) return raw;
+  if (raw.startsWith("https://") || raw.startsWith("http://")) return raw;
+  return "";
+}
+
+function galleryRecordValue(record, key) {
+  if (!record || typeof record !== "object") return "";
+  const direct = gallerySafeImageUrl(record[key]);
+  if (direct) return direct;
+  const nestedContainers = [
+    record.debate_result,
+    record.run_json,
+    record.battle_json,
+    record.source,
+  ];
+  for (const container of nestedContainers) {
+    if (!container || typeof container !== "object") continue;
+    const nested = gallerySafeImageUrl(container[key]);
+    if (nested) return nested;
+  }
+  return "";
+}
+
+function resolveGalleryThumbnailUrl(record) {
+  return (
+    galleryRecordValue(record, "x_embed_media_url")
+    || galleryRecordValue(record, "source_image_url")
+    || galleryRecordValue(record, "source_media_url")
+    || galleryRecordValue(record, "source_image")
+    || ""
+  );
+}
+
 function applyGalleryMediaOrientation(root = galleryGridEl) {
   if (!root) return;
   const images = Array.from(root.querySelectorAll(".gallery-card-media .gallery-card-image"));
@@ -317,7 +353,7 @@ function buildCardMarkup(record) {
     ? englishCard.excerpt
     : firstNonEmpty(record.excerpt, record.tease, "");
   const summary = gallerySummaryText(record, issue, localized);
-  const image = String(record.source_image || "").trim() || buildPlaceholderImage(issue);
+  const thumbnailUrl = resolveGalleryThumbnailUrl(record);
   const sourceUrl = String(record.source_url || "").trim();
   const xEmbedText = xEmbed?.status === "success" ? extractXEmbedText(xEmbed.html) : "";
   const xEmbedMediaUrl = galleryRenderableXMediaUrl(xEmbed);
@@ -328,7 +364,13 @@ function buildCardMarkup(record) {
   const href = currentLang === "en"
     ? `/battle/${encodeURIComponent(id)}?lang=en`
     : `/battle/${encodeURIComponent(id)}`;
-  const mediaMarkup = xEmbed?.status === "success"
+  const mediaMarkup = thumbnailUrl
+    ? `
+      <div class="gallery-card-media gallery-card-media-fixed">
+        <img class="gallery-card-image" src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(issue)}" loading="lazy" onerror="this.onerror=null;this.src='${escapeHtml(buildPlaceholderImage(issue))}'" />
+      </div>
+    `
+    : xEmbed?.status === "success"
     ? (
       xEmbedMediaUrl
         ? `
@@ -346,7 +388,7 @@ function buildCardMarkup(record) {
           </div>
         `
     )
-    : xEmbed
+      : xEmbed && !thumbnailUrl
       ? `
         <div class="gallery-card-media gallery-card-media-fixed gallery-card-media-fallback">
           <span class="gallery-card-badge">${escapeHtml(galleryCopy().badge)}</span>
@@ -355,7 +397,7 @@ function buildCardMarkup(record) {
       `
       : `
         <div class="gallery-card-media gallery-card-media-fixed">
-          <img class="gallery-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(issue)}" loading="lazy" />
+          <img class="gallery-card-image" src="${escapeHtml(buildPlaceholderImage(issue))}" alt="${escapeHtml(issue)}" loading="lazy" />
         </div>
       `;
   return `

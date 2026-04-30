@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>VerdAIct Admin Data</title>
-  <link rel="stylesheet" href="/admin/admin.css?v=20260417a" />
+  <link rel="stylesheet" href="/admin/admin.css?v=20260430a" />
 </head>
 <body>
   <main class="admin-shell admin-data-shell">
@@ -52,6 +52,21 @@
       <div id="admin-data-totals" class="admin-data-totals"></div>
       <div id="admin-data-status" class="admin-status" hidden></div>
 
+      <section class="admin-daily-card" aria-labelledby="admin-daily-title">
+        <div class="admin-daily-head">
+          <div>
+            <div id="admin-daily-title" class="admin-section-title">Daily Views</div>
+            <div id="admin-daily-selected" class="admin-daily-selected">All published battles</div>
+          </div>
+          <div class="admin-filter-row admin-daily-range" role="tablist" aria-label="Daily views range">
+            <button type="button" class="secondary-button admin-filter-button is-active" data-daily-range="7">7d</button>
+            <button type="button" class="secondary-button admin-filter-button" data-daily-range="30">30d</button>
+          </div>
+        </div>
+        <div id="admin-daily-chart" class="admin-daily-chart" aria-live="polite"></div>
+        <div id="admin-daily-stats" class="admin-daily-stats"></div>
+      </section>
+
       <div class="admin-data-table-wrap">
         <table class="admin-data-table">
           <thead>
@@ -71,6 +86,6 @@
       </div>
     </section>
   </main>
-  <script type="module" src="/admin/admin_data.js?v=20260417a"></script>
+  <script type="module" src="/admin/admin_data.js?v=20260430a"></script>
 </body>
 </html>
