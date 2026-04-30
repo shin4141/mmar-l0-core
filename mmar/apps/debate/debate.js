@@ -230,6 +230,7 @@ const BATTLE_LANG_COPY = {
     xBuildLabel: "Xからバトル作成",
     sourceLabel: "元ネタ",
     sourcePrefix: "元ネタ",
+    contextLabel: "追加情報",
     sourceLink: "元URLを開く",
     sourcePlaceholder: "Xの投稿URLを入れると元ネタを表示します。",
     shareCopyLabel: "共有リンクコピー",
@@ -278,6 +279,7 @@ const BATTLE_LANG_COPY = {
     xBuildLabel: "Create from X",
     sourceLabel: "Source",
     sourcePrefix: "Source",
+    contextLabel: "Additional Context",
     sourceLink: "Open original",
     sourcePlaceholder: "Paste an X post URL to load the source.",
     shareCopyLabel: "Copy share link",
@@ -777,8 +779,11 @@ function renderBattleSourceCard() {
   }
   battleSourcePlaceholderEl.hidden = true;
   battleSourceSummaryEl.innerHTML = `
-    <div>${escapeHtml(`${battleCopy().sourcePrefix}: ${currentBattleSourceSummary()}`)}</div>
-    ${battleContextCardsMarkup()}
+    <section class="battle-source-original">
+      <div class="battle-source-section-label">${escapeHtml(battleCopy().sourceLabel)}</div>
+      <div>${escapeHtml(currentBattleSourceSummary())}</div>
+    </section>
+    ${battleContextCardsMarkup({ includeLabel: true })}
   `;
   safeSetExternalHref(battleSourceLinkEl, safeSourceUrl, { xOnly: true });
   battleSourceLinkEl.hidden = false;
@@ -918,7 +923,6 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
     <div class="battle-output-right-copy-main">
       <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
       <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
-      ${battleContextCardsMarkup()}
       ${abCopy ? `
         <div class="battle-output-right-copy-ab" aria-label="battle entry points">
           <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.a)}</div>
@@ -973,12 +977,13 @@ function renderResultHeroMedia() {
     </div>
   `;
   resultHeroMediaEl.innerHTML = `
-    ${isOutputRightCopyTrial ? "" : `<div class="result-source-card-head">
+    <div class="result-source-card-head">
       <div class="summary-label">${escapeHtml(battleCopy().sourceLabel)}</div>
       ${battleSourceUrl ? `<a class="result-source-link" href="${escapeHtml(battleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleCopy().sourceLink)}</a>` : ""}
-    </div>`}
+    </div>
     ${embedMarkup}
-    ${isOutputRightCopyTrial ? "" : (battleSourceSummary ? `<div class="result-source-summary">${escapeHtml(battleSourceSummary)}</div>` : "")}
+    ${battleSourceSummary ? `<section class="result-source-summary"><div class="battle-source-section-label">${escapeHtml(battleCopy().sourceLabel)}</div><div>${escapeHtml(battleSourceSummary)}</div></section>` : ""}
+    ${battleContextCardsMarkup({ includeLabel: true })}
   `;
 }
 
@@ -1277,7 +1282,8 @@ function currentBattleContextCards() {
   );
 }
 
-function battleContextCardsMarkup() {
+function battleContextCardsMarkup(options = {}) {
+  const { includeLabel = false } = options;
   const cards = currentBattleContextCards();
   if (!cards.length) return "";
   const items = cards.map((card) => `
@@ -1287,7 +1293,12 @@ function battleContextCardsMarkup() {
       ${card.why ? `<div class="battle-context-card-why">${escapeHtml(card.why)}</div>` : ""}
     </div>
   `).join("");
-  return `<div class="battle-context-cards" aria-label="Turn 2 context update">${items}</div>`;
+  return `
+    <section class="battle-context-cards" aria-label="Turn 2 context update">
+      ${includeLabel ? `<div class="battle-source-section-label">${escapeHtml(battleCopy().contextLabel)}</div>` : ""}
+      ${items}
+    </section>
+  `;
 }
 
 function safeBattleSourceImageUrl(value) {
@@ -1321,60 +1332,6 @@ function resolveBattleSourceImageUrl() {
     || battleSourceImageValue("source_image")
     || ""
   );
-}
-
-function currentBattleXEmbedState() {
-  const sourceUrl = String(currentBattleSource?.source_url || currentLoadedRecord?.source_url || "").trim();
-  const savedSourceUrl = String(currentLoadedRecord?.x_embed_source_url || currentResult?.x_embed_source_url || "").trim();
-  if (!sourceUrl || !savedSourceUrl || sourceUrl !== savedSourceUrl) return null;
-  const status = String(currentLoadedRecord?.x_embed_status || currentResult?.x_embed_status || "").trim();
-  if (!status) return null;
-  if (status === "success") {
-    const html = String(currentLoadedRecord?.x_embed_html || currentResult?.x_embed_html || "").trim();
-    const mediaUrl = String(currentLoadedRecord?.x_embed_media_url || currentResult?.x_embed_media_url || "").trim();
-    if (!html || !html.includes("twitter-tweet")) return null;
-    return { status, html, mediaUrl };
-  }
-  return {
-    status,
-    error: String(currentLoadedRecord?.x_embed_error || currentResult?.x_embed_error || status).trim(),
-  };
-}
-
-function battleXEmbedFailureLabel(errorCode) {
-  if (errorCode === "x_forbidden") {
-    return currentBattleLang === "en"
-      ? "Embedding unavailable on X (403)"
-      : "X側の制限により埋め込めません（403）";
-  }
-  if (errorCode === "invalid" || errorCode === "invalid_x_post_url" || errorCode === "missing_url") {
-    return currentBattleLang === "en" ? "Invalid URL" : "URL無効";
-  }
-  return currentBattleLang === "en"
-    ? "Temporarily unavailable"
-    : "一時的に取得できませんでした";
-}
-
-let battleXWidgetsPromise = null;
-function ensureBattleXWidgetsScript() {
-  if (window.twttr?.widgets?.load) return Promise.resolve(window.twttr);
-  if (battleXWidgetsPromise) return battleXWidgetsPromise;
-  battleXWidgetsPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-x-widgets="true"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve(window.twttr), { once: true });
-      existing.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://platform.x.com/widgets.js";
-    script.async = true;
-    script.dataset.xWidgets = "true";
-    script.addEventListener("load", () => resolve(window.twttr), { once: true });
-    script.addEventListener("error", () => reject(new Error("x_widgets_load_failed")), { once: true });
-    document.head.appendChild(script);
-  });
-  return battleXWidgetsPromise;
 }
 
 async function fetchLocalizedBattleView(recordId, lang = currentBattleLang) {

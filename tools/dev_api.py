@@ -734,6 +734,16 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
     turn_count = _record_turn_count(record, debate_result)
     if not turn_count:
         turn_count = _record_turn_count(nested_run, nested_debate_result)
+    context_cards = []
+    for candidate in (
+        record.get("context_cards"),
+        debate_result.get("context_cards"),
+        nested_run.get("context_cards"),
+        nested_debate_result.get("context_cards"),
+    ):
+        if isinstance(candidate, list):
+            context_cards = candidate
+            break
     is_published = bool(curated) if curated is not None else bool(record.get("curated"))
     lifecycle_state = run_lifecycle_state(record, published=is_published)
     flattened = {
@@ -749,6 +759,8 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "source_url": str(record.get("source_url") or debate_result.get("source_url") or nested_run.get("source_url") or nested_debate_result.get("source_url") or ""),
         "source_image": str(record.get("source_image") or debate_result.get("source_image") or nested_run.get("source_image") or nested_debate_result.get("source_image") or ""),
         "source_summary": str(record.get("source_summary") or debate_result.get("source_summary") or nested_run.get("source_summary") or nested_debate_result.get("source_summary") or ""),
+        "context_card_mode": str(record.get("context_card_mode") or debate_result.get("context_card_mode") or nested_run.get("context_card_mode") or nested_debate_result.get("context_card_mode") or ""),
+        "context_cards": context_cards,
         "canonical_lang": str(record.get("canonical_lang") or debate_result.get("canonical_lang") or nested_run.get("canonical_lang") or nested_debate_result.get("canonical_lang") or "ja"),
         "localized_views": record.get("localized_views") if isinstance(record.get("localized_views"), dict) else (nested_run.get("localized_views") if isinstance(nested_run.get("localized_views"), dict) else {}),
         "x_embed_status": str(record.get("x_embed_status") or nested_run.get("x_embed_status") or ""),

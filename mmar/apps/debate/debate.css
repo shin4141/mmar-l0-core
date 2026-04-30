@@ -303,6 +303,36 @@ body.battle-mode .battle-x-source {
   line-height: 1.5;
 }
 
+.battle-source-original,
+.battle-context-cards {
+  display: grid;
+  gap: 6px;
+}
+
+.battle-source-section-label,
+.battle-context-card-title {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.battle-context-card {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid rgba(96, 31, 21, 0.12);
+  padding-top: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.battle-context-card-why {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .battle-source-placeholder {
   color: var(--muted);
   font-size: 0.94rem;
@@ -766,37 +796,6 @@ body.battle-mode #output-meta {
   line-height: 1.55;
 }
 
-.result-x-embed-shell {
-  display: grid;
-  justify-items: center;
-  width: 100%;
-  overflow: hidden;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(255, 241, 231, 0.96), rgba(241, 211, 194, 0.72));
-  padding: 14px 12px;
-}
-
-.result-x-embed {
-  width: 100%;
-  max-width: 100%;
-}
-
-.result-x-embed blockquote.twitter-tweet {
-  margin: 0 !important;
-}
-
-.result-x-embed-fallback {
-  display: grid;
-  align-items: center;
-  min-height: 160px;
-  border-radius: 12px;
-  background: rgba(255, 250, 243, 0.96);
-  color: var(--muted);
-  padding: 18px 16px;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
 @media (max-width: 720px) {
   .result-top-grid {
     grid-template-columns: 1fr;
@@ -813,9 +812,6 @@ body.battle-mode #output-meta {
     max-height: 320px;
   }
 
-  .result-x-embed-shell {
-    padding: 12px 8px;
-  }
 }
 
 .chip-stack {
