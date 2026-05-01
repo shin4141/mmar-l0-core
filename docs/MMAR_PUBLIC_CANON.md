@@ -4,23 +4,67 @@
 MMAR public release must preserve the currently verified public behavior while adding only explicitly approved changes.
 
 ## Current Public
-public_build_sha:
-public_branch:
-public_status:
-last_verified_at:
+- public_build_sha:
+- public_branch:
+- public_status:
+- last_verified_at:
+- verified_urls:
+  - `/api/health`:
+  - `/gallery`:
+  - `/battle/fefb70ebe4d1`:
+  - `/battle/ce07d53d3093`:
+  - `/battle/9c5f1615bdc3`:
+  - `/admin/data`:
 
 ## Current Preview
-preview_build_sha:
-preview_branch:
-preview_status:
-last_verified_at:
+- preview_build_sha:
+- preview_branch:
+- preview_status:
+- last_verified_at:
+- verified_urls:
+  - `/api/health`:
+  - `/gallery`:
+  - `/battle/fefb70ebe4d1`:
+  - `/battle/ce07d53d3093`:
+  - `/battle/9c5f1615bdc3`:
+  - `/admin/data`:
 
 ## Candidate
-candidate_branch:
-candidate_base_sha:
-candidate_head_sha:
-included_changes:
-excluded_changes:
+- candidate_branch:
+- candidate_base_sha:
+- candidate_head_sha:
+- included_changes:
+  - 
+- excluded_changes:
+  - 
+- rollback_target:
+
+## Release Checklist
+- [ ] build_sha matches candidate_head_sha.
+- [ ] `/gallery` checked.
+- [ ] `/battle/fefb70ebe4d1` checked.
+- [ ] `/battle/ce07d53d3093` checked.
+- [ ] `/battle/9c5f1615bdc3` checked.
+- [ ] `/admin/data` checked.
+- [ ] X embed/video prohibition checked.
+- [ ] Turn2 `context_cards` checked.
+- [ ] Image fallback behavior checked.
+
+## Work Start Protocol
+Before any public/preview candidate work:
+- Read this Canon.
+- Record public / preview / candidate SHA values.
+- Write `included_changes` and `excluded_changes`.
+- Fix the change purpose in one sentence.
+- Write `rollback_target`.
+
+## Work End Protocol
+Before reporting completion:
+- Write changed files.
+- Write verification results.
+- Classify each failed test as pre-existing or introduced by this change.
+- State that Render was not operated.
+- Stop and wait for Shin approval.
 
 ## Required Invariants
 
