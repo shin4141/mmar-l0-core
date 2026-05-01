@@ -73,3 +73,38 @@ This ledger gives a quick view of current public, preview, candidate, and rollba
 - Battle UI changes require existing battle ID smoke checks.
 - Patch one render path at a time.
 
+## Current State Reload 2026-05-01
+- checked_at: 2026-05-01T06:32:52Z
+- public_health:
+  - ok: true
+  - build_sha: `c7e626c`
+  - env_tag: `public`
+  - history_store_id: `public-0b8d5c509485`
+  - history_count: 36
+  - gallery_store_id: `postgres-40190409948d`
+  - gallery_count: 27
+  - published_store_kind: `postgres`
+  - published_store_id: `postgres-40190409948d`
+  - published_store_url_present: true
+- preview_health:
+  - ok: true
+  - build_sha: `672c83f`
+  - env_tag: `preview`
+  - history_store_id: `preview-9e016e9dacaa`
+  - history_count: 53
+  - gallery_store_id: `postgres-40190409948d`
+  - gallery_count: 27
+  - published_store_kind: `postgres`
+  - published_store_id: `postgres-40190409948d`
+  - published_store_url_present: true
+- preview_battle_smoke:
+  - route: `/battle/fefb70ebe4d1`
+  - result: pass
+  - notes: headless DOM smoke found source, OUTPUT/judge, turn content, and one source image; iframe/video/twitter blockquote/platform script counts were zero.
+- memory_ops_candidate:
+  - branch: `candidate/memory-ops-docs-v1`
+  - commit: `c95c3a957a916d6ac386eed65f4b44a18727cd15`
+- rollback_status:
+  - broken_preview_sha: `b3c1e98fd45dc8690d35f07afdc29062810d0e0d`
+  - reverted_by: `672c83fd21e5e7dccdcd74d26f50822f1b9261da`
+  - status: live preview rollback confirmed.
