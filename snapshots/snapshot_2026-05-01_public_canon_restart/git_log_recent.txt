@@ -1,0 +1,10 @@
+2e89cf0 docs: promote MMAR public canon to release ledger
+c7e626c fix: remove duplicate source text in battle detail
+0a506ad fix: restore source context separation and public canon
+b68796c fix: restore turn2 context injection
+b97109d fix: disable x embed media in battle detail
+39571a2 fix: restore admin data chart with gallery image hotfix
+1cba1b8 Always show battle right copy for preview test
+f136edb Tighten battle right-bottom spacing
+2ddb74d Hide battle turns chip
+2cfb3e5 Adjust battle output body copy and actions balance

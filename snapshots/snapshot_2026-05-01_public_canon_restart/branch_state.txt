@@ -1,0 +1,16 @@
+current_branch: hotfix/public-canon-source-context-restore
+working_tree: clean at initial read; dirty after snapshot/canon file edits only
+head_sha: 2e89cf05cf6c9dcbfa0a6257fc8565de4ef39341
+main_sha: 188c47de57c9b06d7762d1d0977257e129f9c220
+preview_branch: preview
+preview_sha: c31ab66e4f3b5a4969634b0ad2111a7946f2c859
+public_url: https://mmar-l0-core.onrender.com
+current_public_sha: unknown from live public; local codex/public-deploy-05f135d points to 5fb1eb92af4a91742c888feefb23b5e12d272633
+candidate_branch: none designated for this restart snapshot
+candidate_branches_present_locally:
+  - codex/release_candidate_complete: 910b10ab4821b20c5ec3ba27541af140cf752200
+  - codex/release_candidate_history_unified: 910b10ab4821b20c5ec3ba27541af140cf752200
+  - codex/release_candidate_passed: 13c262ed22e87104e9fa5e838a57b269cef8e46d
+  - codex/release_candidate_unified: 44b825f40d16d1d164e08448765eb6852ad0d501
+deploy_touched: no
+public_env_db_publish_remove_delete_archive_touched: no

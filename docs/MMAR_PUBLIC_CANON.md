@@ -4,48 +4,70 @@
 MMAR public release must preserve the currently verified public behavior while adding only explicitly approved changes.
 
 ## Current Public
-- public_build_sha:
-- public_branch:
-- public_status:
-- last_verified_at:
+- public_url: https://mmar-l0-core.onrender.com
+- public_build_sha: unknown
+- public_branch: unknown live public; local public-deploy branch candidate is `codex/public-deploy-05f135d`
+- public_branch_sha_local: 5fb1eb92af4a91742c888feefb23b5e12d272633
+- public_status: snapshot_only / live not verified in this turn
+- last_verified_at: unknown; not checked in this snapshot turn
 - verified_urls:
-  - `/api/health`:
-  - `/gallery`:
-  - `/battle/fefb70ebe4d1`:
-  - `/battle/ce07d53d3093`:
-  - `/battle/9c5f1615bdc3`:
-  - `/admin/data`:
+  - `https://mmar-l0-core.onrender.com/api/health`: not checked; build_sha unknown
+  - `https://mmar-l0-core.onrender.com/gallery`: not checked
+  - `https://mmar-l0-core.onrender.com/battle/fefb70ebe4d1`: not checked
+  - `https://mmar-l0-core.onrender.com/battle/ce07d53d3093`: not checked
+  - `https://mmar-l0-core.onrender.com/battle/9c5f1615bdc3`: not checked
+  - `https://mmar-l0-core.onrender.com/admin/data`: not checked
+- known_good_items:
+  - Unknown for live public in this turn because browser/public verification is intentionally out of scope.
+  - Required behavior is defined by Required Invariants below and must be rechecked on fresh public before completion.
+- known_risks:
+  - Live public SHA is unknown until `/api/health` is checked.
+  - Gallery and battle detail use different image resolver paths; both must be checked.
+  - Fresh public / incognito / same-conditions twice success is required before any completion claim.
 
 ## Current Preview
-- preview_build_sha:
-- preview_branch:
-- preview_status:
-- last_verified_at:
+- preview_url: https://mmar-debate-preview.onrender.com
+- preview_build_sha: unknown
+- preview_branch: preview
+- preview_branch_sha_local: c31ab66e4f3b5a4969634b0ad2111a7946f2c859
+- preview_status: snapshot_only / live not verified in this turn
+- last_verified_at: unknown; not checked in this snapshot turn
 - verified_urls:
-  - `/api/health`:
-  - `/gallery`:
-  - `/battle/fefb70ebe4d1`:
-  - `/battle/ce07d53d3093`:
-  - `/battle/9c5f1615bdc3`:
-  - `/admin/data`:
+  - `https://mmar-debate-preview.onrender.com/api/health`: not checked; build_sha unknown
+  - `https://mmar-debate-preview.onrender.com/gallery`: not checked
+  - `https://mmar-debate-preview.onrender.com/battle/fefb70ebe4d1`: not checked
+  - `https://mmar-debate-preview.onrender.com/battle/ce07d53d3093`: not checked
+  - `https://mmar-debate-preview.onrender.com/battle/9c5f1615bdc3`: not checked
+  - `https://mmar-debate-preview.onrender.com/admin/data`: not checked
+- known_good_items:
+  - Unknown for live preview in this turn because browser/preview verification is intentionally out of scope.
+  - Any public promotion must use the exact SHA accepted on preview.
+- known_risks:
+  - Live preview SHA is unknown until `/api/health` is checked.
+  - Local success is not release completion.
+  - Preview-verified SHA must match the public candidate SHA before deploy.
 
 ## Candidate
-- candidate_branch:
-- candidate_base_sha:
-- candidate_head_sha:
+- candidate_branch: none designated for this restart snapshot
+- candidate_base_sha: 5fb1eb92af4a91742c888feefb23b5e12d272633 local public-deploy branch pointer; live public SHA unknown
+- candidate_head_sha: none
 - included_changes:
-  - 
+  - none
 - excluded_changes:
-  - 
-- rollback_target:
+  - all implementation changes
+- rollback_target: current public SHA unknown from live public; local rollback reference is `codex/public-deploy-05f135d` at 5fb1eb92af4a91742c888feefb23b5e12d272633
+- status: snapshot_only / not_started
 
 ## Release Checklist
-- [ ] build_sha matches candidate_head_sha.
+- [ ] `/api/health` build_sha matches candidate_head_sha.
 - [ ] `/gallery` checked.
 - [ ] `/battle/fefb70ebe4d1` checked.
 - [ ] `/battle/ce07d53d3093` checked.
 - [ ] `/battle/9c5f1615bdc3` checked.
 - [ ] `/admin/data` checked.
+- [ ] Incognito checked.
+- [ ] Same conditions pass twice.
+- [ ] Fresh public succeeds before completion is claimed.
 - [ ] X embed/video prohibition checked.
 - [ ] Turn2 `context_cards` checked.
 - [ ] Image fallback behavior checked.
@@ -53,10 +75,14 @@ MMAR public release must preserve the currently verified public behavior while a
 ## Work Start Protocol
 Before any public/preview candidate work:
 - Read this Canon.
+- Create a snapshot under `snapshots/` before implementation.
 - Record public / preview / candidate SHA values.
 - Write `included_changes` and `excluded_changes`.
+- Do not implement if `included_changes`, `excluded_changes`, or `rollback_target` is blank.
 - Fix the change purpose in one sentence.
 - Write `rollback_target`.
+- Public deploy requires explicit Shin approval.
+- Do not deploy `main` directly to public.
 
 ## Work End Protocol
 Before reporting completion:
