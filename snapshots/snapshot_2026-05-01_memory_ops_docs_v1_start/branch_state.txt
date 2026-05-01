@@ -1,0 +1,6 @@
+current_branch: candidate/memory-ops-docs-v1
+base_branch: hotfix/public-canon-source-context-restore
+base_sha: 0bc006c5fea921b6ef365f83d200ee69f34e1b73
+rollback_target: 0bc006c5fea921b6ef365f83d200ee69f34e1b73
+included_changes: docs-only memory ops files
+excluded_changes: code/ui/deploy/env/db/publish/remove/delete/archive

@@ -1,0 +1,5 @@
+branch: candidate/memory-ops-docs-v1
+HEAD: 0bc006c5fea921b6ef365f83d200ee69f34e1b73
+working_tree: clean before docs-only memory ops edits
+deploy_touched: no
+

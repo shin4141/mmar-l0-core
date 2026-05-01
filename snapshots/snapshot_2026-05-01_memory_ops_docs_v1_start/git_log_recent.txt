@@ -1,0 +1,11 @@
+0bc006c docs: record manual acceptance gates before candidate work
+1e35d13 docs: record public ui route audit ledger
+7f53cdb docs: record public and preview health ledger
+3220f19 docs: record public canon restart snapshot
+2e89cf0 docs: promote MMAR public canon to release ledger
+c7e626c fix: remove duplicate source text in battle detail
+0a506ad fix: restore source context separation and public canon
+b68796c fix: restore turn2 context injection
+b97109d fix: disable x embed media in battle detail
+39571a2 fix: restore admin data chart with gallery image hotfix
+
