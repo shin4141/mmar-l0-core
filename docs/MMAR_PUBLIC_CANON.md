@@ -3,6 +3,11 @@
 ## Purpose
 MMAR public release must preserve the currently verified public behavior while adding only explicitly approved changes.
 
+## Related Docs
+- `docs/MMAR_MISTAKES.md`
+- `docs/MMAR_RELEASE_LEDGER.md`
+- `docs/MMAR_WORK_PROTOCOL.md`
+
 ## Current Public
 - public_url: https://mmar-l0-core.onrender.com
 - public_health_checked_at: 2026-05-01T03:10:53.950385+00:00
