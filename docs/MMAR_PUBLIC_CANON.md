@@ -5,58 +5,76 @@ MMAR public release must preserve the currently verified public behavior while a
 
 ## Current Public
 - public_url: https://mmar-l0-core.onrender.com
-- public_build_sha: unknown
-- public_branch: unknown live public; local public-deploy branch candidate is `codex/public-deploy-05f135d`
+- public_health_checked_at: 2026-05-01T03:10:53.950385+00:00
+- public_build_sha: c7e626c
+- public_env_tag: public
+- public_history_store_id: public-0b8d5c509485
+- public_history_count: 36
+- public_gallery_store_id: postgres-40190409948d
+- public_gallery_count: 27
+- public_published_store_kind: postgres
+- public_published_store_id: postgres-40190409948d
+- public_published_store_url_present: true
+- public_branch: unknown live public; `/api/health` reports build_sha `c7e626c`
 - public_branch_sha_local: 5fb1eb92af4a91742c888feefb23b5e12d272633
-- public_status: snapshot_only / live not verified in this turn
-- last_verified_at: unknown; not checked in this snapshot turn
+- public_status: health_checked_only / UI not verified in this turn
+- last_verified_at: 2026-05-01T03:10:53.950385+00:00 for `/api/health` only
 - verified_urls:
-  - `https://mmar-l0-core.onrender.com/api/health`: not checked; build_sha unknown
+  - `https://mmar-l0-core.onrender.com/api/health`: ok; build_sha `c7e626c`
   - `https://mmar-l0-core.onrender.com/gallery`: not checked
   - `https://mmar-l0-core.onrender.com/battle/fefb70ebe4d1`: not checked
   - `https://mmar-l0-core.onrender.com/battle/ce07d53d3093`: not checked
   - `https://mmar-l0-core.onrender.com/battle/9c5f1615bdc3`: not checked
   - `https://mmar-l0-core.onrender.com/admin/data`: not checked
 - known_good_items:
-  - Unknown for live public in this turn because browser/public verification is intentionally out of scope.
+  - Public `/api/health` returned `ok: true` with env_tag `public`.
   - Required behavior is defined by Required Invariants below and must be rechecked on fresh public before completion.
 - known_risks:
-  - Live public SHA is unknown until `/api/health` is checked.
+  - Public build_sha is `c7e626c`; full live UI behavior is not verified in this turn.
   - Gallery and battle detail use different image resolver paths; both must be checked.
   - Fresh public / incognito / same-conditions twice success is required before any completion claim.
 
 ## Current Preview
 - preview_url: https://mmar-debate-preview.onrender.com
-- preview_build_sha: unknown
+- preview_health_checked_at: 2026-05-01T03:10:54.138265+00:00
+- preview_build_sha: c7e626c
+- preview_env_tag: preview
+- preview_history_store_id: preview-9e016e9dacaa
+- preview_history_count: 53
+- preview_gallery_store_id: postgres-40190409948d
+- preview_gallery_count: 27
+- preview_published_store_kind: postgres
+- preview_published_store_id: postgres-40190409948d
+- preview_published_store_url_present: true
 - preview_branch: preview
 - preview_branch_sha_local: c31ab66e4f3b5a4969634b0ad2111a7946f2c859
-- preview_status: snapshot_only / live not verified in this turn
-- last_verified_at: unknown; not checked in this snapshot turn
+- preview_status: health_checked_only / UI not verified in this turn
+- last_verified_at: 2026-05-01T03:10:54.138265+00:00 for `/api/health` only
 - verified_urls:
-  - `https://mmar-debate-preview.onrender.com/api/health`: not checked; build_sha unknown
+  - `https://mmar-debate-preview.onrender.com/api/health`: ok; build_sha `c7e626c`
   - `https://mmar-debate-preview.onrender.com/gallery`: not checked
   - `https://mmar-debate-preview.onrender.com/battle/fefb70ebe4d1`: not checked
   - `https://mmar-debate-preview.onrender.com/battle/ce07d53d3093`: not checked
   - `https://mmar-debate-preview.onrender.com/battle/9c5f1615bdc3`: not checked
   - `https://mmar-debate-preview.onrender.com/admin/data`: not checked
 - known_good_items:
-  - Unknown for live preview in this turn because browser/preview verification is intentionally out of scope.
+  - Preview `/api/health` returned `ok: true` with env_tag `preview`.
   - Any public promotion must use the exact SHA accepted on preview.
 - known_risks:
-  - Live preview SHA is unknown until `/api/health` is checked.
+  - Preview build_sha is `c7e626c`; full live UI behavior is not verified in this turn.
   - Local success is not release completion.
   - Preview-verified SHA must match the public candidate SHA before deploy.
 
 ## Candidate
-- candidate_branch: none designated for this restart snapshot
-- candidate_base_sha: 5fb1eb92af4a91742c888feefb23b5e12d272633 local public-deploy branch pointer; live public SHA unknown
+- candidate_branch: none
+- candidate_base_sha: not selected
 - candidate_head_sha: none
 - included_changes:
   - none
 - excluded_changes:
   - all implementation changes
-- rollback_target: current public SHA unknown from live public; local rollback reference is `codex/public-deploy-05f135d` at 5fb1eb92af4a91742c888feefb23b5e12d272633
-- status: snapshot_only / not_started
+- rollback_target: live public `/api/health` reports `c7e626c`; keep previous local rollback reference `codex/public-deploy-05f135d` at 5fb1eb92af4a91742c888feefb23b5e12d272633 until Shin confirms next棚卸し range
+- status: not_started
 
 ## Release Checklist
 - [ ] `/api/health` build_sha matches candidate_head_sha.
