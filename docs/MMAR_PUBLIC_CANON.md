@@ -74,7 +74,7 @@ MMAR public release must preserve the currently verified public behavior while a
 - excluded_changes:
   - all implementation changes
 - rollback_target: live public `/api/health` reports `c7e626c`; keep previous local rollback reference `codex/public-deploy-05f135d` at 5fb1eb92af4a91742c888feefb23b5e12d272633 until Shin confirms next棚卸し range
-- status: not_started
+- status: blocked / manual_review_pending
 
 ## Public UI Route Check
 - checked_at: 2026-05-01T12:31:26+0900
@@ -146,6 +146,20 @@ MMAR public release must preserve the currently verified public behavior while a
 - admin_data_public_preview: unknown; unauthenticated checks redirect to `/admin/login`, so Daily Views / 7d / 30d / totals / graph are not verified.
 - candidate_ready: no
 - next_required_before_candidate: authenticated `/admin/data` read-only verification or Shin decision to exclude admin graph from this棚卸し gate.
+
+## Manual Acceptance Pending
+- authenticated_admin_data:
+  - public `/admin/data`: pending authenticated read-only check.
+  - preview `/admin/data`: pending authenticated read-only check.
+  - must verify: Daily Views, 7d, 30d, totals, graph visible, and no major blank page or JS error.
+- battle_context_cards_duplicate_free:
+  - `/battle/fefb70ebe4d1`: pending Shin acceptance that context cards are visible but not duplicated in a confusing way.
+  - `/battle/ce07d53d3093`: pending Shin acceptance that context cards are visible but not duplicated in a confusing way.
+  - `/battle/9c5f1615bdc3`: pending Shin acceptance that context cards are visible but not duplicated in a confusing way.
+  - must verify: source/additional info separation is acceptable and right OUTPUT full source is acceptable.
+- candidate_readiness_rule:
+  - Do not create a candidate until authenticated `/admin/data` and battle context card duplicate-free acceptance are complete, or Shin explicitly waives one of these gates.
+  - Until acceptance, candidate status remains `blocked / manual_review_pending`.
 
 ## Release Checklist
 - [ ] `/api/health` build_sha matches candidate_head_sha.
