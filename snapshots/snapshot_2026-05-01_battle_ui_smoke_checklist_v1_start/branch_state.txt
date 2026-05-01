@@ -1,0 +1,6 @@
+current_branch: candidate/battle-ui-smoke-checklist-v1
+base_branch: hotfix/public-canon-source-context-restore
+base_sha: 0fe6116daaa1b94de4abf53b1acfae4cb1f8da5d
+rollback_target: 0fe6116daaa1b94de4abf53b1acfae4cb1f8da5d
+included_changes: battle UI smoke checklist docs
+excluded_changes: code/ui/deploy/env/db/publish/remove/delete/archive

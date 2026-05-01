@@ -1,0 +1,6 @@
+branch: candidate/battle-ui-smoke-checklist-v1
+HEAD: 0fe6116daaa1b94de4abf53b1acfae4cb1f8da5d
+working_tree: clean before docs-only edits
+deploy_touched: no
+code_changes: no
+

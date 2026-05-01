@@ -6,6 +6,7 @@ MMAR public release must preserve the currently verified public behavior while a
 ## Related Docs
 - `docs/MMAR_MISTAKES.md`
 - `docs/MMAR_RELEASE_LEDGER.md`
+- `docs/MMAR_BATTLE_UI_SMOKE.md`
 - `docs/MMAR_WORK_PROTOCOL.md`
 
 ## Current Public
@@ -257,3 +258,7 @@ Before reporting completion:
 - Render deploy is Shin-only.
 - Codex must not touch env / DB / publish / remove / delete / archive unless explicitly instructed.
 - Every release candidate must list included_changes and excluded_changes.
+- Battle UI/render path changes require `docs/MMAR_BATTLE_UI_SMOKE.md`.
+- `node --check` is not enough for battle UI acceptance.
+- Do not perform visible preview UI checks until `/api/health` build_sha matches the expected SHA.
+- Required battle smoke IDs: `/battle/fefb70ebe4d1`, `/battle/ce07d53d3093`, `/battle/9c5f1615bdc3`.

@@ -50,6 +50,7 @@ This ledger gives a quick view of current public, preview, candidate, and rollba
   - broken preview SHA: `b3c1e98fd45dc8690d35f07afdc29062810d0e0d`
   - rollback SHA: `672c83fd21e5e7dccdcd74d26f50822f1b9261da`
   - lesson: syntax checks passed but battle detail render failed; battle UI changes require existing battle-id smoke checks.
+  - smoke checklist: `docs/MMAR_BATTLE_UI_SMOKE.md` is required before future battle UI preview deploys.
 
 ## Verified URLs
 - `/api/health`

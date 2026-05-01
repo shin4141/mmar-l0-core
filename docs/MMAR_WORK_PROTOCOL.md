@@ -7,13 +7,14 @@ This file defines the work start and end protocol for Codex so MMAR / VerdAIct d
 1. Read `docs/MMAR_PUBLIC_CANON.md`.
 2. Read `docs/MMAR_RELEASE_LEDGER.md`.
 3. Check relevant mistakes in `docs/MMAR_MISTAKES.md`.
-4. Fix the mission in one sentence.
-5. Fix keep / remove / maybe / rollback / verify.
-6. Fix included_changes / excluded_changes.
-7. Create a snapshot.
-8. Confirm the working tree is clean or explain expected dirt.
-9. Confirm current public / preview / candidate state.
-10. If deploy is needed, stop for Shin approval.
+4. If battle UI/render path may change, read `docs/MMAR_BATTLE_UI_SMOKE.md`.
+5. Fix the mission in one sentence.
+6. Fix keep / remove / maybe / rollback / verify.
+7. Fix included_changes / excluded_changes.
+8. Create a snapshot.
+9. Confirm the working tree is clean or explain expected dirt.
+10. Confirm current public / preview / candidate state.
+11. If deploy is needed, stop for Shin approval.
 
 ## Work End Protocol
 1. Check changed files.
@@ -22,8 +23,9 @@ This file defines the work start and end protocol for Codex so MMAR / VerdAIct d
 4. Record verification results.
 5. Update docs ledger when state changes.
 6. Record whether deploy was touched.
-7. Confirm clean status for the files touched by the mission.
-8. Give one next recommended action.
+7. If battle UI/render path changed, attach `BATTLE_UI_SMOKE_REPORT`.
+8. Confirm clean status for the files touched by the mission.
+9. Give one next recommended action.
 
 ## Required Planning Block
 - mission:
@@ -51,6 +53,7 @@ This file defines the work start and end protocol for Codex so MMAR / VerdAIct d
 - Do not inspect UI while build_sha mismatches.
 - Do not treat local success as release completion.
 - Do not treat `node --check` alone as battle UI acceptance.
+- Do not treat `node --check` as UI safety proof.
 - Do not escape to an old base and drop good changes.
 - Do not make incidental fixes outside the mission.
 - Do not test on public.
@@ -93,4 +96,3 @@ The following require Shin approval:
 - mission splits into more than one purpose.
 - battle render path breaks.
 - node check passes but screen smoke fails.
-
