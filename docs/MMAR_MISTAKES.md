@@ -93,11 +93,11 @@ This file records operational mistakes and prevention rules so MMAR / VerdAIct w
 
 ### MISTAKE-011
 - mistake_id: MISTAKE-011
-- what happened: `node --check` passed, but preview battle detail rendering broke.
-- why it happened: syntax validation was mistaken for render validation.
+- what happened: `node --check` passed, but preview battle detail rendered header-only / broken after `b3c1e98`.
+- why it happened: syntax validation was mistaken for render validation, and existing battle IDs were not smoked before preview deploy.
 - visible damage: battle detail showed only the header; source, turn log, and judge content did not render.
 - rule learned: `node --check` is necessary but not enough for battle UI changes.
-- prevention: run existing battle-id smoke checks before preview deploy.
+- prevention: run `docs/MMAR_BATTLE_UI_SMOKE.md` against the required existing battle IDs before preview deploy.
 
 ### MISTAKE-012
 - mistake_id: MISTAKE-012
@@ -131,4 +131,3 @@ This file records operational mistakes and prevention rules so MMAR / VerdAIct w
 - A change needs public, main, env, DB, publish, remove, delete, or archive access.
 - A docs-only mission begins touching code.
 - A battle UI change passes syntax but fails render smoke.
-

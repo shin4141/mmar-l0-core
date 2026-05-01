@@ -1,0 +1,11 @@
+0fe6116 docs: merge MMAR memory ops baseline
+6beb415 docs: record current public preview reload
+c95c3a9 docs: add MMAR memory ops files
+0bc006c docs: record manual acceptance gates before candidate work
+1e35d13 docs: record public ui route audit ledger
+7f53cdb docs: record public and preview health ledger
+3220f19 docs: record public canon restart snapshot
+2e89cf0 docs: promote MMAR public canon to release ledger
+c7e626c fix: remove duplicate source text in battle detail
+0a506ad fix: restore source context separation and public canon
+
