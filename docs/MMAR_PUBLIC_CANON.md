@@ -76,6 +76,77 @@ MMAR public release must preserve the currently verified public behavior while a
 - rollback_target: live public `/api/health` reports `c7e626c`; keep previous local rollback reference `codex/public-deploy-05f135d` at 5fb1eb92af4a91742c888feefb23b5e12d272633 until Shin confirms next棚卸し range
 - status: not_started
 
+## Public UI Route Check
+- checked_at: 2026-05-01T12:31:26+0900
+- build_sha: c7e626c
+- method: read-only headless Chrome DOM check plus read-only curl/API checks; no deploy, DB write, publish, remove, delete, or archive action.
+- routes:
+  - route: `https://mmar-l0-core.onrender.com/gallery`
+    result: pass
+    notes: page rendered 25 battle cards with `25 cards`; first viewport had 9 visible images and 0 visible broken images; 17 remote gallery image URLs returned HTTP 200; no iframe/video/twitter blockquote/X widget script observed.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-l0-core.onrender.com/battle/fefb70ebe4d1`
+    result: partial
+    notes: battle detail rendered; left source image loaded as static image `1200x675`; source card includes `元ネタ` and separated `追加情報`; right OUTPUT includes original source text; no iframe/video/twitter blockquote/X widget script observed; Turn2 context cards observed in DOM. Note: context card nodes appear in more than one display area, so Shin review is needed before treating this as full duplicate-free acceptance.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-l0-core.onrender.com/battle/ce07d53d3093`
+    result: partial
+    notes: battle detail rendered; left source image loaded as static image `1200x675`; source card includes `元ネタ` and separated `追加情報`; right OUTPUT includes original source text; no iframe/video/twitter blockquote/X widget script observed; Turn2 context cards observed in DOM. Note: context card nodes appear in more than one display area, so Shin review is needed before treating this as full duplicate-free acceptance.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-l0-core.onrender.com/battle/9c5f1615bdc3`
+    result: partial
+    notes: battle detail rendered; left source image loaded as static image `1200x675`; source card includes `元ネタ` and separated `追加情報`; right OUTPUT includes original source text; no iframe/video/twitter blockquote/X widget script observed; Turn2 context cards observed in DOM. Note: context card nodes appear in more than one display area, so Shin review is needed before treating this as full duplicate-free acceptance.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-l0-core.onrender.com/admin/data`
+    result: unknown
+    notes: route redirected to `/admin/login` for unauthenticated read-only check; admin page itself displayed login UI. Daily Views / 7d / 30d / totals / graph could not be verified without an authenticated admin session.
+    screenshots: not required
+    blocker: yes for admin/data graph verification
+
+## Preview UI Route Check
+- checked_at: 2026-05-01T12:31:26+0900
+- build_sha: c7e626c
+- method: read-only headless Chrome DOM check plus read-only curl/API checks; no deploy, DB write, publish, remove, delete, or archive action.
+- routes:
+  - route: `https://mmar-debate-preview.onrender.com/gallery`
+    result: pass
+    notes: page rendered 25 battle cards with `25 cards`; first viewport had 9 visible images and 0 visible broken images; same gallery store as public; no iframe/video/twitter blockquote/X widget script observed.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-debate-preview.onrender.com/battle/fefb70ebe4d1`
+    result: partial
+    notes: battle detail rendered; left source image loaded as static image `1200x675`; source card includes `元ネタ` and separated `追加情報`; right OUTPUT includes original source text; no iframe/video/twitter blockquote/X widget script observed; Turn2 context cards observed in DOM. Note: context card nodes appear in more than one display area, so Shin review is needed before treating this as full duplicate-free acceptance.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-debate-preview.onrender.com/battle/ce07d53d3093`
+    result: partial
+    notes: battle detail rendered; left source image loaded as static image `1200x675`; source card includes `元ネタ` and separated `追加情報`; right OUTPUT includes original source text; no iframe/video/twitter blockquote/X widget script observed; Turn2 context cards observed in DOM. Note: context card nodes appear in more than one display area, so Shin review is needed before treating this as full duplicate-free acceptance.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-debate-preview.onrender.com/battle/9c5f1615bdc3`
+    result: partial
+    notes: battle detail rendered; left source image loaded as static image `1200x675`; source card includes `元ネタ` and separated `追加情報`; right OUTPUT includes original source text; no iframe/video/twitter blockquote/X widget script observed; Turn2 context cards observed in DOM. Note: context card nodes appear in more than one display area, so Shin review is needed before treating this as full duplicate-free acceptance.
+    screenshots: not required
+    blocker: no
+  - route: `https://mmar-debate-preview.onrender.com/admin/data`
+    result: unknown
+    notes: route redirected to `/admin/login` for unauthenticated read-only check; admin page itself displayed login UI. Daily Views / 7d / 30d / totals / graph could not be verified without an authenticated admin session.
+    screenshots: not required
+    blocker: yes for admin/data graph verification
+
+## Next Candidate Readiness
+- current_public_build_sha: c7e626c
+- current_preview_build_sha: c7e626c
+- gallery_public_preview: pass under read-only DOM/API checks
+- battle_detail_public_preview: partial; static source images, source/context separation, OUTPUT original source text, and no X embed/iframe/video/twitter blockquote/X widget script observed; Shin review needed for duplicate-free acceptance because context cards are rendered in multiple DOM areas.
+- admin_data_public_preview: unknown; unauthenticated checks redirect to `/admin/login`, so Daily Views / 7d / 30d / totals / graph are not verified.
+- candidate_ready: no
+- next_required_before_candidate: authenticated `/admin/data` read-only verification or Shin decision to exclude admin graph from this棚卸し gate.
+
 ## Release Checklist
 - [ ] `/api/health` build_sha matches candidate_head_sha.
 - [ ] `/gallery` checked.
