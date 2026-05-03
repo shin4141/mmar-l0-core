@@ -7,6 +7,7 @@ REPO = Path(__file__).resolve().parents[1]
 DEBATE_JS = REPO / "mmar" / "apps" / "debate" / "debate.js"
 GALLERY_JS = REPO / "mmar" / "apps" / "debate" / "gallery.js"
 GALLERY_HTML = REPO / "mmar" / "apps" / "debate" / "gallery.html"
+DEBATE_CSS = REPO / "mmar" / "apps" / "debate" / "debate.css"
 
 
 def test_battle_detail_never_renders_x_embed_html():
@@ -55,6 +56,15 @@ def test_phase1_english_shell_sanitizes_object_source_text_and_buttons():
     assert "String(\n    localized?.summary" not in js
     assert "Back to edit" in html
     assert "Next battle" in html
+
+
+def test_combined_candidate_keeps_battle_layout_alignment_hooks():
+    css = DEBATE_CSS.read_text(encoding="utf-8")
+
+    assert "grid-template-columns: minmax(340px, 0.48fr) minmax(0, 0.52fr)" in css
+    assert ".result-hero-media-block .battle-context-card" in css
+    assert "body.battle-mode .summary-card-confidence .summary-emphasis" in css
+    assert "border-radius: 999px" in css
 
 
 def test_flatten_preserves_context_cards_from_nested_debate_result():
