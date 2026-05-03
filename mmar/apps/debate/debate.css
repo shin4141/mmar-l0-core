@@ -655,9 +655,11 @@ body.public-fixed-demo #run-button {
 
 .battle-output-right-copy {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "main actions";
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "main"
+    "actions";
+  gap: 10px;
   width: 100%;
   max-width: none;
   align-items: start;
@@ -675,11 +677,14 @@ body.public-fixed-demo #run-button {
 
 .battle-output-right-copy > .chip-stack {
   grid-area: actions;
-  width: auto;
-  justify-self: end;
+  width: 100%;
+  justify-self: stretch;
   align-self: start;
-  justify-content: flex-end;
-  margin-top: 2px;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(79, 55, 33, 0.08);
 }
 
 .battle-output-right-copy-main {
@@ -1261,6 +1266,24 @@ body.battle-mode #run-button {
 body.battle-mode .verdict-strip-card,
 body.battle-mode .summary-card {
   box-shadow: 0 14px 32px rgba(77, 23, 15, 0.1);
+}
+
+body.battle-mode .verdict-grid,
+body.battle-mode .summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.battle-mode .summary-card {
+  min-height: 0;
+  padding: 11px 12px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 248, 240, 0.9));
+  box-shadow: 0 8px 20px rgba(77, 23, 15, 0.07);
+}
+
+body.battle-mode .summary-card-confidence {
+  display: none;
 }
 
 .secondary-button {
