@@ -53,9 +53,23 @@ def test_phase1_english_shell_sanitizes_object_source_text_and_buttons():
     assert "function readableSourceText" in js
     assert "\"source_text\"" in js
     assert "\"original_text\"" in js
+    assert "\"description\"" in js
+    assert "\"note\"" in js
+    assert "\"value\"" in js
     assert "String(\n    localized?.summary" not in js
+    assert "String(turn.a || \"\")" not in js
+    assert "String(item.body || item.text" not in js
     assert "Back to edit" in html
     assert "Next battle" in html
+
+
+def test_phase1_english_shell_uses_english_fallback_judgment_copy():
+    js = DEBATE_JS.read_text(encoding="utf-8")
+
+    assert "Generated English viewer-shell fallback." in js
+    assert "The argument moved, but neither side fully closed the result." in js
+    assert "Side B kept the weak point open and owned the decisive frame." in js
+    assert "The key weak point surfaced here." in js
 
 
 def test_combined_candidate_keeps_battle_layout_alignment_hooks():

@@ -827,24 +827,24 @@ function removeBattleOutputRightCopy() {
 }
 
 function currentBattleStances() {
-  const sideA = String(
-    currentLoadedRecord?.stance_a
-    || currentResult?.stance_a
-    || currentLoadedRecord?.a
-    || currentResult?.a
-    || currentLoadedRecord?.side_a
-    || currentResult?.side_a
-    || ""
-  ).trim();
-  const sideB = String(
-    currentLoadedRecord?.stance_b
-    || currentResult?.stance_b
-    || currentLoadedRecord?.b
-    || currentResult?.b
-    || currentLoadedRecord?.side_b
-    || currentResult?.side_b
-    || ""
-  ).trim();
+  const sideA = [
+    currentBattleDisplayView()?.side_a,
+    currentLoadedRecord?.stance_a,
+    currentResult?.stance_a,
+    currentLoadedRecord?.a,
+    currentResult?.a,
+    currentLoadedRecord?.side_a,
+    currentResult?.side_a,
+  ].map((value) => readableSourceText(value)).find(Boolean) || "";
+  const sideB = [
+    currentBattleDisplayView()?.side_b,
+    currentLoadedRecord?.stance_b,
+    currentResult?.stance_b,
+    currentLoadedRecord?.b,
+    currentResult?.b,
+    currentLoadedRecord?.side_b,
+    currentResult?.side_b,
+  ].map((value) => readableSourceText(value)).find(Boolean) || "";
   if (!sideA || !sideB) return null;
   return { sideA, sideB };
 }
@@ -873,7 +873,11 @@ function readableSourceText(value, seen = new Set()) {
     return String(value).trim();
   }
   if (Array.isArray(value)) {
-    return value.map((item) => readableSourceText(item, seen)).find(Boolean) || "";
+    return value
+      .map((item) => readableSourceText(item, seen))
+      .filter(Boolean)
+      .filter((text, index, items) => items.indexOf(text) === index)
+      .join(" / ");
   }
   if (typeof value !== "object") return "";
   if (seen.has(value)) return "";
@@ -886,6 +890,13 @@ function readableSourceText(value, seen = new Set()) {
     "original_text",
     "content",
     "summary",
+    "label",
+    "value",
+    "note",
+    "description",
+    "detail",
+    "fact",
+    "headline",
     "url",
   ];
   for (const key of preferredKeys) {
@@ -1042,7 +1053,7 @@ function normalizeLocalizedViews(raw) {
 }
 
 function normalizedEnglishSurfaceKey(value) {
-  return String(value || "")
+  return readableSourceText(value)
     .toLowerCase()
     .replace(/["“”'‘’`「」『』()[\]{}]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
@@ -1062,7 +1073,7 @@ function looksLikeAdjacentEnglishDuplicate(left, right) {
 function dedupeEnglishSurfaceLines(lines) {
   const deduped = [];
   for (const line of lines) {
-    const text = String(line || "").trim();
+    const text = readableSourceText(line);
     if (!text) continue;
     const previous = deduped[deduped.length - 1] || "";
     if (looksLikeAdjacentEnglishDuplicate(text, previous)) continue;
@@ -1072,7 +1083,7 @@ function dedupeEnglishSurfaceLines(lines) {
 }
 
 function polishEnglishWeakSpotLabel(value) {
-  const label = String(value || "").trim();
+  const label = readableSourceText(value);
   const exactMap = {
     "Retreat of Definition": "Shifting the Claim",
     "Definition Retreat": "Shifting the Claim",
@@ -1088,7 +1099,7 @@ function polishEnglishWeakSpotLabel(value) {
 }
 
 function polishEnglishSurfaceText(value) {
-  let text = String(value || "").trim();
+  let text = readableSourceText(value);
   if (!text) return "";
   const replacements = [
     [/\bline of establishment\b/gi, "path to proof"],
@@ -1256,8 +1267,8 @@ function currentLocalizedBattleTurns() {
     .filter((turn) => turn && typeof turn === "object")
     .map((turn, index) => ({
       turn: Number(turn.turn) || index + 1,
-      a: String(turn.a || ""),
-      b: String(turn.b || ""),
+      a: readableSourceText(turn.a),
+      b: readableSourceText(turn.b),
     }))
     .filter((turn) => turn.a || turn.b);
 }
@@ -1276,15 +1287,15 @@ function normalizeBattleContextCards(raw) {
         return text ? { title: "", body: text, text, why: "", uncertain: false } : null;
       }
       if (!item || typeof item !== "object") return null;
-      const title = String(item.title || item.label || item.headline || "").trim();
-      const body = String(item.body || item.text || item.summary || item.detail || item.fact || "").trim();
-      const why = String(item.why || item.impact || item.why_it_changes_match || "").trim();
+      const title = readableSourceText(item.title || item.label || item.headline);
+      const body = readableSourceText(item.body || item.text || item.summary || item.detail || item.fact);
+      const why = readableSourceText(item.why || item.impact || item.why_it_changes_match || item.note);
       if (!title && !body) return null;
       return {
         title,
         body: body || title,
         text: body || title,
-        kind: String(item.kind || item.type || "fact").trim() || "fact",
+        kind: readableSourceText(item.kind || item.type) || "fact",
         why,
         uncertain: Boolean(item.uncertain),
       };
@@ -2200,9 +2211,12 @@ function normalizeWinner(summary) {
   else if (["b", "fighter b", "claude"].includes(lowered)) side = "B";
   else if (["draw", "tie", "undecidable", "cannot decide", "引き分け", "互角", "五分"].includes(lowered)) side = "Draw";
   else side = inferWinnerFromSummary(summary, reason);
+  const fallbackReason = isEnglishBattleView()
+    ? (side === "Draw" ? "The frame moved, but neither side fully closed the argument." : "One side gained ground, but the final deciding line stayed narrow.")
+    : (side === "Draw" ? "流れは動いたが、どちらも決定打を押し切れませんでした。" : "押し込みは見えたが、最後の決め手までは届きませんでした。");
   return {
     side: side || "Draw",
-    reason: reason || summary?.reason_one_liner || (side === "Draw" ? "流れは動いたが、どちらも決定打を押し切れませんでした。" : "押し込みは見えたが、最後の決め手までは届きませんでした。"),
+    reason: readableSourceText(reason || summary?.reason_one_liner) || fallbackReason,
   };
 }
 
@@ -2232,13 +2246,21 @@ function normalizeWeakSpot(summary) {
   const winnerSide = normalizeWinner(summary).side;
   const defaultSide = winnerSide === "Draw" ? "both" : (winnerSide === "A" ? "B" : "A");
   const defaultSpeaker = winnerSide === "Draw" ? "A/B" : defaultSide;
-  const defaultLabel = winnerSide === "Draw" ? "Why it stayed unresolved" : "論拠不足";
-  const defaultWhy = winnerSide === "Draw"
-    ? "A/Bともに相手の核を崩し切れず、決着に届かなかった。"
-    : `${defaultSide}は勝負を決める根拠を最後まで守れなかった。`;
-  const defaultFix = winnerSide === "Draw"
-    ? "相手の核を崩す一手を一つに絞って、そこへ証拠を足すべきだった。"
-    : "抽象的に守るのではなく、相手の核心を崩す具体例か基準を先に置くべきだった。";
+  const defaultLabel = winnerSide === "Draw" ? "Why It Stayed Unresolved" : (isEnglishBattleView() ? "Weak Spot" : "論拠不足");
+  const defaultWhy = isEnglishBattleView()
+    ? (winnerSide === "Draw"
+        ? "Neither side fully broke the other side's core claim."
+        : `${defaultSide} could not protect the decisive reason through the end.`)
+    : (winnerSide === "Draw"
+        ? "A/Bともに相手の核を崩し切れず、決着に届かなかった。"
+        : `${defaultSide}は勝負を決める根拠を最後まで守れなかった。`);
+  const defaultFix = isEnglishBattleView()
+    ? (winnerSide === "Draw"
+        ? "Focus on one attack against the other side's core claim and add evidence there."
+        : "Use a concrete example or standard that directly hits the other side's core claim.")
+    : (winnerSide === "Draw"
+        ? "相手の核を崩す一手を一つに絞って、そこへ証拠を足すべきだった。"
+        : "抽象的に守るのではなく、相手の核心を崩す具体例か基準を先に置くべきだった。");
   const defaultTurn = extractTurnNumber(summary?.turning_point || summary?.fatal_phrase) || 3;
   if (raw && typeof raw === "object") {
     return {
@@ -2248,9 +2270,9 @@ function normalizeWeakSpot(summary) {
       role: String(raw.role || "failure_exposure").trim(),
       axis_tag: String(raw.axis_tag || "").trim(),
       label: isEnglishBattleView() ? polishEnglishWeakSpotLabel(raw.label || defaultLabel) : (raw.label || defaultLabel),
-      quote_excerpt: raw.quote_excerpt || raw.quote || raw.text || "相手に最も刺された弱点がここで露出した。",
-      why_one_sentence: raw.why_one_sentence || raw.why || defaultWhy,
-      how_to_fix: raw.how_to_fix || defaultFix,
+      quote_excerpt: readableSourceText(raw.quote_excerpt || raw.quote || raw.text) || (isEnglishBattleView() ? "The key weak point surfaced here." : "相手に最も刺された弱点がここで露出した。"),
+      why_one_sentence: readableSourceText(raw.why_one_sentence || raw.why) || defaultWhy,
+      how_to_fix: readableSourceText(raw.how_to_fix) || defaultFix,
     };
   }
   return {
@@ -2259,8 +2281,8 @@ function normalizeWeakSpot(summary) {
     speaker: defaultSpeaker,
     role: "failure_exposure",
     label: isEnglishBattleView() ? polishEnglishWeakSpotLabel(defaultLabel) : defaultLabel,
-    quote_excerpt: summary?.contradiction_exposed || "相手に最も刺された弱点がここで露出した。",
-    why_one_sentence: summary?.contradiction_exposed || defaultWhy,
+    quote_excerpt: readableSourceText(summary?.contradiction_exposed) || (isEnglishBattleView() ? "The key weak point surfaced here." : "相手に最も刺された弱点がここで露出した。"),
+    why_one_sentence: readableSourceText(summary?.contradiction_exposed) || defaultWhy,
     how_to_fix: defaultFix,
   };
 }
@@ -2274,8 +2296,10 @@ function normalizeTurningPoint(value) {
     turn: turn ? `Turn ${turn}` : "Turn ?",
     role: typeof raw === "object" && raw && !Array.isArray(raw) ? String(raw.role || "frame_shift").trim() : "frame_shift",
     axis_tag: typeof raw === "object" && raw && !Array.isArray(raw) ? String(raw.axis_tag || "").trim() : "",
-    summary: summary || (typeof raw === "string" ? normalizeArrayValue(raw) : "") || (winnerSide === "Draw" ? "流れは動いたが、どちらも決定打を最後まで押し切れなかった。" : "流れが変わった場所は見えている。"),
-    quote_excerpt: typeof raw === "object" && raw && !Array.isArray(raw) ? String(raw.quote_excerpt || "").trim() : "",
+    summary: summary || (typeof raw === "string" ? normalizeArrayValue(raw) : "") || (isEnglishBattleView()
+      ? (winnerSide === "Draw" ? "The argument moved, but neither side fully closed it." : "This is where the argument visibly turned.")
+      : (winnerSide === "Draw" ? "流れは動いたが、どちらも決定打を最後まで押し切れなかった。" : "流れが変わった場所は見えている。")),
+    quote_excerpt: typeof raw === "object" && raw && !Array.isArray(raw) ? readableSourceText(raw.quote_excerpt) : "",
     _debug_source: summary ? "object" : (typeof raw === "string" && raw ? "string" : "template"),
   };
 }
@@ -2285,8 +2309,8 @@ function normalizeTimelineQuote(value, fallbackRole) {
   return {
     turn: Number(raw.turn) || 0,
     speaker: String(raw.speaker || "").trim().toUpperCase(),
-    quote: String(raw.quote || raw.text || "").trim(),
-    reason: String(raw.reason || "").trim(),
+    quote: readableSourceText(raw.quote || raw.text),
+    reason: readableSourceText(raw.reason),
     role: String(raw.role || fallbackRole || "").trim(),
   };
 }
@@ -2306,8 +2330,8 @@ function normalizeGeminiTakeaway(summary, topic = "") {
   const weakSpot = normalizeWeakSpot(summary);
   const raw = summary?.gemini_takeaway;
   if (raw && typeof raw === "object") {
-    const structural = String(raw.structural_explanation || "").trim();
-    const dynamic = String(raw.debate_dynamic || "").trim();
+    const structural = readableSourceText(raw.structural_explanation);
+    const dynamic = readableSourceText(raw.debate_dynamic);
     const quote = normalizeTakeawayQuote(raw.quote);
     if (structural && dynamic && quote) {
       return {
@@ -2319,27 +2343,29 @@ function normalizeGeminiTakeaway(summary, topic = "") {
   }
   if (winner.side === "A") {
     return {
-      structural_explanation: why || "Aは相手の核を崩し、判定基準を握った。",
+      structural_explanation: readableSourceText(why) || (isEnglishBattleView() ? "Side A broke the opposing frame and controlled the judging standard." : "Aは相手の核を崩し、判定基準を握った。"),
       debate_dynamic: `${turning.summary}`,
-      quote: "「基準を握った側が、議論を支配する。」",
+      quote: isEnglishBattleView() ? "\"The side that controls the standard controls the argument.\"" : "「基準を握った側が、議論を支配する。」",
     };
   }
   if (winner.side === "B") {
     return {
-      structural_explanation: why || "Bは相手の弱点を閉じずに残し、勝負を握った。",
+      structural_explanation: readableSourceText(why) || (isEnglishBattleView() ? "Side B kept the weak point open and owned the decisive frame." : "Bは相手の弱点を閉じずに残し、勝負を握った。"),
       debate_dynamic: `${turning.summary}`,
-      quote: normalizeTakeawayQuote(summary?.weak_spot?.label ? `「${summary.weak_spot.label}を突いた側が残る。」` : "「きれいな理屈でも、穴があれば崩れる。」"),
+      quote: isEnglishBattleView()
+        ? normalizeTakeawayQuote(summary?.weak_spot?.label ? `The side that hit ${readableSourceText(summary.weak_spot.label)} stayed standing.` : "Even clean logic collapses when the gap stays open.")
+        : normalizeTakeawayQuote(summary?.weak_spot?.label ? `「${summary.weak_spot.label}を突いた側が残る。」` : "「きれいな理屈でも、穴があれば崩れる。」"),
     };
   }
   return {
-    structural_explanation: "流れは動いたが、どちらも決着まで押し切れなかった。",
+    structural_explanation: isEnglishBattleView() ? "The argument moved, but neither side fully closed the result." : "流れは動いたが、どちらも決着まで押し切れなかった。",
     debate_dynamic: `${turning.summary}`,
-    quote: "「流れは揺れたが、決着は届かなかった。」",
+    quote: isEnglishBattleView() ? "\"The frame moved, but the finish never landed.\"" : "「流れは揺れたが、決着は届かなかった。」",
   };
 }
 
 function normalizeTakeawayQuote(value) {
-  const quote = String(value || "").trim();
+  const quote = readableSourceText(value);
   if (!quote) return "";
   const stripped = quote.replace(/^["“”'「」]+|["“”'「」]+$/g, "");
   if (isEnglishBattleView()) return `"${stripped}"`;
@@ -2348,9 +2374,9 @@ function normalizeTakeawayQuote(value) {
 
 function normalizeGeminiQuote(summary) {
   const raw = summary?.gemini_quote;
-  if (raw && typeof raw === "object" && String(raw.framing_text || raw.text || "").trim()) {
-    const framingText = String(raw.framing_text || raw.text || "").trim();
-    const evidenceQuote = String(raw.evidence_quote || raw.quote || "").trim();
+  if (raw && typeof raw === "object" && readableSourceText(raw.framing_text || raw.text)) {
+    const framingText = readableSourceText(raw.framing_text || raw.text);
+    const evidenceQuote = readableSourceText(raw.evidence_quote || raw.quote);
     if (!looksLikeGenericGeminiQuote(framingText)) {
       return {
         framing_text: normalizeTakeawayQuote(framingText),
@@ -2381,6 +2407,31 @@ function normalizeGeminiQuote(summary) {
   const primary = concepts[0] || "";
   const secondary = concepts[1] || "";
   const label = String(weakSpot.label || "");
+  if (isEnglishBattleView()) {
+    const frame = primary && secondary
+      ? `${primary} survived while ${secondary} broke first.`
+      : (primary ? `${primary} was the line that held.` : "The side that found the open gap stayed standing.");
+    return {
+      framing_text: normalizeTakeawayQuote(frame),
+      role: "ai_framing",
+      framing_role: "decisive_frame",
+      framing_reason: "Generated English viewer-shell fallback.",
+      evidence_quote: "",
+      evidence_turn: 0,
+      evidence_side: "",
+      evidence_match_confidence: 0,
+      verdict_consistency: true,
+      consistency_reason: "generated_fallback",
+      structural_role: "decisive_frame",
+      pick_reason: "Generated English viewer-shell fallback.",
+      text: normalizeTakeawayQuote(frame),
+      quote: "",
+      source_turn: 0,
+      source_side: "",
+      match_confidence: 0,
+      _debug_source: "generated_fallback",
+    };
+  }
   if (label === "定義の後退" && primary && secondary) return { framing_text: normalizeTakeawayQuote(`${primary}を広げても、${secondary}は守れない。`), role: "ai_framing", framing_role: "definition_lock", framing_reason: "定義を固定した場面を要約した。", evidence_quote: "", evidence_turn: 0, evidence_side: "", evidence_match_confidence: 0, verdict_consistency: true, consistency_reason: "generated_fallback", structural_role: "definition_lock", pick_reason: "定義を固定した場面を要約した。", text: normalizeTakeawayQuote(`${primary}を広げても、${secondary}は守れない。`), quote: "", source_turn: 0, source_side: "", match_confidence: 0, _debug_source: "generated_fallback" };
   if (label === "循環論法" && primary) return { framing_text: normalizeTakeawayQuote(`${primary}の言い換えでは、穴は埋まらない。`), role: "ai_framing", framing_role: "burden_shift", framing_reason: "立証責任が残った点を要約した。", evidence_quote: "", evidence_turn: 0, evidence_side: "", evidence_match_confidence: 0, verdict_consistency: true, consistency_reason: "generated_fallback", structural_role: "burden_shift", pick_reason: "立証責任が残った点を要約した。", text: normalizeTakeawayQuote(`${primary}の言い換えでは、穴は埋まらない。`), quote: "", source_turn: 0, source_side: "", match_confidence: 0, _debug_source: "generated_fallback" };
   if (label === "未応答" && primary) return { framing_text: normalizeTakeawayQuote(`${primary}に答えないままでは、勝ちは作れない。`), role: "ai_framing", framing_role: "decisive_frame", framing_reason: "未応答のまま残った構造を要約した。", evidence_quote: "", evidence_turn: 0, evidence_side: "", evidence_match_confidence: 0, verdict_consistency: true, consistency_reason: "generated_fallback", structural_role: "decisive_frame", pick_reason: "未応答のまま残った構造を要約した。", text: normalizeTakeawayQuote(`${primary}に答えないままでは、勝ちは作れない。`), quote: "", source_turn: 0, source_side: "", match_confidence: 0, _debug_source: "generated_fallback" };
@@ -4386,8 +4437,8 @@ function renderTurns(turns, summary = {}, reveal = false) {
       if (reveal && markers.fatal === turn.turn) classes.push("marker-fatal");
       if (reveal && markers.turning === turn.turn) classes.push("marker-turning");
       if (reveal && markers.contradiction === turn.turn) classes.push("marker-contradiction");
-      const aText = String(turn.a || "");
-      const bText = String(turn.b || "");
+      const aText = readableSourceText(turn.a);
+      const bText = readableSourceText(turn.b);
       const aMarkup = sentenceMarkup(aText, turn.turn, "A");
       const bMarkup = sentenceMarkup(bText, turn.turn, "B");
       const aRefButton = buildReferenceButtonMarkup({
