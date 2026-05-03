@@ -45,6 +45,18 @@ def test_phase1_english_shell_does_not_require_localized_records():
     assert "contextLabel: \"Additional Info\"" in debate_js
 
 
+def test_phase1_english_shell_sanitizes_object_source_text_and_buttons():
+    html = (REPO / "mmar" / "apps" / "debate" / "debate.html").read_text(encoding="utf-8")
+    js = DEBATE_JS.read_text(encoding="utf-8")
+
+    assert "function readableSourceText" in js
+    assert "\"source_text\"" in js
+    assert "\"original_text\"" in js
+    assert "String(\n    localized?.summary" not in js
+    assert "Back to edit" in html
+    assert "Next battle" in html
+
+
 def test_flatten_preserves_context_cards_from_nested_debate_result():
     record = {
         "session_id": "run_context",

@@ -867,22 +867,49 @@ function battleOutputRightNextStepCopy() {
   return battleLocaleText("次の問い：あなたはどちらの判断を支持する？", "Next question: Which side of this judgment would you support?");
 }
 
+function readableSourceText(value, seen = new Set()) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => readableSourceText(item, seen)).find(Boolean) || "";
+  }
+  if (typeof value !== "object") return "";
+  if (seen.has(value)) return "";
+  seen.add(value);
+  const preferredKeys = [
+    "text",
+    "title",
+    "body",
+    "source_text",
+    "original_text",
+    "content",
+    "summary",
+    "url",
+  ];
+  for (const key of preferredKeys) {
+    const text = readableSourceText(value[key], seen);
+    if (text) return text;
+  }
+  return "";
+}
+
 function currentBattleOutputRightSummary() {
   const localized = currentBattleDisplayView();
-  return String(
-    localized?.summary
-    || localized?.source_summary
-    || currentBattleSource?.source_summary
-    || currentLoadedRecord?.source_summary
-    || currentResult?.source_summary
-    || currentLoadedRecord?.description
-    || currentResult?.description
-    || currentLoadedRecord?.excerpt
-    || currentResult?.excerpt
-    || currentLoadedRecord?.tease
-    || currentResult?.tease
-    || ""
-  ).trim();
+  return [
+    localized?.source_summary,
+    localized?.summary,
+    currentBattleSource?.source_summary,
+    currentLoadedRecord?.source_summary,
+    currentResult?.source_summary,
+    currentLoadedRecord?.description,
+    currentResult?.description,
+    currentLoadedRecord?.excerpt,
+    currentResult?.excerpt,
+    currentLoadedRecord?.tease,
+    currentResult?.tease,
+  ].map((value) => readableSourceText(value)).find(Boolean) || "";
 }
 
 function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
@@ -1237,8 +1264,7 @@ function currentLocalizedBattleTurns() {
 
 function currentBattleSourceSummary() {
   const localized = currentBattleDisplayView();
-  if (localized?.source_summary) return String(localized.source_summary).trim();
-  return String(currentBattleSource?.source_summary || "").trim();
+  return readableSourceText(localized?.source_summary) || readableSourceText(currentBattleSource?.source_summary);
 }
 
 function normalizeBattleContextCards(raw) {
