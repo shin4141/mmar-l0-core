@@ -299,14 +299,13 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
 
 GIT_SHA = _git_sha_short()
 ADMIN_COOKIE_NAME = "mmar_admin_session"
-ADMIN_PASSWORD = str(
-    os.getenv("MMAR_ADMIN_PASSWORD")
-    or os.getenv("ADMIN_PASSWORD")
-    or "shin-admin"
-).strip()
 ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
 ADMIN_DATA_SORT_KEYS = {"views", "opens", "shares", "saves"}
 ADMIN_X_EMBED_STATUSES = {"success", "x_forbidden", "invalid", "temporary_error", "missing_html"}
+
+
+def _configured_admin_password() -> str:
+    return str(os.getenv("MMAR_ADMIN_PASSWORD") or "").strip()
 
 
 def _public_battle_from_x_error(exc: Exception) -> tuple[int, str]:
@@ -1345,8 +1344,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _provider_preflight(payload))
                 return
             if path == "/api/admin/login":
+                admin_password = _configured_admin_password()
+                if not admin_password:
+                    self._send_json(503, {"ok": False, "error": "admin_password_unset"})
+                    return
                 password = str(payload.get("password") or "").strip()
-                if not password or password != ADMIN_PASSWORD:
+                if not password or password != admin_password:
                     self._send_json(401, {"ok": False, "error": "invalid_password"})
                     return
                 session_id = secrets.token_urlsafe(24)

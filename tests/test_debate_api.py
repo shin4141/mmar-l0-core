@@ -307,6 +307,58 @@ def test_dev_api_blocks_debate_when_read_only_demo(monkeypatch):
     assert handler.sent == (403, {"ok": False, "error": "read-only demo"})
 
 
+def _post_dev_api_json(path: str, payload: dict):
+    import io
+
+    raw = json.dumps(payload).encode("utf-8")
+
+    class Handler:
+        headers = {"Content-Length": str(len(raw))}
+
+        def __init__(self):
+            self.path = path
+            self.rfile = io.BytesIO(raw)
+            self.sent = None
+
+        def _send_json(self, code, response_payload, extra_headers=None):
+            self.sent = (code, response_payload, extra_headers or {})
+
+    handler = Handler()
+    dev_api.Handler.do_POST(handler)
+    return handler.sent
+
+
+def test_admin_login_fails_closed_without_explicit_admin_password(monkeypatch):
+    monkeypatch.delenv("MMAR_ADMIN_PASSWORD", raising=False)
+    monkeypatch.setenv("ADMIN_PASSWORD", "legacy-env-password")
+
+    code, payload, headers = _post_dev_api_json("/api/admin/login", {"password": "legacy-env-password"})
+
+    assert code == 503
+    assert payload == {"ok": False, "error": "admin_password_unset"}
+    assert headers == {}
+
+
+def test_admin_login_rejects_wrong_password(monkeypatch):
+    monkeypatch.setenv("MMAR_ADMIN_PASSWORD", "explicit-admin-password")
+
+    code, payload, headers = _post_dev_api_json("/api/admin/login", {"password": "wrong-password"})
+
+    assert code == 401
+    assert payload == {"ok": False, "error": "invalid_password"}
+    assert headers == {}
+
+
+def test_admin_login_accepts_explicit_admin_password(monkeypatch):
+    monkeypatch.setenv("MMAR_ADMIN_PASSWORD", "explicit-admin-password")
+
+    code, payload, headers = _post_dev_api_json("/api/admin/login", {"password": "explicit-admin-password"})
+
+    assert code == 200
+    assert payload == {"ok": True, "authenticated": True, "user": "Shin"}
+    assert "Set-Cookie" in headers
+
+
 def test_persist_battle_record_updates_published_store_when_needed(monkeypatch):
     calls = []
 
