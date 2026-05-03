@@ -279,8 +279,9 @@ const BATTLE_LANG_COPY = {
     xBuildLabel: "Create from X",
     sourceLabel: "Source",
     sourcePrefix: "Source",
-    contextLabel: "Additional Context",
-    sourceLink: "Open original",
+    contextLabel: "Additional Info",
+    fullSourceLabel: "Full Source Text",
+    sourceLink: "Original source",
     sourcePlaceholder: "Paste an X post URL to load the source.",
     shareCopyLabel: "Copy share link",
     shareXLabel: "Share on X",
@@ -312,7 +313,7 @@ const BATTLE_LANG_COPY = {
     sideAPlaceholder: "Enter Side A",
     sideBPlaceholder: "Enter Side B",
     keywordPlaceholder: "Optional keyword",
-    emptyTurnLog: "Start an AI battle to see the winner, turning point, fatal phrase, and flip condition.",
+    emptyTurnLog: "Open an AI argument breakdown to see the output, source text, judge notes, and turn log.",
   },
 };
 const DEBATE_FORM_COPY = {
@@ -350,11 +351,11 @@ function battleSummaryCopy() {
     momentumNote: battleLocaleText("この判定は真偽ではなく、この命題での押し込みです。", "This measures who controlled the proposition, not who proved objective truth."),
     flipConditionLabel: battleLocaleText("Flip Condition", "Flip Condition"),
     geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Takeaway"),
-    geminiQuoteLabel: battleLocaleText("Gemini Quote", "Signature Line"),
+    geminiQuoteLabel: battleLocaleText("Gemini Quote", "Gemini Quote"),
     askTitle: battleLocaleText("この試合についてGeminiに聞く", "Ask Gemini About This Match"),
     askButton: battleLocaleText("この試合をGeminiに聞く", "Ask Gemini About This Match"),
     askHint: battleLocaleText("この試合について Gemini に質問できます。なぜ負けたか、何を足せば戻るかを聞けます。", "Ask Gemini why one side lost, what could have flipped the result, or which rule decided the match."),
-    sourceKicker: battleLocaleText("Source", "Source"),
+    sourceKicker: battleLocaleText("Source", "Full Source Text"),
     battleResultKicker: battleLocaleText("Battle Result", "Structural Judgment"),
     firstCrackLabel: battleLocaleText("最初のヒビ", "First Crack"),
     firstCrackEmptyQuote: battleLocaleText("まだ最初のヒビは特定されていない。", "The first crack has not been identified yet."),
@@ -917,7 +918,7 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
   }
   sourceCopyEl.innerHTML = `
     <div class="battle-output-right-copy-main">
-      <div class="battle-output-right-copy-kicker">${escapeHtml(copy.sourceLabel)}</div>
+      <div class="battle-output-right-copy-kicker">${escapeHtml(copy.fullSourceLabel || copy.sourceLabel)}</div>
       <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
       ${abCopy ? `
         <div class="battle-output-right-copy-ab" aria-label="battle entry points">

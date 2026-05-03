@@ -39,15 +39,15 @@ const GALLERY_COPY = {
   },
   en: {
     title: "VerdAIct",
-    copy: "Pick an AI battle that grabs you",
+    copy: "Browse AI argument breakdowns. Some battle text may still be Japanese in this Phase 1 viewer shell.",
     action: "Create a battle",
     badge: "AI Battle",
     count: (count) => `${count} cards`,
     empty: "No English AI battles yet.",
     loading: "Loading AI battles.",
     error: "Could not load AI battles.",
-    missingTitle: "English preview not ready yet",
-    missingExcerpt: "Open the card to view details.",
+    missingTitle: "AI Argument Breakdown",
+    missingExcerpt: "Open the card to read the issue, output, source text, and judge notes.",
   },
 };
 
@@ -160,6 +160,11 @@ function firstNonEmpty(...values) {
 }
 
 function xEmbedFailureLabel(errorCode) {
+  if (currentLang === "en") {
+    if (errorCode === "x_forbidden") return "X blocked this source preview";
+    if (errorCode === "invalid" || errorCode === "invalid_x_post_url" || errorCode === "missing_url") return "Invalid source URL";
+    return "Source preview unavailable";
+  }
   if (errorCode === "x_forbidden") return "X側の制限により埋め込めません（403）";
   if (errorCode === "invalid" || errorCode === "invalid_x_post_url" || errorCode === "missing_url") return "URL無効";
   return "一時的に取得できませんでした";
@@ -211,7 +216,7 @@ function extractXEmbedText(html) {
 }
 
 function sourceLinkLabel() {
-  return currentLang === "en" ? "Open original" : "元URLを開く";
+  return currentLang === "en" ? "Original source" : "元URLを開く";
 }
 
 function galleryRenderableXMediaUrl(xEmbed) {
@@ -307,22 +312,38 @@ function gallerySummaryText(record, issue, localized) {
 
 function englishCardCopy(record, localized) {
   const copy = galleryCopy();
-  if (!englishViewReady(record, localized)) {
-    return {
-      issue: copy.missingTitle,
-      excerpt: copy.missingExcerpt,
-      ready: false,
-    };
-  }
-  const summary = localized.summary && typeof localized.summary === "object" ? localized.summary : {};
+  const summary = localized?.summary && typeof localized.summary === "object" ? localized.summary : {};
   const takeaway = summary.gemini_takeaway && typeof summary.gemini_takeaway === "object"
     ? summary.gemini_takeaway
     : {};
+  const issue = firstNonEmpty(
+    localized?.issue,
+    summary.issue,
+    summary.verdict_headline,
+    record?.topic,
+    record?.issue,
+    record?.source_summary,
+    copy.missingTitle,
+  );
+  if (!englishViewReady(record, localized)) {
+    return {
+      issue,
+      excerpt: firstNonEmpty(
+        record?.excerpt,
+        record?.tease,
+        record?.source_summary,
+        summary.verdict_subline,
+        copy.missingExcerpt,
+      ),
+      ready: false,
+    };
+  }
   return {
     issue: firstNonEmpty(
       localized.issue,
       summary.issue,
       summary.verdict_headline,
+      issue,
       copy.missingTitle,
     ),
     excerpt: firstNonEmpty(
