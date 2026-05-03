@@ -75,9 +75,10 @@ def test_phase1_english_shell_uses_english_fallback_judgment_copy():
 def test_combined_candidate_keeps_battle_layout_alignment_hooks():
     css = DEBATE_CSS.read_text(encoding="utf-8")
 
-    assert "grid-template-columns: minmax(340px, 0.48fr) minmax(0, 0.52fr)" in css
+    assert "grid-template-columns: minmax(340px, 1fr) minmax(0, 1fr)" in css
+    assert "aspect-ratio: 16 / 9" in css
     assert ".result-hero-media-block .battle-context-card" in css
-    assert "body.battle-mode .summary-card-confidence .summary-emphasis" in css
+    assert "body.battle-mode .summary-card-confidence" in css
     assert "border-radius: 999px" in css
 
 

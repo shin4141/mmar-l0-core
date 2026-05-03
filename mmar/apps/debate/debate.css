@@ -524,8 +524,8 @@ h2 {
   min-width: 0;
   margin-right: 0;
   padding-right: 0;
-  font-size: clamp(1.82rem, 3.15vw, 2.42rem);
-  line-height: 1.16;
+  font-size: clamp(1.46rem, 2.25vw, 1.94rem);
+  line-height: 1.14;
   font-weight: 800;
   letter-spacing: -0.012em;
 }
@@ -643,7 +643,7 @@ body.public-fixed-demo #run-button {
 
 .result-top-grid {
   display: grid;
-  grid-template-columns: minmax(340px, 0.48fr) minmax(0, 0.52fr);
+  grid-template-columns: minmax(340px, 1fr) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
@@ -779,6 +779,8 @@ body.battle-mode #output-meta {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  aspect-ratio: 16 / 9;
+  max-height: 420px;
   border-radius: 12px;
   border: 1px solid rgba(79, 55, 33, 0.10);
   background: linear-gradient(135deg, rgba(255, 241, 231, 0.96), rgba(241, 211, 194, 0.72));
@@ -786,8 +788,7 @@ body.battle-mode #output-meta {
 
 .result-hero-media-image {
   width: 100%;
-  height: auto;
-  max-height: 420px;
+  height: 100%;
   display: block;
   object-fit: contain;
 }
@@ -1252,7 +1253,7 @@ body.battle-mode .output-panel {
 
 body.battle-mode .hero {
   border-radius: 18px;
-  padding: 18px;
+  padding: 14px 16px;
   background:
     linear-gradient(135deg, rgba(177, 57, 34, 0.1), rgba(24, 52, 74, 0.08)),
     rgba(255, 248, 242, 0.56);
@@ -1270,8 +1271,9 @@ body.battle-mode .summary-card {
 
 body.battle-mode .verdict-grid,
 body.battle-mode .summary-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  align-items: stretch;
 }
 
 body.battle-mode .summary-card {
@@ -1280,6 +1282,22 @@ body.battle-mode .summary-card {
   border-radius: 13px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 248, 240, 0.9));
   box-shadow: 0 8px 20px rgba(77, 23, 15, 0.07);
+}
+
+body.battle-mode .summary-card-issue {
+  grid-column: 1 / -1;
+}
+
+body.battle-mode .gemini-takeaway-card {
+  grid-column: span 2;
+}
+
+body.battle-mode .summary-card-issue {
+  justify-content: center;
+}
+
+body.battle-mode .summary-card-source {
+  display: none;
 }
 
 body.battle-mode .summary-card-confidence {
