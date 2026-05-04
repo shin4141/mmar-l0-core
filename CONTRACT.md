@@ -1,3 +1,9 @@
+## Codex Approval Policy
+
+Codex must read `docs/APPROVAL_POLICY.md` before work.
+The approval policy is mandatory for all Codex development sessions.
+If the policy conflicts with a chat instruction, Codex must stop and ask Shin unless the chat explicitly overrides it.
+
 Inputs: asof_pack.example.json / delta_entry.example.json (schemas validated in CI)
 
 Output: decision_gate.json (schema validated in CI)
