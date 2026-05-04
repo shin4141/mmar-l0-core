@@ -691,11 +691,14 @@ body.public-fixed-demo #run-button {
   grid-area: main;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   max-width: none;
-  min-height: 100%;
   justify-self: start;
+  padding: 10px 11px;
+  border: 1px solid rgba(79, 55, 33, 0.10);
+  border-radius: 13px;
+  background: rgba(255, 250, 245, 0.72);
 }
 
 .battle-output-right-copy-kicker {
@@ -710,6 +713,22 @@ body.public-fixed-demo #run-button {
   color: var(--text);
   font-size: 14px;
   line-height: 1.65;
+}
+
+.result-source-evidence-copy {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid rgba(96, 31, 21, 0.13);
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 249, 242, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.result-source-evidence-copy .battle-output-right-copy-text {
+  max-height: 12.2em;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .battle-output-right-copy-ab {
@@ -742,13 +761,14 @@ body.public-fixed-demo #run-button {
 }
 
 .battle-output-right-copy-next {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
   white-space: normal;
-  margin-top: auto;
-  padding-top: 8px;
+  padding: 8px 9px;
   border-top: 1px solid rgba(79, 55, 33, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.58);
 }
 
 body.battle-mode #output-meta {

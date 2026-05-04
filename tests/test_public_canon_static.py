@@ -24,8 +24,10 @@ def test_source_context_sections_stay_separate_in_detail():
     assert "contextLabel: \"追加情報\"" in js
     assert "battleContextCardsMarkup({ includeLabel: true })" in js
     assert "battle-output-right-copy-text" in js
-    assert "battle-output-right-copy-text\">${escapeHtml(summary)}</div>\n      ${abCopy" in js
-    assert "result-source-summary" not in js
+    assert "result-source-evidence-copy" in js
+    assert "battleCopy().fullSourceLabel || battleCopy().sourceLabel" in js
+    assert "battle-output-right-copy-text\">${escapeHtml(battleSourceSummary)}</div>" in js
+    assert "battle-output-right-copy-text\">${escapeHtml(summary)}</div>" not in js
     assert "battle-source-original" not in js
     text_rule = css[css.index(".battle-output-right-copy-text"):css.index(".battle-output-right-copy-ab")]
     assert "-webkit-line-clamp" not in text_rule
@@ -42,7 +44,7 @@ def test_phase1_english_shell_does_not_require_localized_records():
     assert "record?.topic" in gallery_js
     assert "English preview not ready yet" not in gallery_js
     assert "fullSourceLabel: \"Full Source Text\"" in debate_js
-    assert "copy.fullSourceLabel || copy.sourceLabel" in debate_js
+    assert "battleCopy().fullSourceLabel || battleCopy().sourceLabel" in debate_js
     assert "contextLabel: \"Additional Info\"" in debate_js
 
 

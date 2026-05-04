@@ -923,13 +923,14 @@ function currentBattleOutputRightSummary() {
   ].map((value) => readableSourceText(value)).find(Boolean) || "";
 }
 
-function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
-  if (!outputHeroEl || !topicDisplayEl || !summary) {
+function renderBattleOutputRightCopy({ copy }) {
+  if (!outputHeroEl || !topicDisplayEl) {
     removeBattleOutputRightCopy();
     return;
   }
   const abCopy = battleOutputRightAbCopy();
   const nextStepCopy = battleOutputRightNextStepCopy();
+  const hasRightCopy = Boolean(abCopy || nextStepCopy);
   let sourceCopyEl = outputHeroEl.querySelector("#battle-output-right-copy");
   if (!sourceCopyEl) {
     sourceCopyEl = document.createElement("section");
@@ -955,21 +956,19 @@ function renderBattleOutputRightCopy({ summary, sourceUrl, copy }) {
     bodyEl.appendChild(sourceCopyEl);
   }
   sourceCopyEl.innerHTML = `
-    <div class="battle-output-right-copy-main">
-      <div class="battle-output-right-copy-kicker">${escapeHtml(copy.fullSourceLabel || copy.sourceLabel)}</div>
-      <div class="battle-output-right-copy-text">${escapeHtml(summary)}</div>
+    ${hasRightCopy ? `<div class="battle-output-right-copy-main">
+      <div class="battle-output-right-copy-kicker">${escapeHtml(copy.outputLabel || "Output")}</div>
       ${abCopy ? `
         <div class="battle-output-right-copy-ab" aria-label="battle entry points">
           <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.a)}</div>
           <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.b)}</div>
         </div>
       ` : ""}
-      ${sourceUrl ? `<a class="battle-output-right-copy-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(copy.sourceLink)}</a>` : ""}
       ${nextStepCopy ? `<div class="battle-output-right-copy-next">${escapeHtml(nextStepCopy)}</div>` : ""}
-    </div>
+    </div>` : ""}
   `;
   if (actionStackEl && actionStackEl.parentElement !== sourceCopyEl) {
-    sourceCopyEl.insertBefore(actionStackEl, sourceCopyEl.firstChild);
+    sourceCopyEl.appendChild(actionStackEl);
   }
 }
 
@@ -999,8 +998,6 @@ function renderResultHeroMedia() {
   resultHeroMediaEl.hidden = false;
   if (isOutputRightCopyTrial) {
     renderBattleOutputRightCopy({
-      summary: battleSourceSummary,
-      sourceUrl: battleSourceUrl,
       copy: battleCopy(),
     });
   } else {
@@ -1017,6 +1014,12 @@ function renderResultHeroMedia() {
       ${battleSourceUrl ? `<a class="result-source-link" href="${escapeHtml(battleSourceUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(battleCopy().sourceLink)}</a>` : ""}
     </div>
     ${embedMarkup}
+    ${battleSourceSummary ? `
+      <section class="result-source-evidence-copy">
+        <div class="battle-output-right-copy-kicker">${escapeHtml(battleCopy().fullSourceLabel || battleCopy().sourceLabel)}</div>
+        <div class="battle-output-right-copy-text">${escapeHtml(battleSourceSummary)}</div>
+      </section>
+    ` : ""}
     ${battleContextCardsMarkup({ includeLabel: true })}
   `;
 }
