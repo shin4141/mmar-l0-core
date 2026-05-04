@@ -38,7 +38,7 @@ ASK_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_ASK_TIMEOUT_S", "90"))
 GEMINI_ASK_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_ASK_MAX_OUTPUT_TOKENS", "2048"))
 GEMINI_ASK_RETRIES = int(os.getenv("MMAR_DEBATE_ASK_RETRIES", "1"))
 GEMINI_LOCALIZE_RETRIES = int(os.getenv("MMAR_DEBATE_GEMINI_LOCALIZE_RETRIES", "2"))
-LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v3")
+LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v4")
 
 
 @dataclass
@@ -402,6 +402,26 @@ def _record_source_summary(record: dict[str, Any]) -> str:
     )
 
 
+def _record_context_cards(record: dict[str, Any]) -> list[dict[str, Any]]:
+    debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
+    nested = _nested_run_json(record)
+    nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
+    for candidate in (
+        record.get("context_cards"),
+        record.get("additional_info"),
+        debate_result.get("context_cards"),
+        debate_result.get("additional_info"),
+        nested.get("context_cards"),
+        nested.get("additional_info"),
+        nested_debate.get("context_cards"),
+        nested_debate.get("additional_info"),
+    ):
+        cards = _normalize_context_candidates(candidate)
+        if cards:
+            return _select_context_cards(cards)
+    return []
+
+
 def _record_summary_dict(record: dict[str, Any]) -> dict[str, Any]:
     top_level = record.get("judge_json") if isinstance(record.get("judge_json"), dict) else {}
     if top_level:
@@ -459,11 +479,14 @@ def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
     nested = _nested_run_json(record)
     nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
     turns = _record_display_turns(record)
+    context_cards = _record_context_cards(record)
     return {
         "issue": _clean_text(record.get("topic") or debate_result.get("topic") or nested.get("topic") or nested_debate.get("topic") or ""),
         "side_a": _clean_text(record.get("stance_a") or record.get("side_a") or debate_result.get("stance_a") or nested.get("stance_a") or nested.get("side_a") or nested_debate.get("stance_a") or ""),
         "side_b": _clean_text(record.get("stance_b") or record.get("side_b") or debate_result.get("stance_b") or nested.get("stance_b") or nested.get("side_b") or nested_debate.get("stance_b") or ""),
         "source_summary": _record_source_summary(record),
+        "context_cards": context_cards,
+        "additional_info": context_cards,
         "turns": [
             {
                 "turn": int(turn.get("turn") or index + 1),
@@ -540,7 +563,8 @@ def _battle_localize_prompt(seed: dict[str, Any], *, lang: str) -> str:
         "This is not a new debate. Do not change the winner, turn numbers, speakers, or structure.\n"
         "Do not add new analysis. Do not generalize. Keep the same incident and subject.\n"
         "Translate only user-facing text fields so the battle can be shown in a localized viewer.\n"
-        "Keep the exact top-level keys: issue, side_a, side_b, source_summary, turns, summary.\n"
+        "Keep the exact top-level keys: issue, side_a, side_b, source_summary, context_cards, additional_info, turns, summary.\n"
+        "Translate context_cards/additional_info title/body/text/why fields into English while preserving card count and order.\n"
         "Inside summary, keep the exact keys already provided. Preserve winner.side as A, B, or Draw.\n"
         "Inside turns, keep one object per turn with the exact keys: turn, a, b.\n"
         "If a field is a structural token or empty, keep it as-is.\n"
@@ -632,6 +656,14 @@ def _localized_view_has_turns(view: dict[str, Any]) -> bool:
     )
 
 
+def _localized_view_has_context_cards(view: dict[str, Any]) -> bool:
+    cards = view.get("context_cards")
+    return isinstance(cards, list) and any(
+        isinstance(item, dict) and (_clean_text(item.get("body") or "") or _clean_text(item.get("text") or "") or _clean_text(item.get("title") or ""))
+        for item in cards
+    )
+
+
 def _normalize_localized_view_cache(record: dict[str, Any], *, lang: str = "en") -> dict[str, Any]:
     normalized_record = dict(record or {})
     normalized_record["canonical_lang"] = "ja"
@@ -649,6 +681,7 @@ def _normalize_localized_view_cache(record: dict[str, Any], *, lang: str = "en")
         and view_hash == canonical_hash
         and view_version == LOCALIZED_EN_GENERATOR_VERSION
         and _localized_view_has_turns(view)
+        and (not canonical_payload.get("context_cards") or _localized_view_has_context_cards(view))
     )
     if view:
         view["status"] = "ready" if is_ready else ("failed" if view_status.lower() == "failed" else "pending")
@@ -723,9 +756,12 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
         "side_a": _clean_text(parsed.get("side_a") or ""),
         "side_b": _clean_text(parsed.get("side_b") or ""),
         "source_summary": _clean_text(parsed.get("source_summary") or ""),
+        "context_cards": _select_context_cards(_normalize_context_candidates(parsed.get("context_cards"))),
+        "additional_info": _select_context_cards(_normalize_context_candidates(parsed.get("additional_info"))),
         "turns": _normalize_localized_turns(parsed.get("turns"), seed.get("turns") or []),
         "summary": parsed.get("summary") if isinstance(parsed.get("summary"), dict) else {},
     }
+    localized_context_cards = overlay["context_cards"] or overlay["additional_info"] or seed.get("context_cards") or []
     localized_view = {
         "status": "ready",
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -736,6 +772,8 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
         "side_a": overlay["side_a"] or seed["side_a"],
         "side_b": overlay["side_b"] or seed["side_b"],
         "source_summary": overlay["source_summary"] or seed["source_summary"],
+        "context_cards": localized_context_cards,
+        "additional_info": localized_context_cards,
         "turns": overlay["turns"] or (seed.get("turns") or []),
         "summary": _deep_overlay_strings(seed.get("summary") or {}, overlay.get("summary") or {}),
     }

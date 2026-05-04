@@ -1527,9 +1527,27 @@ class Handler(BaseHTTPRequestHandler):
                 if lifecycle_state in {"deleted", "archived"}:
                     self._send_json(409, {"ok": False, "error": "restore_required", "record_state": lifecycle_state})
                     return
+                try:
+                    localized = localize_battle_record(item, lang="en")
+                except Exception as exc:
+                    reason = exc.reason if isinstance(exc, LocalizeError) else "localize_unavailable"
+                    self._send_json(502, {"ok": False, "error": "localize_unavailable", "reason": reason})
+                    return
+                item = localized.get("record") or item
+                saved = save_run_record(item)
+                item = saved.get("record") or item
                 promote_run_to_history(session_id)
                 published = publish_record(item)
-                self._send_json(200, {"ok": True, "item": _flatten_saved_record(published, curated=True)})
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "item": _flatten_saved_record(published, curated=True),
+                        "localized_en_status": str(item.get("localized_en_status") or ""),
+                        "localized_en_source_hash": str(item.get("localized_en_source_hash") or ""),
+                        "localized_en_cache_hit": bool(localized.get("cache_hit")),
+                    },
+                )
                 return
             if path in {"/api/admin/history/remove", "/api/admin/gallery/remove"}:
                 if not (_admin_session(self) or _service_sync_authorized(self)):

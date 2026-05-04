@@ -2509,6 +2509,121 @@ def test_localize_battle_record_regenerates_when_source_hash_or_version_is_stale
     assert localized["localized_view"]["summary"]["reason_one_liner"] == "B came out ahead."
 
 
+def test_localize_battle_record_generates_english_context_cards(monkeypatch):
+    canonical_record = {
+        "session_id": "localized-context-cards",
+        "topic": "AI規制は必要か",
+        "stance_a": "必要だ。",
+        "stance_b": "不要だ。",
+        "source_summary": "規制案への反応が割れている。",
+        "context_cards": [
+            {
+                "title": "規制対象",
+                "body": "対象は生成AIサービスと公開モデル。",
+                "why": "条件を変える。",
+            }
+        ],
+        "judge_json": {
+            "winner": {"side": "A", "reason": "Aが条件を押した。"},
+            "reason_one_liner": "Aが押した。",
+        },
+        "display_turns": [{"turn": 1, "a": "規制は必要だ。", "b": "規制は不要だ。"}],
+    }
+    captured = {}
+
+    def fake_localize(prompt, api_key):
+        captured["prompt"] = prompt
+        return json.dumps(
+            {
+                "issue": "Is AI regulation necessary?",
+                "side_a": "It is necessary.",
+                "side_b": "It is unnecessary.",
+                "source_summary": "Reaction to the regulation proposal is divided.",
+                "context_cards": [
+                    {
+                        "title": "Regulated targets",
+                        "body": "The targets are generative AI services and public models.",
+                        "why": "This changes the conditions.",
+                    }
+                ],
+                "additional_info": [
+                    {
+                        "title": "Regulated targets",
+                        "body": "The targets are generative AI services and public models.",
+                        "why": "This changes the conditions.",
+                    }
+                ],
+                "turns": [{"turn": 1, "a": "Regulation is necessary.", "b": "Regulation is unnecessary."}],
+                "summary": {"reason_one_liner": "Side A pressed the condition."},
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_localize", fake_localize)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    localized = localize_battle_record(canonical_record, lang="en")
+
+    assert '"context_cards"' in captured["prompt"]
+    assert localized["cache_hit"] is False
+    assert localized["localized_view"]["status"] == "ready"
+    assert localized["localized_view"]["context_cards"][0]["title"] == "Regulated targets"
+    assert localized["localized_view"]["context_cards"][0]["body"] == "The targets are generative AI services and public models."
+    assert localized["record"]["localized_en_payload"]["additional_info"][0]["body"] == "The targets are generative AI services and public models."
+
+
+def test_admin_publish_generates_localized_payload_before_publication(monkeypatch):
+    item = {
+        "session_id": "publish-with-en",
+        "topic": "AI規制は必要か",
+        "stance_a": "必要だ。",
+        "stance_b": "不要だ。",
+        "context_cards": [{"title": "規制対象", "body": "公開モデル。"}],
+    }
+    calls = []
+
+    monkeypatch.setattr(dev_api, "_admin_session", lambda handler: {"user": "Shin"})
+    monkeypatch.setattr(dev_api, "get_run_record", lambda session_id: dict(item) if session_id == "publish-with-en" else None)
+    monkeypatch.setattr(dev_api, "get_published_card", lambda session_id: None)
+    monkeypatch.setattr(dev_api, "promote_run_to_history", lambda session_id: calls.append(("promote", session_id)))
+
+    def fake_localize(record, *, lang="en"):
+        calls.append(("localize", lang, dict(record)))
+        localized_record = dict(record)
+        localized_record["localized_en_status"] = "ready"
+        localized_record["localized_en_source_hash"] = "hash-1"
+        localized_record["localized_views"] = {
+            "en": {
+                "status": "ready",
+                "context_cards": [{"title": "Regulated targets", "body": "Public models."}],
+                "additional_info": [{"title": "Regulated targets", "body": "Public models."}],
+            }
+        }
+        localized_record["localized_en_payload"] = localized_record["localized_views"]["en"]
+        return {"record": localized_record, "localized_view": localized_record["localized_views"]["en"], "cache_hit": False}
+
+    def fake_save_run_record(record):
+        calls.append(("save", dict(record)))
+        return {"saved_id": record["session_id"], "record": dict(record)}
+
+    def fake_publish_record(record):
+        calls.append(("publish", dict(record)))
+        return dict(record)
+
+    monkeypatch.setattr(dev_api, "localize_battle_record", fake_localize)
+    monkeypatch.setattr(dev_api, "save_run_record", fake_save_run_record)
+    monkeypatch.setattr(dev_api, "publish_record", fake_publish_record)
+
+    code, payload, _headers = _post_dev_api_json("/api/admin/history/add", {"session_id": "publish-with-en"})
+
+    assert code == 200
+    assert payload["ok"] is True
+    assert payload["localized_en_status"] == "ready"
+    assert [call[0] for call in calls] == ["localize", "save", "promote", "publish"]
+    published_record = calls[-1][1]
+    assert published_record["localized_views"]["en"]["context_cards"][0]["body"] == "Public models."
+
+
 def test_normalize_summary_keeps_or_builds_gemini_quote():
     summary = _normalize_summary(
         {
