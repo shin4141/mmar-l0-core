@@ -363,6 +363,12 @@ button:disabled {
   font-size: 28px;
 }
 
+.admin-total-card small {
+  color: #6b5d49;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .admin-daily-card {
   margin-top: 18px;
   border: 1px solid #dfd1bf;

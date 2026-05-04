@@ -39,6 +39,7 @@ try:
         list_run_records,
         log_metric_event,
         metric_event_counts,
+        metric_event_daily_counts,
         promote_run_to_history,
         remove_run_from_history,
         restore_run,
@@ -78,6 +79,7 @@ except ModuleNotFoundError:
         list_run_records,
         log_metric_event,
         metric_event_counts,
+        metric_event_daily_counts,
         promote_run_to_history,
         remove_run_from_history,
         restore_run,
@@ -300,7 +302,17 @@ def _fetch_x_oembed(post_url: str) -> dict[str, object]:
 GIT_SHA = _git_sha_short()
 ADMIN_COOKIE_NAME = "mmar_admin_session"
 ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
-ADMIN_DATA_SORT_KEYS = {"views", "opens", "shares", "saves"}
+ADMIN_DATA_SORT_KEYS = {
+    "views",
+    "opens",
+    "shares",
+    "saves",
+    "open_rate",
+    "views_today",
+    "opens_today",
+    "shares_today",
+    "open_rate_today",
+}
 ADMIN_X_EMBED_STATUSES = {"success", "x_forbidden", "invalid", "temporary_error", "missing_html"}
 
 
@@ -797,8 +809,8 @@ def _range_days_from_key(range_key: str) -> int | None:
     key = str(range_key or "7d").strip().lower()
     if key == "7d":
         return 7
-    if key == "14d":
-        return 14
+    if key == "30d":
+        return 30
     return None
 
 
@@ -832,6 +844,50 @@ def _metric_snapshot_for_item(item: dict, counts: dict[str, int] | None = None) 
     }
 
 
+def _open_rate(opens: int, views: int) -> float:
+    view_count = int(views or 0)
+    if view_count <= 0:
+        return 0.0
+    return round(int(opens or 0) / view_count, 4)
+
+
+def _blank_metric_counts() -> dict[str, int]:
+    return {"views": 0, "opens": 0, "shares": 0, "saves": 0}
+
+
+def _metric_dates(days: int, *, end_offset: int = 0) -> list[str]:
+    today = datetime.now(timezone.utc).date()
+    end = today - timedelta(days=max(0, int(end_offset or 0)))
+    return [(end - timedelta(days=offset)).isoformat() for offset in range(days - 1, -1, -1)]
+
+
+def _sum_daily_metrics(daily_counts: dict[str, dict[str, object]], dates: list[str]) -> dict[str, int]:
+    totals = _blank_metric_counts()
+    for date in dates:
+        row = daily_counts.get(date) or {}
+        for metric in totals:
+            totals[metric] += int(row.get(metric, 0) or 0)
+    return totals
+
+
+def _comparison_block(current: dict[str, int], previous: dict[str, int]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for metric in ("views", "opens", "shares", "saves"):
+        current_value = int(current.get(metric, 0) or 0)
+        previous_value = int(previous.get(metric, 0) or 0)
+        result[metric] = {
+            "current": current_value,
+            "previous": previous_value,
+            "delta": current_value - previous_value,
+        }
+    result["open_rate"] = {
+        "current": _open_rate(int(current.get("opens", 0) or 0), int(current.get("views", 0) or 0)),
+        "previous": _open_rate(int(previous.get("opens", 0) or 0), int(previous.get("views", 0) or 0)),
+    }
+    result["open_rate"]["delta"] = round(float(result["open_rate"]["current"]) - float(result["open_rate"]["previous"]), 4)  # type: ignore[index]
+    return result
+
+
 def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, audience_key: str) -> dict[str, object]:
     normalized_state = str(state_filter or "all").strip().lower()
     normalized_range = str(range_key or "7d").strip().lower()
@@ -842,6 +898,12 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
         items = [item for item in items if _state_filter_matches(item, normalized_state)]
     range_days = _range_days_from_key(normalized_range)
     event_counts = metric_event_counts(range_days=range_days, audience=normalized_audience)
+    daily_counts = metric_event_daily_counts(range_days=30, audience=normalized_audience)
+    today_key = datetime.now(timezone.utc).date().isoformat()
+    yesterday_key = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    today_battles = (daily_counts.get(today_key) or {}).get("battles") or {}
+    if not isinstance(today_battles, dict):
+        today_battles = {}
     table_rows: list[dict[str, object]] = []
     for item in items:
         record_id = str(item.get("id") or item.get("run_id") or item.get("session_id") or "").strip()
@@ -849,6 +911,11 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
             item,
             (event_counts.get(record_id) or {"views": 0, "opens": 0, "shares": 0, "saves": 0}),
         )
+        raw_today_counts = today_battles.get(record_id) if isinstance(today_battles.get(record_id), dict) else _blank_metric_counts()
+        today_counts = {
+            metric: int(raw_today_counts.get(metric, 0) or 0)
+            for metric in ("views", "opens", "shares", "saves")
+        }
         table_rows.append(
             {
                 "id": record_id,
@@ -857,12 +924,18 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
                 "title": _title_for_admin_item(item),
                 "status": str(item.get("record_state") or "candidate"),
                 "created_at": str(item.get("created_at") or ""),
+                "open_rate": _open_rate(int(counts.get("opens", 0) or 0), int(counts.get("views", 0) or 0)),
+                "views_today": int(today_counts.get("views", 0) or 0),
+                "opens_today": int(today_counts.get("opens", 0) or 0),
+                "shares_today": int(today_counts.get("shares", 0) or 0),
+                "saves_today": int(today_counts.get("saves", 0) or 0),
+                "open_rate_today": _open_rate(int(today_counts.get("opens", 0) or 0), int(today_counts.get("views", 0) or 0)),
                 **counts,
             }
         )
     table_rows.sort(
         key=lambda row: (
-            -int(row.get(normalized_sort, 0) or 0),
+            -float(row.get(normalized_sort, 0) or 0),
             -int(row.get("views", 0) or 0),
             str(row.get("created_at") or ""),
         )
@@ -871,6 +944,11 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
         metric: sum(int(row.get(metric, 0) or 0) for row in table_rows)
         for metric in ("views", "opens", "shares", "saves")
     }
+    totals["open_rate"] = _open_rate(totals["opens"], totals["views"])
+    today_totals = _sum_daily_metrics(daily_counts, [today_key])
+    yesterday_totals = _sum_daily_metrics(daily_counts, [yesterday_key])
+    last_7d = _sum_daily_metrics(daily_counts, _metric_dates(7))
+    previous_7d = _sum_daily_metrics(daily_counts, _metric_dates(7, end_offset=7))
     return {
         "range": normalized_range,
         "status": normalized_state,
@@ -878,6 +956,14 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
         "audience": normalized_audience,
         "top_cards": table_rows[:50],
         "totals": totals,
+        "today": {**today_totals, "open_rate": _open_rate(today_totals["opens"], today_totals["views"])},
+        "yesterday": {**yesterday_totals, "open_rate": _open_rate(yesterday_totals["opens"], yesterday_totals["views"])},
+        "last_7d": {**last_7d, "open_rate": _open_rate(last_7d["opens"], last_7d["views"])},
+        "previous_7d": {**previous_7d, "open_rate": _open_rate(previous_7d["opens"], previous_7d["views"])},
+        "comparisons": {
+            "today_vs_yesterday": _comparison_block(today_totals, yesterday_totals),
+            "last_7d_vs_previous_7d": _comparison_block(last_7d, previous_7d),
+        },
     }
 
 
@@ -889,29 +975,23 @@ def _normalize_metric_days(value: str) -> int:
     return max(1, min(days, 90))
 
 
-def _admin_daily_metric_rows(*, days: int) -> list[dict[str, object]]:
-    today = datetime.now(timezone.utc).date()
-    rows = [
-        {
-            "date": (today - timedelta(days=offset)).isoformat(),
-            "views": 0,
-            "opens": 0,
-            "shares": 0,
-            "saves": 0,
-            "published_count": 0,
-        }
-        for offset in range(days - 1, -1, -1)
-    ]
-    published = list_published_cards(sort="recent")
-    totals = {
-        "views": sum(int(record.get("views", 0) or 0) for record in published),
-        "opens": sum(int(record.get("opens", 0) or 0) for record in published),
-        "shares": sum(int(record.get("shares", 0) or 0) for record in published),
-        "saves": sum(int(record.get("saves", 0) or 0) for record in published),
-        "published_count": len(published),
-    }
-    if rows:
-        rows[-1].update(totals)
+def _admin_daily_metric_rows(*, days: int, audience_key: str = "external") -> list[dict[str, object]]:
+    daily_counts = metric_event_daily_counts(range_days=days, audience=_normalize_admin_audience(audience_key))
+    rows: list[dict[str, object]] = []
+    for date in _metric_dates(days):
+        counts = daily_counts.get(date) or {}
+        views = int(counts.get("views", 0) or 0)
+        opens = int(counts.get("opens", 0) or 0)
+        rows.append(
+            {
+                "date": date,
+                "views": views,
+                "opens": opens,
+                "shares": int(counts.get("shares", 0) or 0),
+                "saves": int(counts.get("saves", 0) or 0),
+                "open_rate": _open_rate(opens, views),
+            }
+        )
     return rows
 
 
@@ -1249,7 +1329,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = parse_qs(parsed_url.query or "")
             days = _normalize_metric_days(str(query.get("days", ["30"])[0] or "30"))
-            self._send_json(200, {"ok": True, "days": days, "rows": _admin_daily_metric_rows(days=days)})
+            audience_key = str(query.get("audience", ["external"])[0] or "external")
+            self._send_json(200, {"ok": True, "days": days, "audience": _normalize_admin_audience(audience_key), "rows": _admin_daily_metric_rows(days=days, audience_key=audience_key)})
             return
         admin_page = _admin_page_path(path)
         if admin_page:

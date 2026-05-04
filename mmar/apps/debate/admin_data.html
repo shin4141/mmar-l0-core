@@ -13,7 +13,7 @@
         <div>
           <div class="admin-eyebrow">VerdAIct Admin</div>
           <h1>Data</h1>
-          <div class="admin-copy">何が見られ、何が反応されているかをすぐ見返すための最小計器です。</div>
+          <div class="admin-copy">日ごとの増分、開封率、7日比較で、読まれ方が伸びているかを見る計器です。</div>
         </div>
         <div class="admin-toolbar-actions">
           <a href="/admin/history" class="admin-toolbar-link">History</a>
@@ -27,7 +27,7 @@
           <span class="admin-filter-label">Range</span>
           <div class="admin-filter-row" role="tablist" aria-label="Range filters">
             <button type="button" class="secondary-button admin-filter-button is-active" data-range-filter="7d">7d</button>
-            <button type="button" class="secondary-button admin-filter-button" data-range-filter="14d">14d</button>
+            <button type="button" class="secondary-button admin-filter-button" data-range-filter="30d">30d</button>
             <button type="button" class="secondary-button admin-filter-button" data-range-filter="all">All</button>
           </div>
         </div>
@@ -55,8 +55,8 @@
       <section class="admin-daily-card" aria-labelledby="admin-daily-title">
         <div class="admin-daily-head">
           <div>
-            <div id="admin-daily-title" class="admin-section-title">Daily Views</div>
-            <div id="admin-daily-selected" class="admin-daily-selected">All published battles</div>
+            <div id="admin-daily-title" class="admin-section-title">Daily Views Delta</div>
+            <div id="admin-daily-selected" class="admin-daily-selected">Per-day external views, not cumulative totals</div>
           </div>
           <div class="admin-filter-row admin-daily-range" role="tablist" aria-label="Daily views range">
             <button type="button" class="secondary-button admin-filter-button is-active" data-daily-range="7">7d</button>
@@ -73,14 +73,17 @@
             <tr>
               <th>Title</th>
               <th>Status</th>
-              <th><button type="button" class="admin-sort-button is-active" data-sort-key="views">Views</button></th>
-              <th><button type="button" class="admin-sort-button" data-sort-key="opens">Opens</button></th>
-              <th><button type="button" class="admin-sort-button" data-sort-key="shares">Shares</button></th>
-              <th><button type="button" class="admin-sort-button" data-sort-key="saves">Saves</button></th>
+              <th><button type="button" class="admin-sort-button is-active" data-sort-key="views">Period views</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="opens">Period opens</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="open_rate">Open rate</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="views_today">Views today</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="opens_today">Opens today</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="shares_today">Shares today</button></th>
+              <th><button type="button" class="admin-sort-button" data-sort-key="open_rate_today">Open rate today</button></th>
             </tr>
           </thead>
           <tbody id="admin-data-table-body">
-            <tr><td colspan="6" class="admin-table-empty">Loading data...</td></tr>
+            <tr><td colspan="9" class="admin-table-empty">Loading data...</td></tr>
           </tbody>
         </table>
       </div>

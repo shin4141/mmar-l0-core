@@ -11,6 +11,7 @@ from tools.history_store import (
     list_history_records,
     log_metric_event,
     metric_event_counts,
+    metric_event_daily_counts,
     restore_run,
     run_lifecycle_state,
     save_history_record,
@@ -3373,6 +3374,22 @@ def test_metric_event_counts_respects_audience_bucket(tmp_path):
     assert all_counts["run_metric_audience"]["views"] == 2
 
 
+def test_metric_event_daily_counts_returns_per_day_deltas(tmp_path):
+    db_path = tmp_path / "history.sqlite"
+    log_metric_event("run_daily", "views", db_path, audience="external")
+    log_metric_event("run_daily", "opens", db_path, audience="external")
+    log_metric_event("run_daily", "views", db_path, audience="internal")
+
+    external = metric_event_daily_counts(db_path=db_path, range_days=1, audience="external")
+    all_counts = metric_event_daily_counts(db_path=db_path, range_days=1, audience="all")
+    today = next(iter(external))
+
+    assert external[today]["views"] == 1
+    assert external[today]["opens"] == 1
+    assert external[today]["battles"]["run_daily"]["views"] == 1
+    assert all_counts[today]["views"] == 2
+
+
 def test_admin_data_summary_uses_event_counts_for_window(monkeypatch):
     monkeypatch.setattr(
         dev_api,
@@ -3409,6 +3426,22 @@ def test_admin_data_summary_uses_event_counts_for_window(monkeypatch):
             "run_b": {"views": 7, "opens": 3, "shares": 2, "saves": 1},
         },
     )
+    monkeypatch.setattr(
+        dev_api,
+        "metric_event_daily_counts",
+        lambda range_days=30, audience="all": {
+            dev_api._metric_dates(1)[0]: {
+                "views": 5,
+                "opens": 2,
+                "shares": 1,
+                "saves": 0,
+                "battles": {
+                    "run_a": {"views": 1, "opens": 1, "shares": 0, "saves": 0},
+                    "run_b": {"views": 4, "opens": 1, "shares": 1, "saves": 0},
+                },
+            }
+        },
+    )
 
     summary = dev_api._admin_data_summary(range_key="7d", state_filter="all", sort_key="views", audience_key="external")
 
@@ -3418,4 +3451,9 @@ def test_admin_data_summary_uses_event_counts_for_window(monkeypatch):
     assert summary["top_cards"][0]["id"] == "run_b"
     assert summary["top_cards"][0]["status"] == "published"
     assert summary["top_cards"][0]["views"] == 7
+    assert summary["top_cards"][0]["views_today"] == 4
+    assert summary["top_cards"][0]["open_rate"] == 0.4286
+    assert summary["top_cards"][0]["open_rate_today"] == 0.25
     assert summary["top_cards"][1]["title"] == "Alpha"
+    assert summary["today"]["views"] == 5
+    assert summary["comparisons"]["today_vs_yesterday"]["views"]["delta"] == 5

@@ -643,6 +643,57 @@ def metric_event_counts(
     return counts
 
 
+def metric_event_daily_counts(
+    *,
+    range_days: int = 30,
+    audience: str = "all",
+    db_path: Path | None = None,
+) -> dict[str, dict[str, object]]:
+    normalized_days = max(1, min(int(range_days or 30), 120))
+    params: list[object] = [f"-{normalized_days - 1} days"]
+    where_parts = ["date(created_at) >= date('now', ?)"]
+    normalized_audience = str(audience or "all").strip().lower()
+    if normalized_audience in {"internal", "external"}:
+        where_parts.append("audience = ?")
+        params.append(normalized_audience)
+    where = f"WHERE {' AND '.join(where_parts)}"
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT date(created_at) AS date, session_id, metric, COUNT(*) AS count
+            FROM metric_events
+            {where}
+            GROUP BY date(created_at), session_id, metric
+            ORDER BY date(created_at) ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    daily: dict[str, dict[str, object]] = {}
+    for row in rows:
+        date = str(row["date"] or "").strip()
+        session_id = str(row["session_id"] or "").strip()
+        metric = str(row["metric"] or "").strip()
+        if not date or not session_id or metric not in {"views", "opens", "shares", "saves"}:
+            continue
+        entry = daily.setdefault(
+            date,
+            {
+                "views": 0,
+                "opens": 0,
+                "shares": 0,
+                "saves": 0,
+                "battles": {},
+            },
+        )
+        count = int(row["count"] or 0)
+        entry[metric] = int(entry.get(metric, 0) or 0) + count
+        battles = entry.setdefault("battles", {})
+        if isinstance(battles, dict):
+            battle_entry = battles.setdefault(session_id, {"views": 0, "opens": 0, "shares": 0, "saves": 0})
+            battle_entry[metric] = int(battle_entry.get(metric, 0) or 0) + count
+    return daily
+
+
 def backup_history_store_file(target_path: str | Path, db_path: Path | None = None) -> dict[str, object]:
     source = (db_path or history_db_path()).expanduser()
     target = Path(target_path).expanduser()

@@ -45,18 +45,36 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
 
-function renderTotals(totals = {}) {
+function formatRate(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function formatDelta(value, formatter = formatNumber) {
+  const number = Number(value || 0);
+  const prefix = number > 0 ? "+" : "";
+  return `${prefix}${formatter(number)}`;
+}
+
+function renderComparison(label, comparison = {}, metric, formatter = formatNumber) {
+  const entry = comparison?.[metric] || {};
+  return `${label} ${formatDelta(entry.delta, formatter)}`;
+}
+
+function renderTotals(totals = {}, meta = {}) {
+  const rangeLabel = activeRange === "all" ? "All-time events" : `${activeRange} events`;
+  const today = meta.today || {};
+  const comparisons = meta.comparisons || {};
   totalsEl.innerHTML = `
-    <div class="admin-total-card"><span class="admin-total-label">Views</span><strong>${formatNumber(totals.views)}</strong></div>
-    <div class="admin-total-card"><span class="admin-total-label">Opens</span><strong>${formatNumber(totals.opens)}</strong></div>
-    <div class="admin-total-card"><span class="admin-total-label">Shares</span><strong>${formatNumber(totals.shares)}</strong></div>
-    <div class="admin-total-card"><span class="admin-total-label">Saves</span><strong>${formatNumber(totals.saves)}</strong></div>
+    <div class="admin-total-card"><span class="admin-total-label">${escapeHtml(rangeLabel)} views</span><strong>${formatNumber(totals.views)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "views"))}</small></div>
+    <div class="admin-total-card"><span class="admin-total-label">${escapeHtml(rangeLabel)} opens</span><strong>${formatNumber(totals.opens)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "opens"))}</small></div>
+    <div class="admin-total-card"><span class="admin-total-label">Open rate</span><strong>${formatRate(totals.open_rate)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "open_rate", formatRate))}</small></div>
+    <div class="admin-total-card"><span class="admin-total-label">Today</span><strong>${formatNumber(today.views)} views</strong><small>${formatNumber(today.opens)} opens · ${formatRate(today.open_rate)} open rate · ${escapeHtml(renderComparison("vs yesterday", comparisons.today_vs_yesterday, "views"))}</small></div>
   `;
 }
 
 function renderRows(items = []) {
   if (!items.length) {
-    tableBodyEl.innerHTML = '<tr><td colspan="6" class="admin-table-empty">No cards in this range yet.</td></tr>';
+    tableBodyEl.innerHTML = '<tr><td colspan="9" class="admin-table-empty">No cards in this range yet.</td></tr>';
     return;
   }
   tableBodyEl.innerHTML = items.map((item) => `
@@ -69,8 +87,11 @@ function renderRows(items = []) {
       <td><span class="admin-badge admin-state-badge admin-state-badge-${escapeHtml(item.status || "candidate")}">${escapeHtml(item.status || "candidate")}</span></td>
       <td>${formatNumber(item.views)}</td>
       <td>${formatNumber(item.opens)}</td>
-      <td>${formatNumber(item.shares)}</td>
-      <td>${formatNumber(item.saves)}</td>
+      <td>${formatRate(item.open_rate)}</td>
+      <td>${formatNumber(item.views_today)}</td>
+      <td>${formatNumber(item.opens_today)}</td>
+      <td>${formatNumber(item.shares_today)}</td>
+      <td>${formatRate(item.open_rate_today)}</td>
     </tr>
   `).join("");
   tableBodyEl.querySelectorAll("[data-session-id]").forEach((node) => {
@@ -83,7 +104,7 @@ function renderRows(items = []) {
 }
 
 function renderDailyEmpty(text) {
-  if (dailySelectedEl) dailySelectedEl.textContent = "All published battles";
+  if (dailySelectedEl) dailySelectedEl.textContent = "All published battles · daily deltas from event logs";
   if (dailyChartEl) dailyChartEl.innerHTML = `<div class="admin-daily-empty">${escapeHtml(text)}</div>`;
   if (dailyStatsEl) dailyStatsEl.innerHTML = "";
 }
@@ -118,7 +139,7 @@ function renderDailyMetrics(rows = []) {
       <line x1="${padX}" y1="${height - padY}" x2="${width - padX}" y2="${height - padY}" class="admin-daily-axis"></line>
       <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" class="admin-daily-axis"></line>
       <polyline class="admin-daily-line" points="${line}"></polyline>
-      ${points.map((point) => `<circle class="admin-daily-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4"><title>${escapeHtml(`${point.row.date}: ${point.row.views || 0} views`)}</title></circle>`).join("")}
+      ${points.map((point) => `<circle class="admin-daily-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4"><title>${escapeHtml(`${point.row.date}: ${point.row.views || 0} views, ${point.row.opens || 0} opens`)}</title></circle>`).join("")}
       <text x="${padX}" y="${padY - 8}" class="admin-daily-label">${formatNumber(maxValue)}</text>
       <text x="${width - padX}" y="${height - 6}" class="admin-daily-label admin-daily-label-end">${escapeHtml(String(last.date || ""))}</text>
     </svg>
@@ -126,9 +147,9 @@ function renderDailyMetrics(rows = []) {
   dailyStatsEl.innerHTML = `
     <span>Views <strong>${formatNumber(last.views)}</strong></span>
     <span>Opens <strong>${formatNumber(last.opens)}</strong></span>
+    <span>Open rate <strong>${formatRate(last.open_rate)}</strong></span>
     <span>Shares <strong>${formatNumber(last.shares)}</strong></span>
     <span>Saves <strong>${formatNumber(last.saves)}</strong></span>
-    <span>Published <strong>${formatNumber(last.published_count)}</strong></span>
   `;
 }
 
@@ -136,7 +157,7 @@ async function loadDailyMetrics() {
   syncButtons();
   if (dailyChartEl) dailyChartEl.innerHTML = '<div class="admin-daily-empty">Loading daily metrics...</div>';
   const response = await fetch(
-    `/api/admin/metrics/daily?days=${encodeURIComponent(activeDailyRange)}`,
+    `/api/admin/metrics/daily?days=${encodeURIComponent(activeDailyRange)}&audience=${encodeURIComponent(activeAudience)}`,
     { credentials: "same-origin" },
   );
   if (response.status === 401) {
@@ -169,7 +190,7 @@ async function loadSummary() {
     return;
   }
   const data = await response.json();
-  renderTotals(data?.totals || {});
+  renderTotals(data?.totals || {}, data || {});
   renderRows(Array.isArray(data?.top_cards) ? data.top_cards : []);
   await loadDailyMetrics();
   setStatus("");
