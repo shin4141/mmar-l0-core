@@ -964,6 +964,7 @@ function renderBattleOutputRightCopy({ copy }) {
           <div class="battle-output-right-copy-ab-line">${escapeHtml(abCopy.b)}</div>
         </div>
       ` : ""}
+      ${battleContextCardsMarkup({ includeLabel: true })}
       ${nextStepCopy ? `<div class="battle-output-right-copy-next">${escapeHtml(nextStepCopy)}</div>` : ""}
     </div>` : ""}
   `;
@@ -1020,7 +1021,6 @@ function renderResultHeroMedia() {
         <div class="battle-output-right-copy-text">${escapeHtml(battleSourceSummary)}</div>
       </section>
     ` : ""}
-    ${battleContextCardsMarkup({ includeLabel: true })}
   `;
 }
 

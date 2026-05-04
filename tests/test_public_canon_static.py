@@ -23,6 +23,8 @@ def test_source_context_sections_stay_separate_in_detail():
     css = (REPO / "mmar" / "apps" / "debate" / "debate.css").read_text(encoding="utf-8")
     assert "contextLabel: \"追加情報\"" in js
     assert "battleContextCardsMarkup({ includeLabel: true })" in js
+    assert "${battleContextCardsMarkup({ includeLabel: true })}\n      ${nextStepCopy" in js
+    assert "${battleContextCardsMarkup({ includeLabel: true })}\n  `;\n}" not in js
     assert "battle-output-right-copy-text" in js
     assert "result-source-evidence-copy" in js
     assert "battleCopy().fullSourceLabel || battleCopy().sourceLabel" in js
