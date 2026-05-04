@@ -1309,13 +1309,23 @@ function normalizeBattleContextCards(raw) {
 
 function currentBattleContextCards() {
   const localized = currentBattleDisplayView();
-  return normalizeBattleContextCards(
-    localized?.context_cards
-    || currentBattleSource?.context_cards
-    || currentLoadedRecord?.context_cards
-    || currentResult?.debate?.context_cards
-    || currentResult?.context_cards
-  );
+  const candidates = [
+    localized?.context_cards,
+    localized?.additional_info,
+    currentBattleSource?.context_cards,
+    currentBattleSource?.additional_info,
+    currentLoadedRecord?.context_cards,
+    currentLoadedRecord?.additional_info,
+    currentResult?.debate?.context_cards,
+    currentResult?.debate?.additional_info,
+    currentResult?.context_cards,
+    currentResult?.additional_info,
+  ];
+  for (const candidate of candidates) {
+    const cards = normalizeBattleContextCards(candidate);
+    if (cards.length) return cards;
+  }
+  return [];
 }
 
 function battleContextCardsMarkup(options = {}) {
