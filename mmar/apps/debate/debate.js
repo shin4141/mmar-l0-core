@@ -377,6 +377,48 @@ function battleSummaryCopy() {
   };
 }
 
+function askPanelCopy() {
+  return isEnglishBattleView()
+    ? {
+        title: "Ask Gemini About This Match",
+        intro: "Ask Gemini why one side lost, what could have flipped the result, or which general rule decided the match.",
+        presets: [
+          { text: "Why did Side A lose?", question: "Why did Side A lose?" },
+          { text: "What would make this even?", question: "What would make this even?" },
+          { text: "What is the general rule of this match?", question: "What is the general rule of this match?" },
+          { text: "Test my opinion", fill: "My opinion: " },
+        ],
+        empty: "Ask Gemini using only this match transcript and judge result.",
+        referenceLabel: "Referenced",
+        fieldLabel: "Ask about this match",
+        placeholder: "Example: Why is this sentence in Turn 2 / Side A weak?",
+        loading: "Checking with Gemini...",
+        retry: "Retry",
+        fallbackQuestion: "Please inspect this reference.",
+        emptyAnswer: "Gemini returned an empty answer.",
+        connectionError: "Could not connect to Gemini. Check the key settings and try again.",
+      }
+    : {
+        title: "この試合についてGeminiに聞く",
+        intro: "この試合の勝敗理由、逆転条件、一般ルールを Gemini に聞けます。",
+        presets: [
+          { text: "なぜAは負けた？", question: "なぜAは負けた？" },
+          { text: "何を足せば五分になる？", question: "何を足せば五分になる？" },
+          { text: "この試合の一般ルールは？", question: "この試合の一般ルールは？" },
+          { text: "私の意見を試す", fill: "私の意見: " },
+        ],
+        empty: "この試合の transcript と judge 結果だけを材料に、Gemini に質問できます。",
+        referenceLabel: "参照中",
+        fieldLabel: "この試合について聞く",
+        placeholder: "例: Turn 2 / A のこの一文が弱い理由は？",
+        loading: "Gemini に確認中…",
+        retry: "再試行",
+        fallbackQuestion: "この参照について見てください。",
+        emptyAnswer: "返答が空でした。",
+        connectionError: "Geminiに接続できませんでした。キー設定を確認して再送してください。",
+      };
+}
+
 function updateDocumentMeta() {
   document.title = "VerdAIct | AI Argument Breakdown";
   const metaDescription = document.querySelector("#app-meta-description");
@@ -584,9 +626,13 @@ function setExperienceModeButtonState(mode) {
 
 function setBattleLangButtonState() {
   battleLangButtons.forEach((button) => {
-    const active = normalizeBattleLang(button.dataset.battleLang) === currentBattleLang;
+    const lang = normalizeBattleLang(button.dataset.battleLang);
+    const active = lang === currentBattleLang;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.textContent = currentBattleLang === "en"
+      ? (lang === "ja" ? "Japanese" : "English")
+      : (lang === "ja" ? "日本語" : "English");
   });
 }
 
@@ -605,6 +651,7 @@ function syncBattleLanguageRoute() {
 
 function applyBattleLanguageText() {
   const copy = battleCopy();
+  const askCopy = askPanelCopy();
   if (battleLangSwitchLabelEl) battleLangSwitchLabelEl.textContent = copy.langLabel;
   if (battleLangSwitchEl) battleLangSwitchEl.hidden = currentExperienceMode !== "battle";
   const xImportEyebrowEl = document.querySelector("#battle-x-import-eyebrow");
@@ -621,6 +668,25 @@ function applyBattleLanguageText() {
   if (battleSourcePlaceholderEl) battleSourcePlaceholderEl.textContent = copy.sourcePlaceholder;
   if (shareBattleButton) shareBattleButton.textContent = copy.shareCopyLabel;
   if (shareBattleXButton) shareBattleXButton.textContent = copy.shareXLabel;
+  const askTitleEl = askPanelEl?.querySelector(".history-heading h3");
+  const askIntroEl = askPanelEl?.querySelector(".ask-intro");
+  const askPresetButtons = [...(askPanelEl?.querySelectorAll(".ask-preset") || [])];
+  const askReferenceLabelEl = askPanelEl?.querySelector("#ask-reference-bar .summary-label");
+  const askFieldLabelEl = askPanelEl?.querySelector(".ask-form label.field span");
+  if (askTitleEl) askTitleEl.textContent = askCopy.title;
+  if (askIntroEl) askIntroEl.textContent = askCopy.intro;
+  askPresetButtons.forEach((button, index) => {
+    const preset = askCopy.presets[index];
+    if (!preset) return;
+    button.textContent = preset.text;
+    if (preset.question) button.dataset.question = preset.question;
+    if (preset.fill) button.dataset.fill = preset.fill;
+  });
+  if (askReferenceLabelEl) askReferenceLabelEl.textContent = askCopy.referenceLabel;
+  if (askFieldLabelEl) askFieldLabelEl.textContent = askCopy.fieldLabel;
+  if (askInputEl) askInputEl.placeholder = askCopy.placeholder;
+  if (askRetryButton) askRetryButton.textContent = askCopy.retry;
+  if (askThreadEl && !currentAskMessages.length) renderAskThread();
   setBattleLangButtonState();
 }
 
@@ -906,6 +972,25 @@ function readableSourceText(value, seen = new Set()) {
   return "";
 }
 
+function containsJapaneseText(value) {
+  return /[\u3040-\u30ff\u3400-\u9fff]/.test(readableSourceText(value));
+}
+
+function englishViewerText(value, fallback = "") {
+  const text = polishEnglishSurfaceText(value);
+  if (!text || containsJapaneseText(text)) return fallback;
+  return text;
+}
+
+function readableEnglishObjectText(item, keys) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+  for (const key of keys) {
+    const text = englishViewerText(item[key]);
+    if (text) return text;
+  }
+  return "";
+}
+
 function currentBattleOutputRightSummary() {
   const localized = currentBattleDisplayView();
   return [
@@ -1053,6 +1138,29 @@ function normalizeLocalizedViews(raw) {
     }
   }
   return normalized;
+}
+
+function localizedEnglishPayloadFromRecord(record) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+  const direct = record.localized_en_payload;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  const views = record.localized_views;
+  if (views && typeof views === "object" && !Array.isArray(views)) {
+    const en = views.en || views.EN;
+    if (en && typeof en === "object" && !Array.isArray(en)) return en;
+  }
+  return null;
+}
+
+function hasUsableLocalizedEnglishView(view) {
+  if (!view || typeof view !== "object" || Array.isArray(view)) return false;
+  return Boolean(
+    englishViewerText(view.issue)
+    || englishViewerText(view.side_a)
+    || englishViewerText(view.side_b)
+    || englishViewerText(view.source_summary)
+    || (Array.isArray(view.turns) && view.turns.some((turn) => englishViewerText(turn?.a) || englishViewerText(turn?.b)))
+  );
 }
 
 function normalizedEnglishSurfaceKey(value) {
@@ -1222,9 +1330,13 @@ function polishEnglishBattleView(view) {
 function currentLocalizedBattleView() {
   if (!isBattleMode() || currentBattleLang !== "en") return null;
   const loadedViews = normalizeLocalizedViews(currentLoadedRecord?.localized_views);
-  if (loadedViews.en && String(loadedViews.en.status || "").trim().toLowerCase() === "ready") return loadedViews.en;
+  if (loadedViews.en && (String(loadedViews.en.status || "").trim().toLowerCase() === "ready" || hasUsableLocalizedEnglishView(loadedViews.en))) return loadedViews.en;
+  const loadedPayload = localizedEnglishPayloadFromRecord(currentLoadedRecord);
+  if (loadedPayload && (String(loadedPayload.status || "").trim().toLowerCase() === "ready" || hasUsableLocalizedEnglishView(loadedPayload))) return polishEnglishBattleView(loadedPayload);
   const resultViews = normalizeLocalizedViews(currentResult?.localized_views);
-  if (resultViews.en && String(resultViews.en.status || "").trim().toLowerCase() === "ready") return resultViews.en;
+  if (resultViews.en && (String(resultViews.en.status || "").trim().toLowerCase() === "ready" || hasUsableLocalizedEnglishView(resultViews.en))) return resultViews.en;
+  const resultPayload = localizedEnglishPayloadFromRecord(currentResult);
+  if (resultPayload && (String(resultPayload.status || "").trim().toLowerCase() === "ready" || hasUsableLocalizedEnglishView(resultPayload))) return polishEnglishBattleView(resultPayload);
   return null;
 }
 
@@ -1290,9 +1402,15 @@ function normalizeBattleContextCards(raw) {
         return text ? { title: "", body: text, text, why: "", uncertain: false } : null;
       }
       if (!item || typeof item !== "object") return null;
-      const title = readableSourceText(item.title || item.label || item.headline);
-      const body = readableSourceText(item.body || item.text || item.summary || item.detail || item.fact);
-      const why = readableSourceText(item.why || item.impact || item.why_it_changes_match || item.note);
+      const title = isEnglishBattleView()
+        ? readableEnglishObjectText(item, ["title_en", "localized_title", "label_en", "en_title", "title", "label", "headline"])
+        : readableSourceText(item.title || item.label || item.headline);
+      const body = isEnglishBattleView()
+        ? readableEnglishObjectText(item, ["text_en", "body_en", "summary_en", "localized_text", "localized_body", "value_en", "description_en", "en", "body", "text", "summary", "detail", "fact"])
+        : readableSourceText(item.body || item.text || item.summary || item.detail || item.fact);
+      const why = isEnglishBattleView()
+        ? readableEnglishObjectText(item, ["why_en", "impact_en", "note_en", "localized_why", "localized_note", "description_en", "why", "impact", "why_it_changes_match", "note"])
+        : readableSourceText(item.why || item.impact || item.why_it_changes_match || item.note);
       if (!title && !body) return null;
       return {
         title,
@@ -1309,9 +1427,12 @@ function normalizeBattleContextCards(raw) {
 
 function currentBattleContextCards() {
   const localized = currentBattleDisplayView();
-  const candidates = [
-    localized?.context_cards,
-    localized?.additional_info,
+  const localizedCandidates = [localized?.context_cards, localized?.additional_info];
+  for (const candidate of localizedCandidates) {
+    const cards = normalizeBattleContextCards(candidate);
+    if (cards.length) return cards;
+  }
+  const originalCandidates = [
     currentBattleSource?.context_cards,
     currentBattleSource?.additional_info,
     currentLoadedRecord?.context_cards,
@@ -1321,9 +1442,19 @@ function currentBattleContextCards() {
     currentResult?.context_cards,
     currentResult?.additional_info,
   ];
-  for (const candidate of candidates) {
+  for (const candidate of originalCandidates) {
     const cards = normalizeBattleContextCards(candidate);
     if (cards.length) return cards;
+    if (isEnglishBattleView() && Array.isArray(candidate) && candidate.length) {
+      return candidate.slice(0, 2).map((item, index) => ({
+        title: `Original context ${index + 1}`,
+        body: "This context card is available only in the original source language for this record.",
+        text: "This context card is available only in the original source language for this record.",
+        kind: readableSourceText(item?.kind || item?.type) || "context",
+        why: "",
+        uncertain: Boolean(item?.uncertain),
+      }));
+    }
   }
   return [];
 }
@@ -2343,9 +2474,10 @@ function normalizeGeminiTakeaway(summary, topic = "") {
   const weakSpot = normalizeWeakSpot(summary);
   const raw = summary?.gemini_takeaway;
   if (raw && typeof raw === "object") {
-    const structural = readableSourceText(raw.structural_explanation);
-    const dynamic = readableSourceText(raw.debate_dynamic);
-    const quote = normalizeTakeawayQuote(raw.quote);
+    const structural = isEnglishBattleView() ? englishViewerText(raw.structural_explanation) : readableSourceText(raw.structural_explanation);
+    const dynamic = isEnglishBattleView() ? englishViewerText(raw.debate_dynamic) : readableSourceText(raw.debate_dynamic);
+    const rawQuote = isEnglishBattleView() ? englishViewerText(raw.quote) : readableSourceText(raw.quote);
+    const quote = normalizeTakeawayQuote(rawQuote);
     if (structural && dynamic && quote) {
       return {
         structural_explanation: structural,
@@ -2380,6 +2512,7 @@ function normalizeGeminiTakeaway(summary, topic = "") {
 function normalizeTakeawayQuote(value) {
   const quote = readableSourceText(value);
   if (!quote) return "";
+  if (isEnglishBattleView() && containsJapaneseText(quote)) return "";
   const stripped = quote.replace(/^["“”'「」]+|["“”'「」]+$/g, "");
   if (isEnglishBattleView()) return `"${stripped}"`;
   return `「${stripped}」`;
@@ -2388,8 +2521,8 @@ function normalizeTakeawayQuote(value) {
 function normalizeGeminiQuote(summary) {
   const raw = summary?.gemini_quote;
   if (raw && typeof raw === "object" && readableSourceText(raw.framing_text || raw.text)) {
-    const framingText = readableSourceText(raw.framing_text || raw.text);
-    const evidenceQuote = readableSourceText(raw.evidence_quote || raw.quote);
+    const framingText = isEnglishBattleView() ? englishViewerText(raw.framing_text || raw.text) : readableSourceText(raw.framing_text || raw.text);
+    const evidenceQuote = isEnglishBattleView() ? englishViewerText(raw.evidence_quote || raw.quote) : readableSourceText(raw.evidence_quote || raw.quote);
     if (!looksLikeGenericGeminiQuote(framingText)) {
       return {
         framing_text: normalizeTakeawayQuote(framingText),
@@ -3517,7 +3650,7 @@ function toggleArchive(open) {
 
 function renderAskThread() {
   if (!currentAskMessages.length) {
-    askThreadEl.innerHTML = '<div class="empty-state">この試合の transcript と judge 結果だけを材料に、Gemini に質問できます。</div>';
+    askThreadEl.innerHTML = `<div class="empty-state">${escapeHtml(askPanelCopy().empty)}</div>`;
     return;
   }
   askThreadEl.innerHTML = currentAskMessages.map((message) => `
@@ -3709,12 +3842,13 @@ async function sendAskQuestion(question) {
   const record = getCurrentBattleRecord();
   const references = askPayloadReferences();
   if ((!trimmed && !references.length) || !record) return;
+  const askCopy = askPanelCopy();
   resetAskThreadForCurrentMatch();
-  currentAskMessages.push({ role: "user", text: trimmed || "この参照について見てください。", references });
+  currentAskMessages.push({ role: "user", text: trimmed || askCopy.fallbackQuestion, references });
   renderAskThread();
   askSendButton.disabled = true;
   if (askRetryButton) askRetryButton.hidden = true;
-  setAskStatus("Gemini に確認中…");
+  setAskStatus(askCopy.loading);
   try {
     const response = await fetch(endpointUrl("/api/ask_match"), {
       method: "POST",
@@ -3733,11 +3867,11 @@ async function sendAskQuestion(question) {
     if (!response.ok || !data.ok) {
       throw new Error(normalizeApiError("ask_match", response.status, data) || data?.error || "ask failed");
     }
-    currentAskMessages.push({ role: "assistant", text: data.answer || "返答が空でした。" });
+    currentAskMessages.push({ role: "assistant", text: data.answer || askCopy.emptyAnswer });
     renderAskThread();
     askInputEl.value = "";
   } catch (error) {
-    currentAskMessages.push({ role: "assistant", text: `Geminiに接続できませんでした。キー設定を確認して再送してください。 (${error.message || "unknown"})` });
+    currentAskMessages.push({ role: "assistant", text: `${askCopy.connectionError} (${error.message || "unknown"})` });
     renderAskThread();
     if (askRetryButton) askRetryButton.hidden = false;
   } finally {
@@ -4047,20 +4181,28 @@ function renderSummary(summary) {
   const topic = currentResult?.debate?.topic || "";
   const battleIssue = currentBattleIssue() || topic;
   const battleLabels = battleCopy();
-  const headline = localized?.summary?.verdict_headline || (isEnglishBattleView() ? composeEnglishVerdictHeadline(topic, winner) : composeVerdictHeadline(topic, winner));
-  const subline = localized?.summary?.verdict_subline || (isEnglishBattleView() ? composeEnglishVerdictSubline(topic, winner, why) : composeVerdictSubline(topic, winner, why));
+  const displayWhy = isEnglishBattleView()
+    ? englishViewerText(why, "The decisive reason is available in the original judge notes for this record.")
+    : why;
+  const headline = localized?.summary?.verdict_headline || (isEnglishBattleView() ? composeEnglishVerdictHeadline(battleIssue, winner) : composeVerdictHeadline(topic, winner));
+  const subline = localized?.summary?.verdict_subline || (isEnglishBattleView() ? composeEnglishVerdictSubline(battleIssue, winner, displayWhy) : composeVerdictSubline(topic, winner, why));
   const momentum = normalizeMomentum(summary, winner, confidence);
   const flipCondition = localized?.summary?.flip_condition || (isEnglishBattleView()
-    ? composeEnglishFlipCondition(winner, weakSpot, why)
+    ? composeEnglishFlipCondition(winner, weakSpot, displayWhy)
     : composeFlipCondition(winner, weakSpot, why));
-  const takeaway = normalizeGeminiTakeaway(summary, topic);
+  const displayFlipCondition = isEnglishBattleView()
+    ? englishViewerText(flipCondition, "The flip condition is available in the original judge notes for this record.")
+    : flipCondition;
+  const takeaway = normalizeGeminiTakeaway(summary, battleIssue);
   const geminiQuote = normalizeGeminiQuote(summary);
   const displayWinnerReason = isEnglishBattleView() && looksLikeAdjacentEnglishDuplicate(localized?.summary?.winner?.reason || winner.reason, why)
     ? ""
-    : (localized?.summary?.winner?.reason || winner.reason);
+    : (isEnglishBattleView()
+      ? englishViewerText(localized?.summary?.winner?.reason || winner.reason)
+      : (localized?.summary?.winner?.reason || winner.reason));
   const takeawayLines = dedupeEnglishSurfaceLines([
-    takeaway.structural_explanation,
-    takeaway.debate_dynamic,
+    isEnglishBattleView() ? englishViewerText(takeaway.structural_explanation) : takeaway.structural_explanation,
+    isEnglishBattleView() ? englishViewerText(takeaway.debate_dynamic) : takeaway.debate_dynamic,
   ].filter((line) => String(line || "").trim()));
   const takeawayQuote = isEnglishBattleView() && takeawayLines.some((line) => looksLikeAdjacentEnglishDuplicate(takeaway.quote, line))
     ? ""
@@ -4068,19 +4210,19 @@ function renderSummary(summary) {
   const geminiQuoteText = isEnglishBattleView() && (
     takeawayLines.some((line) => looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, line))
     || looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, takeawayQuote)
-    || looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, why)
+    || looksLikeAdjacentEnglishDuplicate(geminiQuote.framing_text || geminiQuote.text, displayWhy)
   )
     ? ""
     : String(geminiQuote.framing_text || geminiQuote.text || "").trim();
-  const displayFatalQuote = localized?.summary?.fatal_phrase?.quote || fatal.quote;
-  const displayFatalReason = localized?.summary?.fatal_phrase?.reason || fatal.why;
-  const displayTurningSummary = localized?.summary?.turning_point?.summary || turning.summary;
-  const displayWeakLabel = localized?.summary?.weak_spot?.label || weakSpot.label;
-  const displayWeakQuote = localized?.summary?.weak_spot?.quote_excerpt || weakSpot.quote_excerpt;
-  const displayFirstCrackQuote = localized?.summary?.first_crack?.quote || firstCrack.quote;
-  const displayFirstCrackReason = localized?.summary?.first_crack?.reason || firstCrack.reason;
-  const displayClincherQuote = localized?.summary?.clincher?.quote || clincher.quote;
-  const displayClincherReason = localized?.summary?.clincher?.reason || clincher.reason;
+  const displayFatalQuote = isEnglishBattleView() ? englishViewerText(localized?.summary?.fatal_phrase?.quote || fatal.quote, "Original judge quote") : (localized?.summary?.fatal_phrase?.quote || fatal.quote);
+  const displayFatalReason = isEnglishBattleView() ? englishViewerText(localized?.summary?.fatal_phrase?.reason || fatal.why, "Reason available in original judge notes.") : (localized?.summary?.fatal_phrase?.reason || fatal.why);
+  const displayTurningSummary = isEnglishBattleView() ? englishViewerText(localized?.summary?.turning_point?.summary || turning.summary, "Turning point available in original judge notes.") : (localized?.summary?.turning_point?.summary || turning.summary);
+  const displayWeakLabel = isEnglishBattleView() ? englishViewerText(localized?.summary?.weak_spot?.label || weakSpot.label, "Weak Spot") : (localized?.summary?.weak_spot?.label || weakSpot.label);
+  const displayWeakQuote = isEnglishBattleView() ? englishViewerText(localized?.summary?.weak_spot?.quote_excerpt || weakSpot.quote_excerpt, "Original judge quote") : (localized?.summary?.weak_spot?.quote_excerpt || weakSpot.quote_excerpt);
+  const displayFirstCrackQuote = isEnglishBattleView() ? englishViewerText(localized?.summary?.first_crack?.quote || firstCrack.quote, uiCopy.firstCrackEmptyQuote) : (localized?.summary?.first_crack?.quote || firstCrack.quote);
+  const displayFirstCrackReason = isEnglishBattleView() ? englishViewerText(localized?.summary?.first_crack?.reason || firstCrack.reason, uiCopy.firstCrackEmptyReason) : (localized?.summary?.first_crack?.reason || firstCrack.reason);
+  const displayClincherQuote = isEnglishBattleView() ? englishViewerText(localized?.summary?.clincher?.quote || clincher.quote, "Original judge quote") : (localized?.summary?.clincher?.quote || clincher.quote);
+  const displayClincherReason = isEnglishBattleView() ? englishViewerText(localized?.summary?.clincher?.reason || clincher.reason, "Reason available in original judge notes.") : (localized?.summary?.clincher?.reason || clincher.reason);
   const safeBattleSourceUrl = sanitizeExternalUrl(currentBattleSource?.source_url, { xOnly: true });
   const battleSourceMarkup = isBattleMode() && currentBattleSourceSummary() && currentBattleSource?.source_url
     ? `
@@ -4122,7 +4264,7 @@ function renderSummary(summary) {
         <span class="verdict-pill">${escapeHtml(confidence)}</span>
       </div>
       <div class="verdict-strip-subline">${escapeHtml(subline)}</div>
-      <div class="verdict-strip-why">${escapeHtml(why)}</div>
+      <div class="verdict-strip-why">${escapeHtml(displayWhy)}</div>
       <div class="verdict-strip-aux">
         <section class="momentum-card">
           <div class="momentum-head">
@@ -4138,7 +4280,7 @@ function renderSummary(summary) {
         </section>
         <section class="flip-card">
           <div class="summary-label">${escapeHtml(uiCopy.flipConditionLabel)}</div>
-          <div class="flip-copy">${escapeHtml(flipCondition)}</div>
+          <div class="flip-copy">${escapeHtml(displayFlipCondition)}</div>
         </section>
       </div>
       ${PUBLIC_ASK_DISABLED ? "" : `
@@ -4194,7 +4336,7 @@ function renderSummary(summary) {
       <article class="summary-card summary-card-why">
         <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(summary?.why_role || "verdict_summary"))}</div>
-        <div class="summary-value summary-why-copy">${escapeHtml(why)}</div>
+        <div class="summary-value summary-why-copy">${escapeHtml(displayWhy)}</div>
       </article>
       <article class="summary-card gemini-takeaway-card">
         <div class="summary-label">${escapeHtml(uiCopy.geminiTakeawayLabel)}</div>
