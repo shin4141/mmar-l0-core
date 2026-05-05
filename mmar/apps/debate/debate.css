@@ -320,13 +320,13 @@ body.battle-mode .battle-x-source {
 .battle-context-card {
   display: grid;
   gap: 4px;
-  border: 1px solid rgba(35, 87, 137, 0.18);
-  border-radius: 10px;
-  padding: 9px 10px;
-  background: rgba(245, 249, 255, 0.78);
+  border: 1px solid rgba(79, 55, 33, 0.12);
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: rgba(255, 255, 255, 0.66);
   color: var(--text);
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: 0.86rem;
+  line-height: 1.42;
 }
 
 .battle-context-card-why {
@@ -630,22 +630,26 @@ body.public-fixed-demo #run-button {
 
 .result-hero-media-block {
   display: grid;
-  gap: 10px;
+  grid-template-areas:
+    "head"
+    "media"
+    "text";
+  gap: 9px;
   align-content: start;
   align-self: start;
   width: 100%;
   margin: 0;
-  padding: 10px;
+  padding: 8px;
   overflow: hidden;
-  border: 1px solid rgba(177, 57, 34, 0.16);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(255, 249, 244, 0.94));
-  box-shadow: 0 10px 24px rgba(32, 22, 15, 0.07);
+  border: 1px solid rgba(79, 55, 33, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 253, 249, 0.86);
+  box-shadow: 0 8px 20px rgba(32, 22, 15, 0.05);
 }
 
 .result-top-grid {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(420px, 1.2fr) minmax(300px, 0.8fr);
   gap: 12px;
   align-items: start;
 }
@@ -653,6 +657,12 @@ body.public-fixed-demo #run-button {
 .result-top-grid > .hero {
   min-width: 0;
   margin: 0;
+  align-self: stretch;
+}
+
+body.battle-mode .result-top-grid > .hero {
+  height: 100%;
+  align-content: start;
 }
 
 .battle-output-right-copy {
@@ -693,14 +703,14 @@ body.public-fixed-demo #run-button {
   grid-area: main;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
   max-width: none;
   justify-self: start;
-  padding: 10px 11px;
-  border: 1px solid rgba(79, 55, 33, 0.10);
-  border-radius: 13px;
-  background: rgba(255, 250, 245, 0.72);
+  padding: 9px 10px;
+  border: 1px solid rgba(79, 55, 33, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .battle-output-right-copy-kicker {
@@ -718,13 +728,14 @@ body.public-fixed-demo #run-button {
 }
 
 .result-source-evidence-copy {
+  grid-area: text;
   display: grid;
   gap: 7px;
-  padding: 12px;
-  border: 1px solid rgba(96, 31, 21, 0.13);
-  border-radius: 13px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 249, 242, 0.92));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  padding: 9px 10px;
+  border: 1px solid rgba(79, 55, 33, 0.10);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: none;
 }
 
 .result-source-evidence-copy .battle-output-right-copy-text {
@@ -778,11 +789,12 @@ body.battle-mode #output-meta {
 }
 
 .result-source-card-head {
+  grid-area: head;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 
 .result-source-link {
@@ -797,15 +809,17 @@ body.battle-mode #output-meta {
 }
 
 .result-hero-media-shell {
+  grid-area: media;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  max-height: 420px;
-  border-radius: 12px;
-  border: 1px solid rgba(79, 55, 33, 0.10);
-  background: linear-gradient(135deg, rgba(255, 241, 231, 0.96), rgba(241, 211, 194, 0.72));
+  min-height: 300px;
+  max-height: 560px;
+  border-radius: 10px;
+  border: 1px solid rgba(79, 55, 33, 0.08);
+  background: rgba(246, 239, 232, 0.68);
 }
 
 .result-hero-media-image {
@@ -815,16 +829,34 @@ body.battle-mode #output-meta {
   object-fit: contain;
 }
 
+.result-hero-media-block.is-portrait {
+  grid-template-columns: minmax(280px, 0.64fr) minmax(210px, 0.36fr);
+  grid-template-areas:
+    "media head"
+    "media text";
+  align-items: start;
+}
+
+.result-hero-media-block.is-portrait .result-hero-media-shell {
+  aspect-ratio: auto;
+  min-height: 520px;
+  max-height: 680px;
+}
+
+.result-hero-media-block.is-portrait .result-source-evidence-copy .battle-output-right-copy-text {
+  max-height: 30em;
+}
+
 .result-hero-media-block .battle-context-cards {
-  gap: 8px;
+  gap: 6px;
 }
 
 .result-hero-media-block .battle-context-card,
 .battle-output-right-copy .battle-context-card {
-  padding: 9px 10px;
-  border: 1px solid rgba(96, 31, 21, 0.12);
-  border-radius: 12px;
-  background: rgba(255, 250, 245, 0.82);
+  padding: 8px 9px;
+  border: 1px solid rgba(79, 55, 33, 0.10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .battle-output-right-copy .battle-context-cards {
@@ -847,10 +879,24 @@ body.battle-mode #output-meta {
     gap: 12px;
   }
 
+  .result-hero-media-block.is-portrait {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "head"
+      "media"
+      "text";
+  }
+
   .result-hero-media-block {
     width: 100%;
     margin: 0;
     padding: 8px;
+  }
+
+  .result-hero-media-shell,
+  .result-hero-media-block.is-portrait .result-hero-media-shell {
+    min-height: 0;
+    max-height: 430px;
   }
 
   .result-hero-media-image {
@@ -1303,38 +1349,36 @@ body.battle-mode #run-button {
 
 body.battle-mode .verdict-strip-card,
 body.battle-mode .summary-card {
-  box-shadow: 0 14px 32px rgba(77, 23, 15, 0.1);
+  box-shadow: 0 8px 20px rgba(32, 22, 15, 0.06);
 }
 
 body.battle-mode .verdict-grid,
 body.battle-mode .summary-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: stretch;
+  grid-auto-rows: minmax(0, auto);
+}
+
+body.battle-mode .verdict-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+body.battle-mode .summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 body.battle-mode .summary-card {
   min-height: 0;
-  padding: 11px 12px;
-  border-radius: 13px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 248, 240, 0.9));
-  box-shadow: 0 8px 20px rgba(77, 23, 15, 0.07);
+  padding: 10px 11px;
+  border-radius: 10px;
+  border-color: rgba(79, 55, 33, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 6px 16px rgba(32, 22, 15, 0.05);
 }
 
 body.battle-mode #analysis-panel {
-  padding-top: 12px;
-  border-top: 2px solid rgba(35, 87, 137, 0.28);
-}
-
-body.battle-mode #analysis-panel .section-title-row h3::before {
-  content: "";
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 8px;
-  border-radius: 999px;
-  background: var(--accent-alt);
-  box-shadow: 0 0 0 4px rgba(35, 87, 137, 0.12);
+  padding-top: 10px;
+  border-top: 1px solid rgba(79, 55, 33, 0.12);
 }
 
 body.battle-mode .summary-card-issue {
@@ -1459,6 +1503,10 @@ button:disabled {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
+}
+
+.output-block.result-hero-media-block {
+  display: grid;
 }
 
 .history-shell {
@@ -2060,9 +2108,9 @@ button:disabled {
 }
 
 .rally-second {
-  border-color: rgba(35, 87, 137, 0.26);
-  border-left: 4px solid rgba(35, 87, 137, 0.74);
-  background: linear-gradient(180deg, rgba(245, 249, 255, 0.92), rgba(255, 255, 255, 0.82));
+  border-color: rgba(79, 55, 33, 0.14);
+  border-left: 4px solid rgba(79, 55, 33, 0.22);
+  background: rgba(255, 255, 255, 0.70);
 }
 
 .speaker-label {
@@ -2099,8 +2147,8 @@ button:disabled {
 
 .rally-second .speaker-role,
 .rally-second .speaker-side {
-  background: rgba(35, 87, 137, 0.14);
-  color: var(--accent-alt);
+  background: rgba(79, 55, 33, 0.08);
+  color: var(--muted);
 }
 
 .turn-copy,
@@ -2323,10 +2371,10 @@ button:disabled {
 }
 
 .verdict-pill:first-child {
-  border-color: rgba(23, 100, 61, 0.32);
-  background: linear-gradient(135deg, rgba(23, 100, 61, 0.14), rgba(255, 255, 255, 0.86));
-  color: var(--ok);
-  box-shadow: 0 8px 18px rgba(23, 100, 61, 0.08);
+  border-color: rgba(35, 87, 137, 0.18);
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--accent-alt);
+  box-shadow: none;
 }
 
 .verdict-strip-subline {
@@ -2492,15 +2540,13 @@ body.battle-mode .summary-card-confidence .summary-emphasis {
 }
 
 .tone-winner {
-  border-color: rgba(23, 100, 61, 0.32);
-  background: linear-gradient(180deg, rgba(23, 100, 61, 0.08), rgba(255, 247, 234, 0.96));
+  border-color: rgba(79, 55, 33, 0.14);
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .summary-card-verdict,
 .tone-winner {
-  box-shadow:
-    inset 0 0 0 1px rgba(23, 100, 61, 0.12),
-    0 12px 26px rgba(23, 100, 61, 0.09);
+  box-shadow: 0 6px 16px rgba(32, 22, 15, 0.05);
 }
 
 .summary-card.tone-fatal {

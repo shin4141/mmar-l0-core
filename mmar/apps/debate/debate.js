@@ -1107,6 +1107,21 @@ function renderResultHeroMedia() {
       </section>
     ` : ""}
   `;
+  const heroImageEl = resultHeroMediaEl.querySelector(".result-hero-media-image");
+  const applyMediaOrientation = () => {
+    const width = Number(heroImageEl?.naturalWidth || 0);
+    const height = Number(heroImageEl?.naturalHeight || 0);
+    resultHeroMediaEl.classList.remove("is-portrait", "is-landscape");
+    resultHeroMediaEl.classList.add(height > width ? "is-portrait" : "is-landscape");
+  };
+  if (heroImageEl) {
+    if (heroImageEl.complete) applyMediaOrientation();
+    heroImageEl.addEventListener("load", applyMediaOrientation, { once: true });
+    heroImageEl.addEventListener("error", () => {
+      resultHeroMediaEl.classList.remove("is-portrait");
+      resultHeroMediaEl.classList.add("is-landscape");
+    }, { once: true });
+  }
 }
 
 function currentBattleShareId() {
