@@ -2572,6 +2572,54 @@ def test_localize_battle_record_generates_english_context_cards(monkeypatch):
     assert localized["record"]["localized_en_payload"]["additional_info"][0]["body"] == "The targets are generative AI services and public models."
 
 
+def test_localize_battle_record_sanitizes_partial_english_payload(monkeypatch):
+    canonical_record = {
+        "session_id": "localized-no-japanese-fallback",
+        "topic": "愛は金で買えるか",
+        "stance_a": "買えない。",
+        "stance_b": "買える。",
+        "source_summary": "条件と感情の話。",
+        "context_cards": [{"title": "前提", "body": "関係には時間が要る。"}],
+        "judge_json": {
+            "winner": {"side": "B", "reason": "Bが条件論を押した。"},
+            "reason_one_liner": "Bが押した。",
+            "turning_point": {"turn": 2, "summary": "Turn 2で条件論が前に出た。"},
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "条件を買えるなら関係も動く。", "reason": "条件論を固定した。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "論拠不足", "quote_excerpt": "条件と愛情を分けただけだ。", "why_one_sentence": "Aは条件論への返答を閉じ切れなかった。"},
+        },
+        "display_turns": [{"turn": 1, "a": "愛は買えない。", "b": "条件は買える。"}],
+    }
+
+    def fake_localize(prompt, api_key):
+        return json.dumps(
+            {
+                "issue": "愛は金で買えるか",
+                "side_a": "買えない。",
+                "side_b": "Side B says yes.",
+                "source_summary": "",
+                "context_cards": [{"title": "前提", "body": "This affects the conditions."}],
+                "turns": [{"turn": 1, "a": "愛は買えない。", "b": "Conditions can be bought."}],
+                "summary": {
+                    "reason_one_liner": "Bが押した。",
+                    "gemini_takeaway": {"structural_explanation": "Bが押した。", "debate_dynamic": "Side B kept the condition open."},
+                    "gemini_quote": {"framing_text": "条件論が決め手。"},
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_localize", fake_localize)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    localized = localize_battle_record(canonical_record, lang="en")
+    payload_text = json.dumps(localized["localized_view"], ensure_ascii=False)
+
+    assert localized["localized_view"]["status"] == "ready"
+    assert not any("\u3040" <= char <= "\u30ff" or "\u3400" <= char <= "\u9fff" for char in payload_text)
+    assert localized["localized_view"]["turns"][0]["a"] == "Side A turn 1 is available in the original record."
+    assert localized["localized_view"]["summary"]["gemini_quote"]["framing_reason"] == "Derived English payload fallback."
+
+
 def test_admin_publish_generates_localized_payload_before_publication(monkeypatch):
     item = {
         "session_id": "publish-with-en",

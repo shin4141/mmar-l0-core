@@ -38,7 +38,7 @@ ASK_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_ASK_TIMEOUT_S", "90"))
 GEMINI_ASK_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_ASK_MAX_OUTPUT_TOKENS", "2048"))
 GEMINI_ASK_RETRIES = int(os.getenv("MMAR_DEBATE_ASK_RETRIES", "1"))
 GEMINI_LOCALIZE_RETRIES = int(os.getenv("MMAR_DEBATE_GEMINI_LOCALIZE_RETRIES", "2"))
-LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v4")
+LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v5")
 
 
 @dataclass
@@ -563,6 +563,9 @@ def _battle_localize_prompt(seed: dict[str, Any], *, lang: str) -> str:
         "This is not a new debate. Do not change the winner, turn numbers, speakers, or structure.\n"
         "Do not add new analysis. Do not generalize. Keep the same incident and subject.\n"
         "Translate only user-facing text fields so the battle can be shown in a localized viewer.\n"
+        "For English, every user-facing string must be English. Do not leave Japanese text in issue, side labels, source summary, context cards, turns, or summary fields.\n"
+        "Keep Gemini takeaway and Gemini quote short: one clear sentence each, no metaphor unless it is already in the source.\n"
+        "For Turn 2 rebuttals, remove redundant lead-ins and keep the opponent-response wording direct.\n"
         "Keep the exact top-level keys: issue, side_a, side_b, source_summary, context_cards, additional_info, turns, summary.\n"
         "Translate context_cards/additional_info title/body/text/why fields into English while preserving card count and order.\n"
         "Inside summary, keep the exact keys already provided. Preserve winner.side as A, B, or Draw.\n"
@@ -585,6 +588,145 @@ def _deep_overlay_strings(base: Any, overlay: Any) -> Any:
     if overlay not in (None, "", []):
         return overlay
     return base
+
+
+def _contains_japanese_chars(value: Any) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u3400-\u9fff]", _clean_text(value)))
+
+
+def _english_or_fallback(value: Any, fallback: str) -> str:
+    text = _clean_text(value or "")
+    if not text or _contains_japanese_chars(text):
+        return fallback
+    return text
+
+
+def _english_context_card(card: dict[str, Any], index: int) -> dict[str, Any]:
+    return {
+        "title": _english_or_fallback(card.get("title") or card.get("label") or "", f"Additional Info {index}"),
+        "body": _english_or_fallback(card.get("body") or card.get("text") or card.get("summary") or "", "This context card is available in the original source record."),
+        "text": _english_or_fallback(card.get("text") or card.get("body") or card.get("summary") or "", "This context card is available in the original source record."),
+        "why": _english_or_fallback(card.get("why") or card.get("note") or card.get("impact") or "", ""),
+        "kind": _clean_text(card.get("kind") or card.get("type") or "context"),
+        "uncertain": bool(card.get("uncertain")),
+    }
+
+
+def _english_summary_fallback(seed: dict[str, Any]) -> dict[str, Any]:
+    summary = seed.get("summary") if isinstance(seed.get("summary"), dict) else {}
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else {}
+    winner_side = _clean_text(winner.get("side") or summary.get("winner") or "Draw")
+    if winner_side not in {"A", "B", "Draw"}:
+        winner_side = "Draw"
+    side_label = f"Side {winner_side}" if winner_side in {"A", "B"} else "Neither side"
+    reason = f"{side_label} controlled more of the judged proposition." if winner_side in {"A", "B"} else "Neither side fully closed the judged proposition."
+    return {
+        "winner": {
+            "side": winner_side,
+            "reason": reason,
+        },
+        "reason_one_liner": reason,
+        "confidence": _english_or_fallback(summary.get("confidence"), "Medium"),
+        "flip_condition": "A losing side would need to answer the exposed weak point directly.",
+        "provisional_judgment": reason,
+        "full_rationale": "The full judgment is available in the original record; this English view keeps the public structure readable without Japanese fallback text.",
+        "turning_point": {
+            "turn": (summary.get("turning_point") or {}).get("turn") if isinstance(summary.get("turning_point"), dict) else "",
+            "summary": "The argument turned where one side left the central issue exposed.",
+            "quote_excerpt": "",
+        },
+        "fatal_phrase": {
+            "turn": (summary.get("fatal_phrase") or {}).get("turn") if isinstance(summary.get("fatal_phrase"), dict) else "",
+            "speaker": _clean_text((summary.get("fatal_phrase") or {}).get("speaker") or "") if isinstance(summary.get("fatal_phrase"), dict) else "",
+            "quote": "Original transcript quote",
+            "reason": "This was the clearest point tied to the final judgment.",
+        },
+        "weak_spot": {
+            "side": _clean_text((summary.get("weak_spot") or {}).get("side") or "") if isinstance(summary.get("weak_spot"), dict) else "",
+            "turn": (summary.get("weak_spot") or {}).get("turn") if isinstance(summary.get("weak_spot"), dict) else "",
+            "speaker": _clean_text((summary.get("weak_spot") or {}).get("speaker") or "") if isinstance(summary.get("weak_spot"), dict) else "",
+            "label": "Weak Spot",
+            "quote_excerpt": "Original transcript quote",
+            "why_one_sentence": "The weak point stayed visible in the final judgment.",
+        },
+        "first_crack": {
+            "turn": (summary.get("first_crack") or {}).get("turn") if isinstance(summary.get("first_crack"), dict) else "",
+            "speaker": _clean_text((summary.get("first_crack") or {}).get("speaker") or "") if isinstance(summary.get("first_crack"), dict) else "",
+            "quote": "",
+            "reason": "The first visible weakness is preserved in the original record.",
+        },
+        "clincher": {
+            "turn": (summary.get("clincher") or {}).get("turn") if isinstance(summary.get("clincher"), dict) else "",
+            "speaker": _clean_text((summary.get("clincher") or {}).get("speaker") or "") if isinstance(summary.get("clincher"), dict) else "",
+            "quote": "",
+            "reason": "",
+        },
+        "gemini_takeaway": {
+            "structural_explanation": reason,
+            "debate_dynamic": "One side kept the decisive issue more stable.",
+            "quote": "The side that answered the exposed weak point stayed ahead.",
+        },
+        "gemini_quote": {
+            "text": "The exposed weak point decided the frame.",
+            "framing_text": "The exposed weak point decided the frame.",
+            "evidence_quote": "",
+            "framing_reason": "Derived English payload fallback.",
+            "pick_reason": "Derived English payload fallback.",
+            "evidence_turn": "",
+            "evidence_side": "",
+        },
+    }
+
+
+def _sanitize_english_strings(value: Any, fallback: Any = "") -> Any:
+    if isinstance(value, dict):
+        fallback_dict = fallback if isinstance(fallback, dict) else {}
+        return {key: _sanitize_english_strings(item, fallback_dict.get(key, "")) for key, item in value.items()}
+    if isinstance(value, list):
+        fallback_list = fallback if isinstance(fallback, list) else []
+        return [
+            _sanitize_english_strings(item, fallback_list[index] if index < len(fallback_list) else "")
+            for index, item in enumerate(value)
+        ]
+    if isinstance(value, str):
+        return _english_or_fallback(value, fallback if isinstance(fallback, str) else "")
+    return value
+
+
+def _sanitize_english_localized_view(view: dict[str, Any], seed: dict[str, Any]) -> dict[str, Any]:
+    fallback_summary = _english_summary_fallback(seed)
+    turns = []
+    source_turns = view.get("turns") if isinstance(view.get("turns"), list) else []
+    for index, item in enumerate(source_turns):
+        if not isinstance(item, dict):
+            continue
+        try:
+            turn_no = int(item.get("turn") or index + 1)
+        except Exception:
+            turn_no = index + 1
+        turns.append(
+            {
+                "turn": turn_no,
+                "a": _english_or_fallback(item.get("a"), f"Side A turn {index + 1} is available in the original record."),
+                "b": _english_or_fallback(item.get("b"), f"Side B turn {index + 1} is available in the original record."),
+            }
+        )
+    cards = [_english_context_card(card, index + 1) for index, card in enumerate(_select_context_cards(_normalize_context_candidates(view.get("context_cards"))))]
+    summary = _sanitize_english_strings(
+        _deep_overlay_strings(fallback_summary, view.get("summary") if isinstance(view.get("summary"), dict) else {}),
+        fallback_summary,
+    )
+    return {
+        **view,
+        "issue": _english_or_fallback(view.get("issue"), "Original battle issue"),
+        "side_a": _english_or_fallback(view.get("side_a"), "Side A"),
+        "side_b": _english_or_fallback(view.get("side_b"), "Side B"),
+        "source_summary": _english_or_fallback(view.get("source_summary"), "The source summary is available in the original record."),
+        "context_cards": cards,
+        "additional_info": cards,
+        "turns": turns,
+        "summary": summary,
+    }
 
 
 def _call_gemini_localize(prompt: str, api_key: str) -> str:
@@ -777,6 +919,8 @@ def localize_battle_record(record: dict[str, Any], *, lang: str = "en") -> dict[
         "turns": overlay["turns"] or (seed.get("turns") or []),
         "summary": _deep_overlay_strings(seed.get("summary") or {}, overlay.get("summary") or {}),
     }
+    if normalized_lang == "en":
+        localized_view = _sanitize_english_localized_view(localized_view, seed)
     next_views = dict(existing_views)
     next_views[normalized_lang] = localized_view
     normalized_record["localized_views"] = next_views

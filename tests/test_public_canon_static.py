@@ -72,7 +72,7 @@ def test_phase1_english_shell_sanitizes_object_source_text_and_buttons():
 def test_phase1_english_shell_uses_english_fallback_judgment_copy():
     js = DEBATE_JS.read_text(encoding="utf-8")
 
-    assert "Generated English viewer-shell fallback." in js
+    assert "Derived English viewer-shell copy." in js
     assert "The argument moved, but neither side fully closed the result." in js
     assert "Side B kept the weak point open and owned the decisive frame." in js
     assert "The key weak point surfaced here." in js

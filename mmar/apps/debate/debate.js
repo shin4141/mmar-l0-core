@@ -2555,13 +2555,13 @@ function normalizeGeminiQuote(summary) {
   const label = String(weakSpot.label || "");
   if (isEnglishBattleView()) {
     const frame = primary && secondary
-      ? `${primary} survived while ${secondary} broke first.`
-      : (primary ? `${primary} was the line that held.` : "The side that found the open gap stayed standing.");
+      ? `${primary} held; ${secondary} broke.`
+      : (primary ? `${primary} held.` : "The exposed weak point decided the frame.");
     return {
       framing_text: normalizeTakeawayQuote(frame),
       role: "ai_framing",
       framing_role: "decisive_frame",
-      framing_reason: "Generated English viewer-shell fallback.",
+      framing_reason: "Derived English viewer-shell copy.",
       evidence_quote: "",
       evidence_turn: 0,
       evidence_side: "",
@@ -2569,7 +2569,7 @@ function normalizeGeminiQuote(summary) {
       verdict_consistency: true,
       consistency_reason: "generated_fallback",
       structural_role: "decisive_frame",
-      pick_reason: "Generated English viewer-shell fallback.",
+      pick_reason: "Derived English viewer-shell copy.",
       text: normalizeTakeawayQuote(frame),
       quote: "",
       source_turn: 0,

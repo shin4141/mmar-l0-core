@@ -320,8 +320,10 @@ body.battle-mode .battle-x-source {
 .battle-context-card {
   display: grid;
   gap: 4px;
-  border-top: 1px solid rgba(96, 31, 21, 0.12);
-  padding-top: 8px;
+  border: 1px solid rgba(35, 87, 137, 0.18);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: rgba(245, 249, 255, 0.78);
   color: var(--text);
   font-size: 0.9rem;
   line-height: 1.45;
@@ -1319,6 +1321,22 @@ body.battle-mode .summary-card {
   box-shadow: 0 8px 20px rgba(77, 23, 15, 0.07);
 }
 
+body.battle-mode #analysis-panel {
+  padding-top: 12px;
+  border-top: 2px solid rgba(35, 87, 137, 0.28);
+}
+
+body.battle-mode #analysis-panel .section-title-row h3::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--accent-alt);
+  box-shadow: 0 0 0 4px rgba(35, 87, 137, 0.12);
+}
+
 body.battle-mode .summary-card-issue {
   grid-column: 1 / -1;
 }
@@ -2042,7 +2060,9 @@ button:disabled {
 }
 
 .rally-second {
-  border-left: 4px solid rgba(35, 87, 137, 0.42);
+  border-color: rgba(35, 87, 137, 0.26);
+  border-left: 4px solid rgba(35, 87, 137, 0.74);
+  background: linear-gradient(180deg, rgba(245, 249, 255, 0.92), rgba(255, 255, 255, 0.82));
 }
 
 .speaker-label {
@@ -2075,6 +2095,12 @@ button:disabled {
 
 .speaker-side {
   color: var(--muted);
+}
+
+.rally-second .speaker-role,
+.rally-second .speaker-side {
+  background: rgba(35, 87, 137, 0.14);
+  color: var(--accent-alt);
 }
 
 .turn-copy,
@@ -2296,6 +2322,13 @@ button:disabled {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
+.verdict-pill:first-child {
+  border-color: rgba(23, 100, 61, 0.32);
+  background: linear-gradient(135deg, rgba(23, 100, 61, 0.14), rgba(255, 255, 255, 0.86));
+  color: var(--ok);
+  box-shadow: 0 8px 18px rgba(23, 100, 61, 0.08);
+}
+
 .verdict-strip-subline {
   color: var(--muted);
   font-size: 0.98rem;
@@ -2461,6 +2494,13 @@ body.battle-mode .summary-card-confidence .summary-emphasis {
 .tone-winner {
   border-color: rgba(23, 100, 61, 0.32);
   background: linear-gradient(180deg, rgba(23, 100, 61, 0.08), rgba(255, 247, 234, 0.96));
+}
+
+.summary-card-verdict,
+.tone-winner {
+  box-shadow:
+    inset 0 0 0 1px rgba(23, 100, 61, 0.12),
+    0 12px 26px rgba(23, 100, 61, 0.09);
 }
 
 .summary-card.tone-fatal {
