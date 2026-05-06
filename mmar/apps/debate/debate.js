@@ -175,6 +175,7 @@ function resolveRequestedBattleLang(params = queryParams, options = {}) {
 const queryParams = new URLSearchParams(window.location.search);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
 const BETA_MODE = queryParams.get("beta") === "1";
+const PREVIEW_ONLY_CONDITION_MOCK = queryParams.get("judge_conditions_mock") === "1";
 const REQUESTED_EXPERIENCE_MODE = queryParams.get("mode") === "battle" ? "battle" : "debate";
 const REQUESTED_FOCUS = String(queryParams.get("focus") || "").trim().toLowerCase();
 const REQUESTED_BATTLE_LANG_EXPLICIT = queryParams.has("lang");
@@ -4348,6 +4349,33 @@ function renderSummary(summary) {
       `${formatBattleSideLabel(winner.side)} has the edge`
     );
     const compactReason = displayWinnerReason || displayWhy || subline;
+    const previewOnlyConditionMock = {
+      // PREVIEW_ONLY_CONDITION_MOCK — remove before public candidate.
+      a_correct_if: "父親に逃亡準備、証拠隠滅、被害者への接触意思が具体的に確認され、GPS監視や接近禁止では防げない状況だった場合。",
+      b_correct_if: "逃亡や証拠隠滅の意思・準備が示されず、パスポート預託、GPS監視、接近禁止などで危険を具体的に封じられる場合。",
+      deciding_condition: "Aは危険の可能性を示したが、Bは「具体的意思と準備がない限り、即時拘束は正当化できない」という条件線を守った。",
+    };
+    const verdictConditions = summary?.verdict_conditions || (PREVIEW_ONLY_CONDITION_MOCK ? previewOnlyConditionMock : null);
+    const verdictConditionsMarkup = verdictConditions ? `
+      <article class="summary-card condition-block condition-block-a">
+        <span>${escapeHtml(battleLocaleText("Aが勝てた世界線", "A win condition"))}</span>
+        <strong>${escapeHtml(verdictConditions.a_correct_if || "")}</strong>
+      </article>
+      <article class="summary-card condition-block condition-block-b">
+        <span>${escapeHtml(battleLocaleText("Bが勝った条件", "B winning condition"))}</span>
+        <strong>${escapeHtml(verdictConditions.b_correct_if || "")}</strong>
+      </article>
+      <article class="summary-card condition-decision-row condition-decision-row-wide">
+        <span>${escapeHtml(battleLocaleText("今回の分かれ目", "Deciding line"))}</span>
+        <strong>${escapeHtml(verdictConditions.deciding_condition || "")}</strong>
+      </article>
+    ` : `
+      <article class="summary-card summary-card-why">
+        <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(summary?.why_role || "verdict_summary"))}</div>
+        <div class="summary-value summary-why-copy">${escapeHtml(displayWhy)}</div>
+      </article>
+    `;
     if (geminiQuoteText) {
       geminiQuoteEl.hidden = false;
       geminiQuoteEl.innerHTML = `
@@ -4398,11 +4426,7 @@ function renderSummary(summary) {
         <div class="summary-meta summary-turn-badge">${escapeHtml(`Turn ${fatal.turn} / ${fatal.speaker}`)}</div>
         <div class="summary-value summary-quote">${escapeHtml(displayFatalQuote)}</div>
       </button>
-      <article class="summary-card summary-card-why">
-        <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
-        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(summary?.why_role || "verdict_summary"))}</div>
-        <div class="summary-value summary-why-copy">${escapeHtml(displayWhy)}</div>
-      </article>
+      ${verdictConditionsMarkup}
       <article class="summary-card gemini-takeaway-card">
         <div class="summary-label">${escapeHtml(uiCopy.geminiTakeawayLabel)}</div>
         ${takeawayLines.map((line) => `<div class="gemini-takeaway-line">${escapeHtml(line)}</div>`).join("")}
@@ -4413,6 +4437,7 @@ function renderSummary(summary) {
     spotlightGridEl.classList.add("judge-notes-secondary-grid");
     spotlightGridEl.hidden = true;
     verdictGridEl.classList.add("judge-notes-core-grid");
+    verdictGridEl.classList.toggle("judge-notes-condition-grid", Boolean(verdictConditions));
     detailPanelEl.innerHTML = `
       <details class="analysis-details">
         <summary>${escapeHtml(battleLabels.turningLabel)}</summary>
@@ -4471,7 +4496,7 @@ function renderSummary(summary) {
   }
   spotlightGridEl.hidden = false;
   spotlightGridEl.classList.remove("judge-notes-secondary-grid");
-  verdictGridEl.classList.remove("judge-notes-core-grid");
+  verdictGridEl.classList.remove("judge-notes-core-grid", "judge-notes-condition-grid");
   verdictGridEl.innerHTML = `
     <article class="summary-card summary-card-verdict tone-winner">
       <div class="summary-label">Winner</div>
