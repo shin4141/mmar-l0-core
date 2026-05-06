@@ -1008,6 +1008,20 @@ function currentBattleOutputRightSummary() {
   ].map((value) => readableSourceText(value)).find(Boolean) || "";
 }
 
+function confidenceBadgeTone(confidence) {
+  const value = String(confidence || "").trim().toLowerCase();
+  if (value === "high") return "high";
+  if (value === "medium") return "medium";
+  return "low";
+}
+
+function confidenceBadgeLabel(confidence) {
+  const value = String(confidence || "").trim().toLowerCase();
+  if (value === "high") return "HIGH";
+  if (value === "medium") return "MEDIUM";
+  return "LOW";
+}
+
 function renderBattleOutputRightCopy({ copy }) {
   if (!outputHeroEl || !topicDisplayEl) {
     removeBattleOutputRightCopy();
@@ -4329,24 +4343,60 @@ function renderSummary(summary) {
   verdictGridEl.classList.remove("empty");
   spotlightGridEl.classList.remove("empty");
   if (isBattleMode()) {
-    verdictGridEl.innerHTML = `
-      <article class="summary-card summary-card-issue">
-        <div class="summary-label">${escapeHtml(battleLabels.issueLabel)}</div>
-        <div class="summary-value summary-issue-copy">${escapeHtml(battleIssue)}</div>
+    const winnerLead = battleLocaleText(
+      `今回は${formatBattleSideLabel(winner.side)}優勢`,
+      `${formatBattleSideLabel(winner.side)} has the edge`
+    );
+    const compactReason = displayWinnerReason || displayWhy || subline;
+    if (geminiQuoteText) {
+      geminiQuoteEl.hidden = false;
+      geminiQuoteEl.innerHTML = `
+        <article class="gemini-quote-card gemini-quote-card-side-v2">
+          <div class="summary-label">${escapeHtml(uiCopy.geminiQuoteLabel)}</div>
+          <div class="gemini-quote-copy">${escapeHtml(geminiQuoteText)}</div>
+        </article>
+      `;
+    } else {
+      geminiQuoteEl.hidden = true;
+      geminiQuoteEl.innerHTML = "";
+    }
+    if (geminiQuoteEl && verdictStripEl && geminiQuoteEl.parentNode === outputPanelEl && verdictStripEl.parentNode === outputPanelEl) {
+      outputPanelEl.insertBefore(geminiQuoteEl, verdictStripEl);
+    }
+    verdictStripEl.innerHTML = `
+      <article class="verdict-strip-card verdict-strip-card-side verdict-strip-card-side-v2">
+        <div class="verdict-strip-headline-row">
+          <div class="verdict-strip-main verdict-strip-main-side">${escapeHtml(winnerLead)}</div>
+          <span class="verdict-pill verdict-pill-confidence verdict-pill-confidence-${escapeHtml(confidenceBadgeTone(confidence))}">${escapeHtml(confidenceBadgeLabel(confidence))}</span>
+        </div>
+        <div class="verdict-strip-meta">
+          <span class="verdict-pill">${escapeHtml(uiCopy.winnerPill)} ${escapeHtml(formatBattleSideLabel(winner.side))}</span>
+        </div>
+        <div class="verdict-strip-subline">${escapeHtml(compactReason)}</div>
+        <section class="momentum-card">
+          <div class="momentum-head">
+            <span>${escapeHtml(formatBattleSideLabel("A"))} ${escapeHtml(momentum.a)}</span>
+            <span>${escapeHtml(uiCopy.momentumLabel)}</span>
+            <span>${escapeHtml(formatBattleSideLabel("B"))} ${escapeHtml(momentum.b)}</span>
+          </div>
+          <div class="momentum-bar" aria-label="momentum bar">
+            <div class="momentum-fill momentum-fill-a" style="width:${escapeHtml(momentum.a)}%"></div>
+            <div class="momentum-fill momentum-fill-b" style="width:${escapeHtml(momentum.b)}%"></div>
+          </div>
+          <div class="momentum-note">${escapeHtml(uiCopy.momentumNote)}</div>
+        </section>
       </article>
-      ${battleSourceMarkup}
+    `;
+    verdictGridEl.innerHTML = `
+      <article class="summary-card summary-card-issue summary-card-issue-pack-wide">
+        <div class="summary-label">${escapeHtml(battleLabels.issueLabel)}</div>
+        <div class="summary-value summary-emphasis">${escapeHtml(battleIssue)}</div>
+      </article>
       <button type="button" class="summary-card tone-fatal summary-jump-card" data-jump-target="fatal">
         <div class="summary-label">${escapeHtml(battleLabels.decisiveLabel)}</div>
-        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(fatal.role || "decisive_lock"))}</div>
+        <div class="summary-kicker">${escapeHtml(displayFatalReason || displayWhy)}</div>
         <div class="summary-meta summary-turn-badge">${escapeHtml(`Turn ${fatal.turn} / ${fatal.speaker}`)}</div>
         <div class="summary-value summary-quote">${escapeHtml(displayFatalQuote)}</div>
-        <div class="summary-subvalue summary-reason">${escapeHtml(displayFatalReason)}</div>
-      </button>
-      <button type="button" class="summary-card tone-turning summary-jump-card" data-jump-target="turning">
-        <div class="summary-label">${escapeHtml(battleLabels.turningLabel)}</div>
-        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(turning.role || "frame_shift"))}</div>
-        <div class="summary-meta summary-turn-badge">${escapeHtml(turning.turn)}</div>
-        <div class="summary-value summary-turning-copy">${escapeHtml(displayTurningSummary)}</div>
       </button>
       <article class="summary-card summary-card-why">
         <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
@@ -4359,43 +4409,69 @@ function renderSummary(summary) {
         ${takeawayQuote ? `<div class="gemini-takeaway-quote">${escapeHtml(takeawayQuote)}</div>` : ""}
       </article>
     `;
-    spotlightGridEl.innerHTML = `
-      <button type="button" class="summary-card tone-contradiction summary-jump-card" data-jump-target="weak">
-        <div class="summary-label">${escapeHtml(battleLabels.weakLabel)}</div>
-        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
-        <div class="summary-meta">${escapeHtml(`${formatBattleSideLabel(weakSpot.side)} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
-        <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
-        <div class="summary-subvalue summary-quote">${escapeHtml(normalizeTakeawayQuote(displayWeakQuote))}</div>
-      </button>
-      <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
-        <div class="summary-label">${escapeHtml(uiCopy.firstCrackLabel)}</div>
-        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
-        <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
-        <div class="summary-value">${escapeHtml(displayFirstCrackQuote || uiCopy.firstCrackEmptyQuote)}</div>
-        <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || uiCopy.firstCrackEmptyReason)}</div>
-      </button>
-      <article class="summary-card summary-card-confidence">
-        <div class="summary-label">${escapeHtml(uiCopy.confidenceLabel)}</div>
-        <div class="summary-value summary-emphasis">${escapeHtml(confidence)}</div>
-      </article>
+    spotlightGridEl.innerHTML = "";
+    spotlightGridEl.classList.add("judge-notes-secondary-grid");
+    spotlightGridEl.hidden = true;
+    verdictGridEl.classList.add("judge-notes-core-grid");
+    detailPanelEl.innerHTML = `
+      <details class="analysis-details">
+        <summary>${escapeHtml(battleLabels.turningLabel)}</summary>
+        <button type="button" class="summary-card tone-turning summary-jump-card" data-jump-target="turning">
+          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(turning.role || "frame_shift"))}</div>
+          <div class="summary-meta summary-turn-badge">${escapeHtml(turning.turn)}</div>
+          <div class="summary-value summary-turning-copy">${escapeHtml(displayTurningSummary)}</div>
+        </button>
+      </details>
+      <details class="analysis-details">
+        <summary>${escapeHtml(battleLabels.weakLabel)}</summary>
+        <button type="button" class="summary-card tone-contradiction summary-jump-card" data-jump-target="weak">
+          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
+          <div class="summary-meta">${escapeHtml(`${formatBattleSideLabel(weakSpot.side)} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
+          <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
+          <div class="summary-subvalue summary-quote">${escapeHtml(normalizeTakeawayQuote(displayWeakQuote))}</div>
+        </button>
+      </details>
+      <details class="analysis-details">
+        <summary>${escapeHtml(uiCopy.firstCrackLabel)}</summary>
+        <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
+          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
+          <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
+          <div class="summary-value">${escapeHtml(displayFirstCrackQuote || uiCopy.firstCrackEmptyQuote)}</div>
+          <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || uiCopy.firstCrackEmptyReason)}</div>
+        </button>
+      </details>
       ${showClincher ? `
+      <details class="analysis-details">
+        <summary>${escapeHtml(uiCopy.clincherLabel)}</summary>
         <button type="button" class="summary-card tone-clincher summary-jump-card" data-jump-target="clincher">
-          <div class="summary-label">${escapeHtml(uiCopy.clincherLabel)}</div>
           <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(clincher.role || "clincher"))}</div>
           <div class="summary-meta">${escapeHtml(`Turn ${clincher.turn} / ${clincher.speaker || "?"}`)}</div>
           <div class="summary-value">${escapeHtml(displayClincherQuote)}</div>
           <div class="summary-subvalue">${escapeHtml(displayClincherReason)}</div>
         </button>
+      </details>
       ` : ""}
-    `;
-    detailPanelEl.innerHTML = `
-      <details class="analysis-details" open>
+      <details class="analysis-details">
+        <summary>${escapeHtml(battleLocaleText("勝敗の理由", "Why the Verdict Landed"))}</summary>
+        <div class="analysis-detail-copy">${escapeHtml(displayWhy)}</div>
+      </details>
+      <details class="analysis-details">
+        <summary>${escapeHtml(uiCopy.flipConditionLabel)}</summary>
+        <div class="flip-copy">${escapeHtml(displayFlipCondition)}</div>
+      </details>
+      <details class="analysis-details">
         <summary>${escapeHtml(uiCopy.detailSummary)}</summary>
-        <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || uiCopy.detailEmpty)}</div>
+        <div class="analysis-detail-stack">
+          ${battleSourceMarkup}
+          <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || uiCopy.detailEmpty)}</div>
+        </div>
       </details>
     `;
     return;
   }
+  spotlightGridEl.hidden = false;
+  spotlightGridEl.classList.remove("judge-notes-secondary-grid");
+  verdictGridEl.classList.remove("judge-notes-core-grid");
   verdictGridEl.innerHTML = `
     <article class="summary-card summary-card-verdict tone-winner">
       <div class="summary-label">Winner</div>
