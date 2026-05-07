@@ -2627,6 +2627,81 @@ def test_localize_battle_record_generates_english_context_cards(monkeypatch):
     assert localized["record"]["localized_en_payload"]["additional_info"][0]["body"] == "The targets are generative AI services and public models."
 
 
+def test_battle_localization_seed_includes_verdict_conditions():
+    seed = _battle_localization_seed(
+        {
+            "session_id": "localized-verdict-conditions-seed",
+            "topic": "保釈を認めるべきか",
+            "stance_a": "拘束すべきだ。",
+            "stance_b": "保釈すべきだ。",
+            "judge_json": {
+                "winner": {"side": "B", "reason": "Bが条件線を守った。"},
+                "verdict_conditions": {
+                    "a_win_condition": "逃亡準備が具体的に確認された場合。",
+                    "b_win_condition": "監視条件で危険を封じられる場合。",
+                    "deciding_line": "具体的準備の有無が分かれ目だった。",
+                },
+            },
+            "display_turns": [{"turn": 1, "a": "拘束すべきだ。", "b": "保釈すべきだ。"}],
+        }
+    )
+
+    assert seed["summary"]["verdict_conditions"]["a_win_condition"] == "逃亡準備が具体的に確認された場合。"
+    assert seed["summary"]["verdict_conditions"]["b_win_condition"] == "監視条件で危険を封じられる場合。"
+    assert seed["summary"]["verdict_conditions"]["deciding_line"] == "具体的準備の有無が分かれ目だった。"
+
+
+def test_localize_battle_record_translates_verdict_conditions(monkeypatch):
+    canonical_record = {
+        "session_id": "localized-verdict-conditions",
+        "topic": "保釈を認めるべきか",
+        "stance_a": "拘束すべきだ。",
+        "stance_b": "保釈すべきだ。",
+        "judge_json": {
+            "winner": {"side": "B", "reason": "Bが条件線を守った。"},
+            "reason_one_liner": "Bが押した。",
+            "verdict_conditions": {
+                "a_win_condition": "逃亡準備が具体的に確認された場合。",
+                "b_win_condition": "監視条件で危険を封じられる場合。",
+                "deciding_line": "具体的準備の有無が分かれ目だった。",
+            },
+        },
+        "display_turns": [{"turn": 1, "a": "拘束すべきだ。", "b": "保釈すべきだ。"}],
+    }
+    captured = {}
+
+    def fake_localize(prompt, api_key):
+        captured["prompt"] = prompt
+        return json.dumps(
+            {
+                "issue": "Should bail be granted?",
+                "side_a": "Detention is required.",
+                "side_b": "Bail should be allowed.",
+                "turns": [{"turn": 1, "a": "Detention is required.", "b": "Bail should be allowed."}],
+                "summary": {
+                    "reason_one_liner": "Side B held the condition line.",
+                    "verdict_conditions": {
+                        "a_win_condition": "Side A would have won if concrete flight preparations had been confirmed.",
+                        "b_win_condition": "Side B won if monitoring conditions could contain the risk.",
+                        "deciding_line": "The deciding line was whether concrete preparation existed.",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_localize", fake_localize)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    localized = localize_battle_record(canonical_record, lang="en")
+    conditions = localized["localized_view"]["summary"]["verdict_conditions"]
+
+    assert "verdict_conditions" in captured["prompt"]
+    assert conditions["a_win_condition"] == "Side A would have won if concrete flight preparations had been confirmed."
+    assert conditions["b_win_condition"] == "Side B won if monitoring conditions could contain the risk."
+    assert conditions["deciding_line"] == "The deciding line was whether concrete preparation existed."
+
+
 def test_localize_battle_record_sanitizes_partial_english_payload(monkeypatch):
     canonical_record = {
         "session_id": "localized-no-japanese-fallback",
@@ -2641,6 +2716,11 @@ def test_localize_battle_record_sanitizes_partial_english_payload(monkeypatch):
             "turning_point": {"turn": 2, "summary": "Turn 2で条件論が前に出た。"},
             "fatal_phrase": {"turn": 2, "speaker": "B", "text": "条件を買えるなら関係も動く。", "reason": "条件論を固定した。"},
             "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "論拠不足", "quote_excerpt": "条件と愛情を分けただけだ。", "why_one_sentence": "Aは条件論への返答を閉じ切れなかった。"},
+            "verdict_conditions": {
+                "a_win_condition": "Aが条件と愛情の線を具体化できた場合。",
+                "b_win_condition": "Bが条件で関係が動くと示した場合。",
+                "deciding_line": "条件と愛情を分けられるかが分かれ目だった。",
+            },
         },
         "display_turns": [{"turn": 1, "a": "愛は買えない。", "b": "条件は買える。"}],
     }
@@ -2656,6 +2736,11 @@ def test_localize_battle_record_sanitizes_partial_english_payload(monkeypatch):
                 "turns": [{"turn": 1, "a": "愛は買えない。", "b": "Conditions can be bought."}],
                 "summary": {
                     "reason_one_liner": "Bが押した。",
+                    "verdict_conditions": {
+                        "a_win_condition": "Aが条件と愛情の線を具体化できた場合。",
+                        "b_win_condition": "Side B won if conditions could change the relationship.",
+                        "deciding_line": "条件論が分かれ目だった。",
+                    },
                     "gemini_takeaway": {"structural_explanation": "Bが押した。", "debate_dynamic": "Side B kept the condition open."},
                     "gemini_quote": {"framing_text": "条件論が決め手。"},
                 },
@@ -2673,6 +2758,10 @@ def test_localize_battle_record_sanitizes_partial_english_payload(monkeypatch):
     assert not any("\u3040" <= char <= "\u30ff" or "\u3400" <= char <= "\u9fff" for char in payload_text)
     assert localized["localized_view"]["turns"][0]["a"] == "Side A turn 1 is available in the original record."
     assert localized["localized_view"]["summary"]["gemini_quote"]["framing_reason"] == "Derived English payload fallback."
+    conditions = localized["localized_view"]["summary"]["verdict_conditions"]
+    assert conditions["a_win_condition"] == ""
+    assert conditions["b_win_condition"] == "Side B won if conditions could change the relationship."
+    assert conditions["deciding_line"] == ""
 
 
 def test_admin_publish_generates_localized_payload_before_publication(monkeypatch):

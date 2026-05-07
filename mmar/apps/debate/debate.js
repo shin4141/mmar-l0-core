@@ -1277,6 +1277,7 @@ function polishEnglishSummary(summary) {
   const clincher = raw.clincher && typeof raw.clincher === "object" && !Array.isArray(raw.clincher) ? raw.clincher : {};
   const takeaway = raw.gemini_takeaway && typeof raw.gemini_takeaway === "object" && !Array.isArray(raw.gemini_takeaway) ? raw.gemini_takeaway : {};
   const quote = raw.gemini_quote && typeof raw.gemini_quote === "object" && !Array.isArray(raw.gemini_quote) ? raw.gemini_quote : {};
+  const verdictConditions = raw.verdict_conditions && typeof raw.verdict_conditions === "object" && !Array.isArray(raw.verdict_conditions) ? raw.verdict_conditions : {};
   return {
     ...raw,
     reason_one_liner: polishEnglishSurfaceText(raw.reason_one_liner),
@@ -1327,6 +1328,12 @@ function polishEnglishSummary(summary) {
       evidence_quote: polishEnglishSurfaceText(quote.evidence_quote),
       framing_reason: polishEnglishSurfaceText(quote.framing_reason),
       pick_reason: polishEnglishSurfaceText(quote.pick_reason),
+    },
+    verdict_conditions: {
+      ...verdictConditions,
+      a_win_condition: polishEnglishSurfaceText(verdictConditions.a_win_condition),
+      b_win_condition: polishEnglishSurfaceText(verdictConditions.b_win_condition),
+      deciding_line: polishEnglishSurfaceText(verdictConditions.deciding_line),
     },
   };
 }
@@ -4351,16 +4358,25 @@ function renderSummary(summary) {
     const compactReason = displayWinnerReason || displayWhy || subline;
     const previewOnlyConditionMock = {
       // PREVIEW_ONLY_CONDITION_MOCK — do not use for public candidate.
-      a_correct_if: "父親に逃亡準備、証拠隠滅、被害者への接触意思が具体的に確認され、GPS監視や接近禁止では防げない状況だった場合。",
-      b_correct_if: "逃亡や証拠隠滅の意思・準備が示されず、パスポート預託、GPS監視、接近禁止などで危険を具体的に封じられる場合。",
-      deciding_condition: "Aは危険の可能性を示したが、Bは「具体的意思と準備がない限り、即時拘束は正当化できない」という条件線を守った。",
+      a_correct_if: battleLocaleText(
+        "父親に逃亡準備、証拠隠滅、被害者への接触意思が具体的に確認され、GPS監視や接近禁止では防げない状況だった場合。",
+        "The father had concrete flight preparations, evidence-tampering steps, or intent to contact the victim, and GPS monitoring or no-contact orders could not contain that risk."
+      ),
+      b_correct_if: battleLocaleText(
+        "逃亡や証拠隠滅の意思・準備が示されず、パスポート預託、GPS監視、接近禁止などで危険を具体的に封じられる場合。",
+        "No intent or preparation for flight or evidence destruction was shown, and passport surrender, GPS monitoring, and no-contact orders could concretely contain the risk."
+      ),
+      deciding_condition: battleLocaleText(
+        "Aは危険の可能性を示したが、Bは「具体的意思と準備がない限り、即時拘束は正当化できない」という条件線を守った。",
+        "A showed possible danger, but B held the line that immediate detention needs concrete intent and preparation."
+      ),
     };
     const normalizeVerdictConditions = (rawVerdictConditions) => rawVerdictConditions ? {
       a_win_condition: rawVerdictConditions.a_win_condition || rawVerdictConditions.a_correct_if || "",
       b_win_condition: rawVerdictConditions.b_win_condition || rawVerdictConditions.b_correct_if || "",
       deciding_line: rawVerdictConditions.deciding_line || rawVerdictConditions.deciding_condition || "",
     } : null;
-    let verdictConditions = normalizeVerdictConditions(summary?.verdict_conditions);
+    let verdictConditions = normalizeVerdictConditions(localized?.summary?.verdict_conditions || summary?.verdict_conditions);
     let hasVerdictConditions = Boolean(
       verdictConditions?.a_win_condition && verdictConditions?.b_win_condition && verdictConditions?.deciding_line
     );

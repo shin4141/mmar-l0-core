@@ -38,7 +38,7 @@ ASK_TIMEOUT_S = int(os.getenv("MMAR_DEBATE_ASK_TIMEOUT_S", "90"))
 GEMINI_ASK_MAX_OUTPUT_TOKENS = int(os.getenv("MMAR_DEBATE_ASK_MAX_OUTPUT_TOKENS", "2048"))
 GEMINI_ASK_RETRIES = int(os.getenv("MMAR_DEBATE_ASK_RETRIES", "1"))
 GEMINI_LOCALIZE_RETRIES = int(os.getenv("MMAR_DEBATE_GEMINI_LOCALIZE_RETRIES", "2"))
-LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v5")
+LOCALIZED_EN_GENERATOR_VERSION = os.getenv("MMAR_LOCALIZED_EN_GENERATOR_VERSION", "battle-en-v6")
 
 
 @dataclass
@@ -475,6 +475,7 @@ def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
     clincher = summary.get("clincher") if isinstance(summary.get("clincher"), dict) else {}
     takeaway = summary.get("gemini_takeaway") if isinstance(summary.get("gemini_takeaway"), dict) else {}
     gemini_quote = summary.get("gemini_quote") if isinstance(summary.get("gemini_quote"), dict) else {}
+    verdict_conditions = summary.get("verdict_conditions") if isinstance(summary.get("verdict_conditions"), dict) else {}
     debate_result = record.get("debate_result") if isinstance(record.get("debate_result"), dict) else {}
     nested = _nested_run_json(record)
     nested_debate = nested.get("debate_result") if isinstance(nested.get("debate_result"), dict) else {}
@@ -542,6 +543,11 @@ def _battle_localization_seed(record: dict[str, Any]) -> dict[str, Any]:
                 "debate_dynamic": _clean_text(takeaway.get("debate_dynamic") or ""),
                 "quote": _clean_text(takeaway.get("quote") or ""),
             },
+            "verdict_conditions": {
+                "a_win_condition": _clean_text(verdict_conditions.get("a_win_condition") or ""),
+                "b_win_condition": _clean_text(verdict_conditions.get("b_win_condition") or ""),
+                "deciding_line": _clean_text(verdict_conditions.get("deciding_line") or ""),
+            },
             "gemini_quote": {
                 "text": _clean_text(gemini_quote.get("text") or ""),
                 "framing_text": _clean_text(gemini_quote.get("framing_text") or ""),
@@ -564,6 +570,8 @@ def _battle_localize_prompt(seed: dict[str, Any], *, lang: str) -> str:
         "Do not add new analysis. Do not generalize. Keep the same incident and subject.\n"
         "Translate only user-facing text fields so the battle can be shown in a localized viewer.\n"
         "For English, every user-facing string must be English. Do not leave Japanese text in issue, side labels, source summary, context cards, turns, or summary fields.\n"
+        "If summary.verdict_conditions is present, translate a_win_condition, b_win_condition, and deciding_line into natural English condition statements.\n"
+        "Do not invent verdict_conditions when the source values are empty or missing.\n"
         "Keep Gemini takeaway and Gemini quote short: one clear sentence each, no metaphor unless it is already in the source.\n"
         "For Turn 2 rebuttals, remove redundant lead-ins and keep the opponent-response wording direct.\n"
         "Keep the exact top-level keys: issue, side_a, side_b, source_summary, context_cards, additional_info, turns, summary.\n"
