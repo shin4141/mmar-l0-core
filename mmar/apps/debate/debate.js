@@ -4350,24 +4350,38 @@ function renderSummary(summary) {
     );
     const compactReason = displayWinnerReason || displayWhy || subline;
     const previewOnlyConditionMock = {
-      // PREVIEW_ONLY_CONDITION_MOCK — remove before public candidate.
+      // PREVIEW_ONLY_CONDITION_MOCK — do not use for public candidate.
       a_correct_if: "父親に逃亡準備、証拠隠滅、被害者への接触意思が具体的に確認され、GPS監視や接近禁止では防げない状況だった場合。",
       b_correct_if: "逃亡や証拠隠滅の意思・準備が示されず、パスポート預託、GPS監視、接近禁止などで危険を具体的に封じられる場合。",
       deciding_condition: "Aは危険の可能性を示したが、Bは「具体的意思と準備がない限り、即時拘束は正当化できない」という条件線を守った。",
     };
-    const verdictConditions = summary?.verdict_conditions || (PREVIEW_ONLY_CONDITION_MOCK ? previewOnlyConditionMock : null);
-    const verdictConditionsMarkup = verdictConditions ? `
+    const normalizeVerdictConditions = (rawVerdictConditions) => rawVerdictConditions ? {
+      a_win_condition: rawVerdictConditions.a_win_condition || rawVerdictConditions.a_correct_if || "",
+      b_win_condition: rawVerdictConditions.b_win_condition || rawVerdictConditions.b_correct_if || "",
+      deciding_line: rawVerdictConditions.deciding_line || rawVerdictConditions.deciding_condition || "",
+    } : null;
+    let verdictConditions = normalizeVerdictConditions(summary?.verdict_conditions);
+    let hasVerdictConditions = Boolean(
+      verdictConditions?.a_win_condition && verdictConditions?.b_win_condition && verdictConditions?.deciding_line
+    );
+    if (!hasVerdictConditions && PREVIEW_ONLY_CONDITION_MOCK) {
+      verdictConditions = normalizeVerdictConditions(previewOnlyConditionMock);
+      hasVerdictConditions = Boolean(
+        verdictConditions?.a_win_condition && verdictConditions?.b_win_condition && verdictConditions?.deciding_line
+      );
+    }
+    const verdictConditionsMarkup = hasVerdictConditions ? `
       <article class="summary-card condition-block condition-block-a">
         <span>${escapeHtml(battleLocaleText("Aが勝てた世界線", "A win condition"))}</span>
-        <strong>${escapeHtml(verdictConditions.a_correct_if || "")}</strong>
+        <strong>${escapeHtml(verdictConditions.a_win_condition || "")}</strong>
       </article>
       <article class="summary-card condition-block condition-block-b">
         <span>${escapeHtml(battleLocaleText("Bが勝った条件", "B winning condition"))}</span>
-        <strong>${escapeHtml(verdictConditions.b_correct_if || "")}</strong>
+        <strong>${escapeHtml(verdictConditions.b_win_condition || "")}</strong>
       </article>
       <article class="summary-card condition-decision-row condition-decision-row-wide">
         <span>${escapeHtml(battleLocaleText("今回の分かれ目", "Deciding line"))}</span>
-        <strong>${escapeHtml(verdictConditions.deciding_condition || "")}</strong>
+        <strong>${escapeHtml(verdictConditions.deciding_line || "")}</strong>
       </article>
     ` : `
       <article class="summary-card summary-card-why">
@@ -4437,7 +4451,7 @@ function renderSummary(summary) {
     spotlightGridEl.classList.add("judge-notes-secondary-grid");
     spotlightGridEl.hidden = true;
     verdictGridEl.classList.add("judge-notes-core-grid");
-    verdictGridEl.classList.toggle("judge-notes-condition-grid", Boolean(verdictConditions));
+    verdictGridEl.classList.toggle("judge-notes-condition-grid", hasVerdictConditions);
     detailPanelEl.innerHTML = `
       <details class="analysis-details">
         <summary>${escapeHtml(battleLabels.turningLabel)}</summary>

@@ -3548,10 +3548,16 @@ def _judge_pass2_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcri
         "\"fatal_phrase\":{\"turn\":1,\"speaker\":\"A|B|A/B\",\"text\":\"25字以内\",\"reason\":\"40字以内\"},"
         "\"weak_spot\":{\"side\":\"A|B|both\",\"turn\":1,\"speaker\":\"A|B|A/B\",\"label\":\"12字以内\",\"quote_excerpt\":\"25字以内\",\"why_one_sentence\":\"40字以内\",\"how_to_fix\":\"40字以内\"},"
         "\"flip_condition\":\"40字以内\","
+        "\"verdict_conditions\":{\"a_win_condition\":\"70字以内\",\"b_win_condition\":\"70字以内\",\"deciding_line\":\"90字以内\"},"
         "\"gemini_takeaway\":{\"structural_explanation\":\"50字以内\",\"debate_dynamic\":\"50字以内\"},"
         "\"gemini_quote\":{\"text\":\"16字以内\"}"
         "}\n"
         "- Keep every field short and concrete.\n"
+        "- verdict_conditions is mandatory and must be case-specific conditional facts, not debate-strategy abstractions.\n"
+        "- a_win_condition: write the concrete facts that would have made Side A right.\n"
+        "- b_win_condition: write the concrete facts that made or would make Side B right.\n"
+        "- deciding_line: write the factual condition line that decided this match.\n"
+        "- Do not write vague phrases such as 証拠が必要, 主導権を維持, より強い根拠, stronger support, or more evidence was needed in verdict_conditions.\n"
         "- Weak Spot is mandatory.\n"
         "- Fatal Phrase is the earliest line where the winning structure became visible.\n"
         "- Diagnose the losing side in weak_spot when the match is not Draw.\n"
@@ -4420,6 +4426,7 @@ def _parse_judge_pass2_response(raw_text: str) -> dict[str, Any]:
         "fatal_phrase": parsed.get("fatal_phrase"),
         "weak_spot": parsed.get("weak_spot"),
         "flip_condition": _clean_text(parsed.get("flip_condition") or "未生成"),
+        "verdict_conditions": parsed.get("verdict_conditions"),
         "gemini_takeaway": parsed.get("gemini_takeaway"),
         "gemini_quote": parsed.get("gemini_quote"),
     }
@@ -4760,6 +4767,48 @@ def _mock_scorecard_v1_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return _compute_scorecard_v1_winner({"side_a": build("A"), "side_b": build("B")})
 
 
+_GENERIC_VERDICT_CONDITION_PATTERNS = (
+    "証拠が必要",
+    "証拠を増や",
+    "根拠が必要",
+    "根拠を強",
+    "主導権",
+    "フレーム",
+    "より強い",
+    "stronger",
+    "more evidence",
+    "stronger support",
+)
+
+
+def _condition_text_is_concrete(text: str) -> bool:
+    value = _clean_text(text)
+    if len(value) < 12:
+        return False
+    lowered = value.lower()
+    if any(pattern.lower() in lowered for pattern in _GENERIC_VERDICT_CONDITION_PATTERNS):
+        return False
+    concrete_markers = ("場合", "なら", "され", "示され", "確認", "具体", "準備", "意思", "条件", "できる", "できない", "残った", "守った")
+    return any(marker in value for marker in concrete_markers)
+
+
+def _normalize_verdict_conditions(summary: dict[str, Any]) -> dict[str, str]:
+    raw = summary.get("verdict_conditions")
+    if not isinstance(raw, dict):
+        return {}
+    data = _coerce_judge_summary_keys({"verdict_conditions": raw}).get("verdict_conditions")
+    if not isinstance(data, dict):
+        return {}
+    normalized = {
+        "a_win_condition": _clean_text(data.get("a_win_condition") or ""),
+        "b_win_condition": _clean_text(data.get("b_win_condition") or ""),
+        "deciding_line": _clean_text(data.get("deciding_line") or ""),
+    }
+    if not all(_condition_text_is_concrete(value) for value in normalized.values()):
+        return {}
+    return normalized
+
+
 def _normalize_summary(summary: dict[str, Any], turns: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     fatal_raw = summary.get("fatal_phrase")
     fatal = fatal_raw if isinstance(fatal_raw, dict) else {}
@@ -4850,6 +4899,7 @@ def _normalize_summary(summary: dict[str, Any], turns: list[dict[str, Any]] | No
             "match_confidence": 0.0,
             "debug_source": "generated_fallback",
         }
+    verdict_conditions = _normalize_verdict_conditions(summary)
     decision_timeline = _normalize_decision_timeline(summary, winner, reason_one_liner, turning_point, weak_spot, fatal_phrase, turns or [])
     fatal_phrase["role"] = "decisive_lock"
     reason_one_liner, turning_point, weak_spot, fatal_phrase, gemini_quote = _separate_summary_card_roles(
@@ -4909,6 +4959,7 @@ def _normalize_summary(summary: dict[str, Any], turns: list[dict[str, Any]] | No
         "provisional_judgment": _clean_text(summary.get("provisional_judgment") or "未生成"),
         "full_rationale": full_rationale,
         "flip_condition": _clean_text(summary.get("flip_condition") or "未生成"),
+        "verdict_conditions": verdict_conditions,
         "gemini_takeaway": gemini_takeaway,
         "gemini_quote": gemini_quote,
         "frame_owner": fairness_debug["frame_owner"],
@@ -5591,6 +5642,7 @@ def _coerce_judge_summary_keys(summary: dict[str, Any]) -> dict[str, Any]:
         "fatalPhrase": "fatal_phrase",
         "weakSpot": "weak_spot",
         "flipCondition": "flip_condition",
+        "verdictConditions": "verdict_conditions",
         "geminiTakeaway": "gemini_takeaway",
         "geminiQuote": "gemini_quote",
     }
@@ -5636,6 +5688,21 @@ def _coerce_judge_summary_keys(summary: dict[str, Any]) -> dict[str, Any]:
             if source in normalized_takeaway and target not in normalized_takeaway:
                 normalized_takeaway[target] = normalized_takeaway[source]
         data["gemini_takeaway"] = normalized_takeaway
+    conditions = data.get("verdict_conditions")
+    if isinstance(conditions, dict):
+        nested_aliases = {
+            "aWinCondition": "a_win_condition",
+            "bWinCondition": "b_win_condition",
+            "decidingLine": "deciding_line",
+            "a_correct_if": "a_win_condition",
+            "b_correct_if": "b_win_condition",
+            "deciding_condition": "deciding_line",
+        }
+        normalized_conditions = dict(conditions)
+        for source, target in nested_aliases.items():
+            if source in normalized_conditions and target not in normalized_conditions:
+                normalized_conditions[target] = normalized_conditions[source]
+        data["verdict_conditions"] = normalized_conditions
     quote = data.get("gemini_quote")
     if isinstance(quote, dict):
         normalized_quote = dict(quote)

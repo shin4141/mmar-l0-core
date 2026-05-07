@@ -1243,17 +1243,18 @@ def test_parse_judge_pass1_response_accepts_camel_case_keys():
 
 def test_parse_judge_pass2_response_extracts_structure_only():
     parsed = _parse_judge_pass2_response(
-        '{"fatal_phrase":{"turn":4,"speaker":"B","text":"そこが崩れる。","reason":"ここで傾いた。"},"weak_spot":{"side":"A","turn":4,"speaker":"A","label":"論拠不足","quote_excerpt":"証拠がない。","why_one_sentence":"根拠が足りない。","how_to_fix":"指標を足すべきだった。"},"flip_condition":"先に指標を出すこと。"}'
+        '{"fatal_phrase":{"turn":4,"speaker":"B","text":"そこが崩れる。","reason":"ここで傾いた。"},"weak_spot":{"side":"A","turn":4,"speaker":"A","label":"論拠不足","quote_excerpt":"証拠がない。","why_one_sentence":"根拠が足りない。","how_to_fix":"指標を足すべきだった。"},"flip_condition":"先に指標を出すこと。","verdict_conditions":{"a_win_condition":"Aが時系列の記録を提示できた場合。","b_win_condition":"Bが現場記録の欠落を示した場合。","deciding_line":"今回は記録の有無が分かれ目だった。"}}'
     )
 
     assert parsed["fatal_phrase"]["speaker"] == "B"
     assert parsed["weak_spot"]["side"] == "A"
     assert parsed["flip_condition"] == "先に指標を出すこと。"
+    assert parsed["verdict_conditions"]["a_win_condition"] == "Aが時系列の記録を提示できた場合。"
 
 
 def test_parse_judge_pass2_response_accepts_camel_case_keys():
     parsed = _parse_judge_pass2_response(
-        '{"fatalPhrase":{"turn":4,"speaker":"B","text":"そこが崩れる。","reason":"ここで傾いた。"},"weakSpot":{"side":"A","turn":4,"speaker":"A","label":"論拠不足","quoteExcerpt":"証拠がない。","whyOneSentence":"根拠が足りない。","howToFix":"指標を足すべきだった。"},"flipCondition":"先に指標を出すこと。","geminiTakeaway":{"structuralExplanation":"Aが崩れた。","debateDynamic":"Bが押した。","quote":"「Bが残った。」"},"geminiQuote":{"quote":"Bが残った。"}}'
+        '{"fatalPhrase":{"turn":4,"speaker":"B","text":"そこが崩れる。","reason":"ここで傾いた。"},"weakSpot":{"side":"A","turn":4,"speaker":"A","label":"論拠不足","quoteExcerpt":"証拠がない。","whyOneSentence":"根拠が足りない。","howToFix":"指標を足すべきだった。"},"flipCondition":"先に指標を出すこと。","verdictConditions":{"aWinCondition":"Aが時系列の記録を提示できた場合。","bWinCondition":"Bが現場記録の欠落を示した場合。","decidingLine":"今回は記録の有無が分かれ目だった。"},"geminiTakeaway":{"structuralExplanation":"Aが崩れた。","debateDynamic":"Bが押した。","quote":"「Bが残った。」"},"geminiQuote":{"quote":"Bが残った。"}}'
     )
 
     assert parsed["fatal_phrase"]["speaker"] == "B"
@@ -1261,6 +1262,7 @@ def test_parse_judge_pass2_response_accepts_camel_case_keys():
     assert parsed["weak_spot"]["why_one_sentence"] == "根拠が足りない。"
     assert parsed["weak_spot"]["how_to_fix"] == "指標を足すべきだった。"
     assert parsed["flip_condition"] == "先に指標を出すこと。"
+    assert parsed["verdict_conditions"]["a_win_condition"] == "Aが時系列の記録を提示できた場合。"
     assert parsed["gemini_takeaway"]["structural_explanation"] == "Aが崩れた。"
     assert parsed["gemini_quote"]["text"] == "Bが残った。"
 
@@ -2335,6 +2337,59 @@ def test_normalize_summary_keeps_gemini_takeaway_or_builds_fallback():
     assert takeaway["structural_explanation"] == "Bは判定基準を握った。"
     assert takeaway["debate_dynamic"] == "その後もBが圧を維持し、Aは論拠不足を修正し切れなかった。"
     assert takeaway["quote"].startswith("「")
+
+
+def test_normalize_summary_preserves_concrete_verdict_conditions():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが条件線を守った。"},
+            "reason_one_liner": "Bは具体条件を守り、Aは可能性に留まった。",
+            "confidence": "High",
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "具体的準備がない。", "reason": "条件線を固定した。"},
+            "weak_spot": {
+                "side": "A",
+                "turn": 2,
+                "speaker": "A",
+                "label": "可能性止まり",
+                "quote_excerpt": "危険の可能性がある。",
+                "why_one_sentence": "具体的な意思や準備を示せていない。",
+                "how_to_fix": "逃亡準備や接触意思を示すべきだった。",
+            },
+            "flip_condition": "具体的準備を示すこと。",
+            "verdict_conditions": {
+                "a_win_condition": "父親に逃亡準備や被害者への接触意思が具体的に確認された場合。",
+                "b_win_condition": "逃亡や証拠隠滅の意思・準備が示されず、監視で危険を封じられる場合。",
+                "deciding_line": "今回は具体的意思と準備がない限り、即時拘束は正当化できない条件線が残った。",
+            },
+        },
+        turns=[
+            {"turn": 1, "a": "危険の可能性がある。", "b": "具体的準備が必要だ。"},
+            {"turn": 2, "a": "危険は残る。", "b": "具体的準備がない。"},
+        ],
+    )
+
+    assert summary["verdict_conditions"]["a_win_condition"].startswith("父親に逃亡準備")
+    assert summary["verdict_conditions"]["b_win_condition"].startswith("逃亡や証拠隠滅")
+    assert "条件線" in summary["verdict_conditions"]["deciding_line"]
+
+
+def test_normalize_summary_drops_abstract_verdict_conditions():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "B", "reason": "Bが残った。"},
+            "reason_one_liner": "Bが残った。",
+            "fatal_phrase": {"turn": 2, "speaker": "B", "text": "根拠がない。", "reason": "弱点を突いた。"},
+            "weak_spot": {"side": "A", "turn": 2, "speaker": "A", "label": "論拠不足", "quote_excerpt": "必要だ。", "why_one_sentence": "根拠不足。", "how_to_fix": "具体化。"},
+            "verdict_conditions": {
+                "a_win_condition": "Aはより強い根拠が必要だった。",
+                "b_win_condition": "Bはフレームの主導権を維持した。",
+                "deciding_line": "more evidence was needed.",
+            },
+        },
+        turns=[{"turn": 1, "a": "必要だ。", "b": "根拠がない。"}],
+    )
+
+    assert summary["verdict_conditions"] == {}
 
 
 def test_normalize_summary_separates_draw_verdict_takeaway_and_quote_roles():
