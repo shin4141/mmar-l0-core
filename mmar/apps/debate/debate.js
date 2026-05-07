@@ -288,7 +288,7 @@ const BATTLE_LANG_COPY = {
     shareXLabel: "Share on X",
     issueLabel: "Issue",
     winnerLabel: "Winner",
-    decisiveLabel: "Fatal Phrase",
+    decisiveLabel: "Decisive Hit",
     turningLabel: "Turning Point",
     summaryLabel: "Why It Held",
     weakLabel: "Weak Spot",
@@ -351,7 +351,7 @@ function battleSummaryCopy() {
     momentumLabel: battleLocaleText("Momentum Bar", "Momentum Bar"),
     momentumNote: battleLocaleText("この判定は真偽ではなく、この命題での押し込みです。", "This measures who controlled the proposition, not who proved objective truth."),
     flipConditionLabel: battleLocaleText("Flip Condition", "Flip Condition"),
-    geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Takeaway"),
+    geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Gemini Takeaway"),
     geminiQuoteLabel: battleLocaleText("Gemini Quote", "Gemini Quote"),
     askTitle: battleLocaleText("この試合についてGeminiに聞く", "Ask Gemini About This Match"),
     askButton: battleLocaleText("この試合をGeminiに聞く", "Ask Gemini About This Match"),
@@ -4372,15 +4372,15 @@ function renderSummary(summary) {
     }
     const verdictConditionsMarkup = hasVerdictConditions ? `
       <article class="summary-card condition-block condition-block-a">
-        <span>${escapeHtml(battleLocaleText("Aが勝てた世界線", "A win condition"))}</span>
+        <span>${escapeHtml(battleLocaleText("Aが勝てた世界線", "A Would Have Won If"))}</span>
         <strong>${escapeHtml(verdictConditions.a_win_condition || "")}</strong>
       </article>
       <article class="summary-card condition-block condition-block-b">
-        <span>${escapeHtml(battleLocaleText("Bが勝った条件", "B winning condition"))}</span>
+        <span>${escapeHtml(battleLocaleText("Bが勝った条件", "B Won If"))}</span>
         <strong>${escapeHtml(verdictConditions.b_win_condition || "")}</strong>
       </article>
       <article class="summary-card condition-decision-row condition-decision-row-wide">
-        <span>${escapeHtml(battleLocaleText("今回の分かれ目", "Deciding line"))}</span>
+        <span>${escapeHtml(battleLocaleText("今回の分かれ目", "Deciding Line"))}</span>
         <strong>${escapeHtml(verdictConditions.deciding_line || "")}</strong>
       </article>
     ` : `
