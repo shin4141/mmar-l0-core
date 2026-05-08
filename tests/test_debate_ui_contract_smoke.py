@@ -80,6 +80,21 @@ def test_viewer_archive_has_curated_records():
     assert first["judge_json"]["winner"]["side"] in {"A", "B", "Draw"}
 
 
+def test_js_supports_unresolved_verdict_condition_cards():
+    js = _read(JS_PATH)
+
+    assert "function isUnresolvedWinnerSide(side)" in js
+    assert '"保留"' in js
+    assert '"medium"' in js
+    assert '"undecided"' in js
+    assert "rawVerdictConditions.unresolved_reason" in js
+    assert 'battleLocaleText("Aが勝つには", "A Would Have Won If")' in js
+    assert 'battleLocaleText("Bが勝つには", "B Would Have Won If")' in js
+    assert 'battleLocaleText("保留になった理由", "Why It Stayed Undecided")' in js
+    assert 'battleLocaleText("Bが勝った条件", "B Won If")' in js
+    assert "PREVIEW_ONLY_CONDITION_MOCK" in js
+
+
 @pytest.mark.skip(reason="obsolete after current debate UI contract rewrite")
 def test_html_starts_without_structure_result_panel():
     html = _read(HTML_PATH)

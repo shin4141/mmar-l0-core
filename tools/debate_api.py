@@ -4817,7 +4817,7 @@ def _normalize_verdict_conditions(summary: dict[str, Any]) -> dict[str, str]:
     normalized = {
         "a_win_condition": _clean_text(data.get("a_win_condition") or ""),
         "b_win_condition": _clean_text(data.get("b_win_condition") or ""),
-        "deciding_line": _clean_text(data.get("deciding_line") or ""),
+        "deciding_line": _clean_text(data.get("deciding_line") or data.get("unresolved_reason") or ""),
     }
     if not all(_condition_text_is_concrete(value) for value in normalized.values()):
         return {}
@@ -5712,6 +5712,8 @@ def _coerce_judge_summary_keys(summary: dict[str, Any]) -> dict[str, Any]:
             "a_correct_if": "a_win_condition",
             "b_correct_if": "b_win_condition",
             "deciding_condition": "deciding_line",
+            "unresolvedReason": "deciding_line",
+            "unresolved_reason": "deciding_line",
         }
         normalized_conditions = dict(conditions)
         for source, target in nested_aliases.items():

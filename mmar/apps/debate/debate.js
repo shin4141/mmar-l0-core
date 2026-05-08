@@ -439,6 +439,27 @@ function formatBattleSideLabel(side) {
   return normalized || battleLocaleText("保留", "Draw");
 }
 
+function isUnresolvedWinnerSide(side) {
+  const normalized = String(side || "").trim().toLowerCase();
+  return [
+    "draw",
+    "tie",
+    "tied",
+    "medium",
+    "undecided",
+    "undecidable",
+    "unresolved",
+    "pending",
+    "cannot decide",
+    "保留",
+    "未決",
+    "判定保留",
+    "引き分け",
+    "互角",
+    "五分",
+  ].includes(normalized);
+}
+
 function clearBattleXSourceError() {
   setBattleXSourceError("");
 }
@@ -1334,6 +1355,7 @@ function polishEnglishSummary(summary) {
       a_win_condition: polishEnglishSurfaceText(verdictConditions.a_win_condition),
       b_win_condition: polishEnglishSurfaceText(verdictConditions.b_win_condition),
       deciding_line: polishEnglishSurfaceText(verdictConditions.deciding_line),
+      unresolved_reason: polishEnglishSurfaceText(verdictConditions.unresolved_reason),
     },
   };
 }
@@ -2390,7 +2412,7 @@ function normalizeWinner(summary) {
   const lowered = String(side || "").trim().toLowerCase();
   if (["a", "fighter a", "gpt"].includes(lowered)) side = "A";
   else if (["b", "fighter b", "claude"].includes(lowered)) side = "B";
-  else if (["draw", "tie", "undecidable", "cannot decide", "引き分け", "互角", "五分"].includes(lowered)) side = "Draw";
+  else if (isUnresolvedWinnerSide(lowered)) side = "Draw";
   else side = inferWinnerFromSummary(summary, reason);
   const fallbackReason = isEnglishBattleView()
     ? (side === "Draw" ? "The frame moved, but neither side fully closed the argument." : "One side gained ground, but the final deciding line stayed narrow.")
@@ -2409,7 +2431,7 @@ function inferWinnerFromSummary(summary, reason = "") {
     summary?.full_rationale,
   ].filter(Boolean).join(" ");
   const text = String(combined || "");
-  if (/(引き分け|互角|五分|決め切れない|決めきれない|cannot decide|undecidable|\bdraw\b|\btie\b)/i.test(text)) return "Draw";
+  if (/(保留|未決|判定保留|引き分け|互角|五分|決め切れない|決めきれない|決着に届か|cannot decide|undecided|undecidable|unresolved|\bdraw\b|\btie\b)/i.test(text)) return "Draw";
   if (/(A優勢|Aが押した|Aが押し切|Aが守り切|Bが崩れ|Bが後退|Aの方|Aが)/.test(text)) return "A";
   if (/(B優勢|Bが押した|Bが押し切|Bが守り切|Aが崩れ|Aが後退|Bの方|Bが)/.test(text)) return "B";
   const fatalSpeaker = String(summary?.fatal_phrase?.speaker || "").trim().toUpperCase();
@@ -4374,7 +4396,7 @@ function renderSummary(summary) {
     const normalizeVerdictConditions = (rawVerdictConditions) => rawVerdictConditions ? {
       a_win_condition: rawVerdictConditions.a_win_condition || rawVerdictConditions.a_correct_if || "",
       b_win_condition: rawVerdictConditions.b_win_condition || rawVerdictConditions.b_correct_if || "",
-      deciding_line: rawVerdictConditions.deciding_line || rawVerdictConditions.deciding_condition || "",
+      deciding_line: rawVerdictConditions.deciding_line || rawVerdictConditions.unresolved_reason || rawVerdictConditions.deciding_condition || "",
     } : null;
     let verdictConditions = normalizeVerdictConditions(localized?.summary?.verdict_conditions || summary?.verdict_conditions);
     let hasVerdictConditions = Boolean(
@@ -4386,17 +4408,27 @@ function renderSummary(summary) {
         verdictConditions?.a_win_condition && verdictConditions?.b_win_condition && verdictConditions?.deciding_line
       );
     }
+    const unresolvedVerdict = isUnresolvedWinnerSide(winner.side);
+    const conditionLabels = unresolvedVerdict ? {
+      a: battleLocaleText("Aが勝つには", "A Would Have Won If"),
+      b: battleLocaleText("Bが勝つには", "B Would Have Won If"),
+      deciding: battleLocaleText("保留になった理由", "Why It Stayed Undecided"),
+    } : {
+      a: battleLocaleText("Aが勝てた世界線", "A Would Have Won If"),
+      b: battleLocaleText("Bが勝った条件", "B Won If"),
+      deciding: battleLocaleText("今回の分かれ目", "Deciding Line"),
+    };
     const verdictConditionsMarkup = hasVerdictConditions ? `
       <article class="summary-card condition-block condition-block-a">
-        <span>${escapeHtml(battleLocaleText("Aが勝てた世界線", "A Would Have Won If"))}</span>
+        <span>${escapeHtml(conditionLabels.a)}</span>
         <strong>${escapeHtml(verdictConditions.a_win_condition || "")}</strong>
       </article>
       <article class="summary-card condition-block condition-block-b">
-        <span>${escapeHtml(battleLocaleText("Bが勝った条件", "B Won If"))}</span>
+        <span>${escapeHtml(conditionLabels.b)}</span>
         <strong>${escapeHtml(verdictConditions.b_win_condition || "")}</strong>
       </article>
       <article class="summary-card condition-decision-row condition-decision-row-wide">
-        <span>${escapeHtml(battleLocaleText("今回の分かれ目", "Deciding Line"))}</span>
+        <span>${escapeHtml(conditionLabels.deciding)}</span>
         <strong>${escapeHtml(verdictConditions.deciding_line || "")}</strong>
       </article>
     ` : `

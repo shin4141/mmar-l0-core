@@ -2447,6 +2447,35 @@ def test_normalize_summary_preserves_concrete_verdict_conditions():
     assert "条件線" in summary["verdict_conditions"]["deciding_line"]
 
 
+def test_normalize_summary_accepts_unresolved_verdict_condition_reason():
+    summary = _normalize_summary(
+        {
+            "winner": {"side": "Draw", "reason": "保留。"},
+            "reason_one_liner": "双方とも具体条件を越え切れなかった。",
+            "confidence": "Medium",
+            "fatal_phrase": {"turn": 0, "speaker": "", "text": "", "reason": ""},
+            "weak_spot": {
+                "side": "A/B",
+                "turn": 2,
+                "speaker": "A/B",
+                "label": "決定打不足",
+                "quote_excerpt": "まだ倒し切れていない。",
+                "why_one_sentence": "双方とも勝利条件を具体的に満たし切れなかった。",
+                "how_to_fix": "成立条件を一つに絞って証明すべきだった。",
+            },
+            "verdict_conditions": {
+                "a_win_condition": "Aが危険の具体的準備を確認できた場合。",
+                "b_win_condition": "Bが監視条件で危険を封じられると確認できた場合。",
+                "unresolved_reason": "今回は双方とも具体的な勝利条件を確認し切れず、保留になった。",
+            },
+        },
+        turns=[{"turn": 1, "a": "危険はある。", "b": "監視で足りる。"}],
+    )
+
+    assert summary["winner"]["side"] == "Draw"
+    assert summary["verdict_conditions"]["deciding_line"].endswith("保留になった。")
+
+
 def test_normalize_summary_drops_abstract_verdict_conditions():
     summary = _normalize_summary(
         {
