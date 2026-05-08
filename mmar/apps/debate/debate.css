@@ -3093,6 +3093,16 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     grid-template-columns: 1fr;
   }
 
+  .judge-notes-core-grid.judge-notes-condition-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  body.battle-mode .summary-card.condition-decision-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
   .position-row {
     flex-direction: column;
   }
