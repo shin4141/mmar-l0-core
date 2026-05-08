@@ -3103,6 +3103,18 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     align-items: start;
   }
 
+  .verdict-grid.judge-notes-core-grid.judge-notes-condition-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .verdict-grid.judge-notes-core-grid.judge-notes-condition-grid > * {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
   .position-row {
     flex-direction: column;
   }
