@@ -3796,13 +3796,20 @@ def _list_gemini_generate_models(api_key: str) -> list[str]:
 
 
 def _resolve_gemini_model(api_key: str) -> str:
+    if GEMINI_MODEL:
+        return GEMINI_MODEL
     key = _clean_text(api_key)
     if not key:
         return _default_gemini_model_name()
     cached = _GEMINI_MODEL_CACHE.get(key)
     if cached:
         return cached
-    models = _list_gemini_generate_models(key)
+    try:
+        models = _list_gemini_generate_models(key)
+    except Exception:
+        chosen = _default_gemini_model_name()
+        _GEMINI_MODEL_CACHE[key] = chosen
+        return chosen
     preferred = [model for model in [GEMINI_MODEL, *GEMINI_MODEL_CANDIDATES] if model]
     for model in preferred:
         if model in models:

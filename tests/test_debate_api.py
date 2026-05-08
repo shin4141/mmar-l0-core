@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+import tools.debate_api as debate_api
 from tools.debate_api import LOCALIZED_EN_GENERATOR_VERSION, DebateConfig, JudgeError, _ask_match_prompt, _battle_localization_seed, _call_gemini_generate_content, _call_gemini_match_chat, _canonical_payload_hash, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _suppress_overlapping_summary_roles, _three_turn_validation_report, ask_match_gemini, localize_battle_record, run_debate
 from tools.history_store import (
     archive_run,
@@ -1057,6 +1058,79 @@ def test_judge_metrics_counts_transcript_and_prompt_chars():
     metrics = _judge_metrics("Turn 1 A: x", "judge prompt body")
     assert metrics["transcript_char_count"] == len("Turn 1 A: x")
     assert metrics["judge_prompt_char_count"] == len("judge prompt body")
+
+
+def test_resolve_gemini_model_explicit_env_skips_model_list(monkeypatch):
+    debate_api._GEMINI_MODEL_CACHE.clear()
+    monkeypatch.setattr(debate_api, "GEMINI_MODEL", "models/gemini-explicit-test")
+
+    def fail_if_listed(api_key):
+        raise AssertionError("models:list should not run when GEMINI_MODEL is explicit")
+
+    monkeypatch.setattr(debate_api, "_list_gemini_generate_models", fail_if_listed)
+
+    assert debate_api._resolve_gemini_model("gm-test-key") == "models/gemini-explicit-test"
+
+
+def test_resolve_gemini_model_falls_back_when_model_list_fails(monkeypatch):
+    debate_api._GEMINI_MODEL_CACHE.clear()
+    monkeypatch.setattr(debate_api, "GEMINI_MODEL", "")
+    monkeypatch.setattr(
+        debate_api,
+        "_list_gemini_generate_models",
+        lambda api_key: (_ for _ in ()).throw(RuntimeError("http_error:400:Bad Request")),
+    )
+
+    assert debate_api._resolve_gemini_model("gm-public-key") == "models/gemini-2.5-flash"
+    assert debate_api._GEMINI_MODEL_CACHE["gm-public-key"] == "models/gemini-2.5-flash"
+
+
+def test_call_gemini_match_chat_continues_to_generate_after_model_list_failure(monkeypatch):
+    debate_api._GEMINI_MODEL_CACHE.clear()
+    monkeypatch.setattr(debate_api, "GEMINI_MODEL", "")
+    monkeypatch.setattr(
+        debate_api,
+        "_list_gemini_generate_models",
+        lambda api_key: (_ for _ in ()).throw(RuntimeError("http_error:400:Bad Request")),
+    )
+    calls = []
+
+    def fake_post(url, payload, headers, *, timeout_s):
+        calls.append({"url": url, "payload": payload, "headers": headers})
+        return {
+            "ok": True,
+            "status_code": 200,
+            "latency_ms": 12,
+            "raw_body": "",
+            "data": {
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": '{"winner":{"side":"A","reason":"A held."}}'}]},
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setattr(debate_api, "_post_json_verbose", fake_post)
+
+    text, debug = _call_gemini_match_chat(
+        "judge prompt",
+        "gm-public-key",
+        retries=0,
+        max_output_tokens=256,
+        debug_context={"pass_label": "judge_pass1"},
+        error_cls=JudgeError,
+        response_mime_type="application/json",
+        thinking_budget=0,
+    )
+
+    assert '"winner"' in text
+    assert calls
+    assert "/v1beta/models/gemini-2.5-flash:generateContent" in calls[0]["url"]
+    assert calls[0]["payload"]["generationConfig"]["responseMimeType"] == "application/json"
+    assert calls[0]["payload"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+    assert debug["model"] == "models/gemini-2.5-flash"
 
 
 @pytest.mark.skip(reason="obsolete after current Gemini judge metadata contract rewrite")
