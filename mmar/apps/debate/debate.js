@@ -4501,58 +4501,68 @@ function renderSummary(summary) {
     verdictGridEl.classList.add("judge-notes-core-grid");
     verdictGridEl.classList.toggle("judge-notes-condition-grid", hasVerdictConditions);
     detailPanelEl.innerHTML = `
-      <details class="analysis-details">
-        <summary>${escapeHtml(battleLabels.turningLabel)}</summary>
-        <button type="button" class="summary-card tone-turning summary-jump-card" data-jump-target="turning">
-          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(turning.role || "frame_shift"))}</div>
-          <div class="summary-meta summary-turn-badge">${escapeHtml(turning.turn)}</div>
-          <div class="summary-value summary-turning-copy">${escapeHtml(displayTurningSummary)}</div>
-        </button>
-      </details>
-      <details class="analysis-details">
-        <summary>${escapeHtml(battleLabels.weakLabel)}</summary>
-        <button type="button" class="summary-card tone-contradiction summary-jump-card" data-jump-target="weak">
-          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
-          <div class="summary-meta">${escapeHtml(`${formatBattleSideLabel(weakSpot.side)} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
-          <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
-          <div class="summary-subvalue summary-quote">${escapeHtml(normalizeTakeawayQuote(displayWeakQuote))}</div>
-        </button>
-      </details>
-      <details class="analysis-details">
-        <summary>${escapeHtml(uiCopy.firstCrackLabel)}</summary>
-        <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
-          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
-          <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
-          <div class="summary-value">${escapeHtml(displayFirstCrackQuote || uiCopy.firstCrackEmptyQuote)}</div>
-          <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || uiCopy.firstCrackEmptyReason)}</div>
-        </button>
-      </details>
-      ${showClincher ? `
-      <details class="analysis-details">
-        <summary>${escapeHtml(uiCopy.clincherLabel)}</summary>
-        <button type="button" class="summary-card tone-clincher summary-jump-card" data-jump-target="clincher">
-          <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(clincher.role || "clincher"))}</div>
-          <div class="summary-meta">${escapeHtml(`Turn ${clincher.turn} / ${clincher.speaker || "?"}`)}</div>
-          <div class="summary-value">${escapeHtml(displayClincherQuote)}</div>
-          <div class="summary-subvalue">${escapeHtml(displayClincherReason)}</div>
-        </button>
-      </details>
-      ` : ""}
-      <details class="analysis-details">
-        <summary>${escapeHtml(battleLocaleText("勝敗の理由", "Why the Verdict Landed"))}</summary>
-        <div class="analysis-detail-copy">${escapeHtml(displayWhy)}</div>
-      </details>
-      <details class="analysis-details">
-        <summary>${escapeHtml(uiCopy.flipConditionLabel)}</summary>
-        <div class="flip-copy">${escapeHtml(displayFlipCondition)}</div>
-      </details>
-      <details class="analysis-details">
-        <summary>${escapeHtml(uiCopy.detailSummary)}</summary>
-        <div class="analysis-detail-stack">
-          ${battleSourceMarkup}
-          <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || uiCopy.detailEmpty)}</div>
+      <section class="judge-notes-trail" aria-label="${escapeHtml(battleLocaleText("判定の読み筋", "Judge Trail"))}">
+        <div class="judge-notes-trail-head">
+          <div class="summary-label">${escapeHtml(battleLocaleText("判定の読み筋", "Judge Trail"))}</div>
+          <div class="judge-notes-trail-title">${escapeHtml(battleLocaleText("流れ、傷、結論の順で追う", "Flow, Weakness, Verdict"))}</div>
         </div>
-      </details>
+        <div class="judge-notes-trail-grid">
+          <details class="analysis-details judge-trail-step">
+            <summary><span class="judge-trail-step-index">01</span><span>${escapeHtml(battleLabels.turningLabel)}</span></summary>
+            <button type="button" class="summary-card tone-turning summary-jump-card" data-jump-target="turning">
+              <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(turning.role || "frame_shift"))}</div>
+              <div class="summary-meta summary-turn-badge">${escapeHtml(turning.turn)}</div>
+              <div class="summary-value summary-turning-copy">${escapeHtml(displayTurningSummary)}</div>
+            </button>
+          </details>
+          <details class="analysis-details judge-trail-step">
+            <summary><span class="judge-trail-step-index">02</span><span>${escapeHtml(battleLabels.weakLabel)}</span></summary>
+            <button type="button" class="summary-card tone-contradiction summary-jump-card" data-jump-target="weak">
+              <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
+              <div class="summary-meta">${escapeHtml(`${formatBattleSideLabel(weakSpot.side)} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
+              <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
+              <div class="summary-subvalue summary-quote">${escapeHtml(normalizeTakeawayQuote(displayWeakQuote))}</div>
+            </button>
+          </details>
+          <details class="analysis-details judge-trail-step">
+            <summary><span class="judge-trail-step-index">03</span><span>${escapeHtml(uiCopy.firstCrackLabel)}</span></summary>
+            <button type="button" class="summary-card tone-first-crack summary-jump-card" data-jump-target="first-crack">
+              <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(firstCrack.role || "first_crack"))}</div>
+              <div class="summary-meta">${escapeHtml(firstCrack.turn ? `Turn ${firstCrack.turn} / ${firstCrack.speaker || "?"}` : "Turn ?")}</div>
+              <div class="summary-value">${escapeHtml(displayFirstCrackQuote || uiCopy.firstCrackEmptyQuote)}</div>
+              <div class="summary-subvalue">${escapeHtml(displayFirstCrackReason || uiCopy.firstCrackEmptyReason)}</div>
+            </button>
+          </details>
+          ${showClincher ? `
+          <details class="analysis-details judge-trail-step">
+            <summary><span class="judge-trail-step-index">04</span><span>${escapeHtml(uiCopy.clincherLabel)}</span></summary>
+            <button type="button" class="summary-card tone-clincher summary-jump-card" data-jump-target="clincher">
+              <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(clincher.role || "clincher"))}</div>
+              <div class="summary-meta">${escapeHtml(`Turn ${clincher.turn} / ${clincher.speaker || "?"}`)}</div>
+              <div class="summary-value">${escapeHtml(displayClincherQuote)}</div>
+              <div class="summary-subvalue">${escapeHtml(displayClincherReason)}</div>
+            </button>
+          </details>
+          ` : ""}
+        </div>
+      </section>
+      <section class="judge-notes-full" aria-label="${escapeHtml(battleLocaleText("判定本文", "Verdict Text"))}">
+        <details class="analysis-details judge-notes-verdict-copy" open>
+          <summary><span class="judge-trail-step-index">${escapeHtml(showClincher ? "05" : "04")}</span><span>${escapeHtml(battleLocaleText("勝敗の理由", "Why the Verdict Landed"))}</span></summary>
+          <div class="analysis-detail-copy">${escapeHtml(displayWhy)}</div>
+        </details>
+        <details class="analysis-details judge-notes-verdict-copy" open>
+          <summary><span class="judge-trail-step-index">${escapeHtml(showClincher ? "06" : "05")}</span><span>${escapeHtml(uiCopy.flipConditionLabel)}</span></summary>
+          <div class="flip-copy">${escapeHtml(displayFlipCondition)}</div>
+        </details>
+        <details class="analysis-details judge-notes-verdict-copy">
+          <summary><span class="judge-trail-step-index">${escapeHtml(showClincher ? "07" : "06")}</span><span>${escapeHtml(uiCopy.detailSummary)}</span></summary>
+          <div class="analysis-detail-stack">
+            ${battleSourceMarkup}
+            <div class="analysis-detail-copy">${escapeHtml(localized?.summary?.full_rationale || fullRationale || uiCopy.detailEmpty)}</div>
+          </div>
+        </details>
+      </section>
     `;
     return;
   }

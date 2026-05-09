@@ -2940,6 +2940,40 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   gap: 10px;
 }
 
+.judge-notes-trail,
+.judge-notes-full {
+  display: grid;
+  gap: 10px;
+}
+
+.judge-notes-trail {
+  padding: 12px;
+  border: 1px solid rgba(79, 55, 33, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.judge-notes-trail-head {
+  display: grid;
+  gap: 3px;
+}
+
+.judge-notes-trail-title {
+  color: var(--text);
+  font-size: 1.02rem;
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.judge-notes-trail-grid,
+.judge-notes-full {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.judge-notes-full {
+  display: grid;
+}
+
 .analysis-details {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -2948,6 +2982,9 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 }
 
 .analysis-details summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   cursor: pointer;
   color: var(--muted);
   font-size: 11px;
@@ -2959,6 +2996,30 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
 .analysis-details[open] summary {
   margin-bottom: 10px;
+}
+
+.judge-trail-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(79, 55, 33, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: rgba(79, 55, 33, 0.76);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.judge-notes-verdict-copy {
+  border-color: rgba(23, 100, 61, 0.18);
+  background: linear-gradient(180deg, rgba(250, 255, 251, 0.86), rgba(255, 250, 240, 0.78));
+}
+
+.judge-notes-verdict-copy:last-child {
+  grid-column: 1 / -1;
 }
 
 .analysis-detail-stack {
@@ -3121,6 +3182,11 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
   .turn-mode-row,
   .verdict-strip-aux {
+    grid-template-columns: 1fr;
+  }
+
+  .judge-notes-trail-grid,
+  .judge-notes-full {
     grid-template-columns: 1fr;
   }
 
