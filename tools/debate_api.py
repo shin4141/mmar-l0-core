@@ -2581,6 +2581,65 @@ def _judge_summary_data(
                 pass2 = _parse_judge_pass2_response(judge_raw_pass2)
             except JudgeError as exc:
                 raise JudgeError(exc.reason, str(exc), debug={**judge_debug_pass2, **exc.debug})
+            verdict_conditions_status = "complete"
+            verdict_conditions_repair_reason = ""
+            judge_raw_repair = ""
+            judge_debug_repair: dict[str, Any] = {}
+            if not _normalize_verdict_conditions(pass2):
+                verdict_conditions_status = "missing"
+                repair_prompt = _judge_verdict_conditions_repair_prompt(cfg, turns, transcript, pass1, pass2)
+                repair_metrics = _judge_metrics(transcript, repair_prompt)
+                try:
+                    judge_raw_repair, judge_debug_repair = _call_gemini_match_chat(
+                        repair_prompt,
+                        cfg.gemini_key,
+                        timeout_s=JUDGE_PASS2_TIMEOUT_S,
+                        retries=GEMINI_JUDGE_PASS2_RETRIES,
+                        max_output_tokens=GEMINI_JUDGE_MAX_OUTPUT_TOKENS,
+                        debug_context={**repair_metrics, "pass_label": "judge_verdict_conditions_repair"},
+                        error_cls=JudgeError,
+                        response_mime_type="application/json",
+                        thinking_budget=0,
+                    )
+                    pass2["verdict_conditions"] = _parse_judge_verdict_conditions_repair_response(judge_raw_repair)
+                    verdict_conditions_status = "repaired"
+                    _log_judge_stage(
+                        "judge-verdict-conditions-repair-ok",
+                        {
+                            "raw_received": bool(str(judge_raw_repair or "").strip()),
+                            "raw_chars": len(str(judge_raw_repair or "")),
+                            "parse_success": True,
+                            "finish_reason": judge_debug_repair.get("finish_reason", ""),
+                        },
+                    )
+                except JudgeError as exc:
+                    verdict_conditions_status = "repair_failed"
+                    verdict_conditions_repair_reason = exc.reason
+                    judge_debug_repair = {**judge_debug_repair, **exc.debug}
+                    _log_judge_stage(
+                        "judge-verdict-conditions-repair-fail",
+                        {
+                            "raw_received": bool(str(exc.debug.get("raw_text") or judge_raw_repair or "").strip()),
+                            "raw_chars": len(str(exc.debug.get("raw_text") or judge_raw_repair or "")),
+                            "parse_success": False,
+                            "reason": exc.reason,
+                            "provider_error": exc.debug.get("provider_error", ""),
+                        },
+                    )
+                except Exception as exc:
+                    verdict_conditions_status = "repair_failed"
+                    verdict_conditions_repair_reason = _classify_provider_reason(str(exc))
+                    judge_debug_repair = {"provider_error": str(exc)}
+                    _log_judge_stage(
+                        "judge-verdict-conditions-repair-fail",
+                        {
+                            "raw_received": bool(str(judge_raw_repair or "").strip()),
+                            "raw_chars": len(str(judge_raw_repair or "")),
+                            "parse_success": False,
+                            "reason": verdict_conditions_repair_reason,
+                            "provider_error": str(exc),
+                        },
+                    )
             _log_judge_stage(
                 "judge-pass2-ok",
                 {
@@ -2602,6 +2661,8 @@ def _judge_summary_data(
                     "judge_stage": "judge_pass2",
                     "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
                     "judge_parse_success": True,
+                    "judge_verdict_conditions_status": verdict_conditions_status,
+                    "judge_verdict_conditions_repair_reason": verdict_conditions_repair_reason,
                     "raw_reason": "",
                 }
         except JudgeError as exc:
@@ -2659,6 +2720,8 @@ def _judge_summary_data(
                 "judge_stage": "judge_pass2",
                 "judge_raw_received": bool(str(judge_raw_pass2 or "").strip()),
                 "judge_parse_success": True,
+                "judge_verdict_conditions_status": verdict_conditions_status,
+                "judge_verdict_conditions_repair_reason": verdict_conditions_repair_reason,
                 "raw_reason": "",
             }
         _record_gemini_judge_debug(
@@ -2688,6 +2751,18 @@ def _judge_summary_data(
                     "finish_reason": judge_debug_pass2.get("finish_reason"),
                     "retry_count": judge_debug_pass2.get("retry_count"),
                     "provider_error": judge_debug_pass2.get("provider_error", ""),
+                },
+                "judge_verdict_conditions_repair": {
+                    "status": verdict_conditions_status,
+                    "reason": verdict_conditions_repair_reason,
+                    "raw_text": judge_raw_repair,
+                    "judge_payload_char_count": judge_debug_repair.get("judge_payload_char_count"),
+                    "transcript_char_count": judge_debug_repair.get("transcript_char_count"),
+                    "judge_prompt_char_count": judge_debug_repair.get("judge_prompt_char_count"),
+                    "latency_ms": judge_debug_repair.get("latency_ms"),
+                    "finish_reason": judge_debug_repair.get("finish_reason"),
+                    "retry_count": judge_debug_repair.get("retry_count"),
+                    "provider_error": judge_debug_repair.get("provider_error", ""),
                 },
             }
         )
@@ -3577,6 +3652,44 @@ def _judge_pass2_prompt(cfg: DebateConfig, turns: list[dict[str, Any]], transcri
     )
 
 
+def _judge_verdict_conditions_repair_prompt(
+    cfg: DebateConfig,
+    turns: list[dict[str, Any]],
+    transcript: str,
+    pass1: dict[str, Any],
+    pass2: dict[str, Any],
+) -> str:
+    winner = pass1.get("winner") if isinstance(pass1.get("winner"), dict) else {}
+    weak_spot = pass2.get("weak_spot") if isinstance(pass2.get("weak_spot"), dict) else {}
+    fatal_phrase = pass2.get("fatal_phrase") if isinstance(pass2.get("fatal_phrase"), dict) else {}
+    topic_basis = _normalized_topic_evaluation_basis(cfg.topic)
+    return (
+        "You are repairing only the missing verdict_conditions for a completed debate judge result.\n"
+        "Respond with one JSON object only. No markdown, no prose, no code fences.\n"
+        f"Topic: {cfg.topic}\n"
+        f"Locked evaluation form: {topic_basis['topic_proposition']}\n"
+        f"Evaluate by: {topic_basis['evaluation_axis']}\n"
+        f"Side A position: {cfg.side_a}\n"
+        f"Side B position: {cfg.side_b}\n"
+        f"Locked winner: {_clean_text(winner.get('side') or '')}\n"
+        f"Locked reason: {_clean_text(pass1.get('reason_one_liner') or '')}\n"
+        f"Weak spot: {_clean_text(weak_spot.get('label') or '')} / {_clean_text(weak_spot.get('why_one_sentence') or '')}\n"
+        f"Fatal phrase: {_clean_text(fatal_phrase.get('text') or '')} / {_clean_text(fatal_phrase.get('reason') or '')}\n"
+        f"Flip condition: {_clean_text(pass2.get('flip_condition') or '')}\n"
+        "Use this exact JSON schema:\n"
+        "{"
+        "\"verdict_conditions\":{\"a_win_condition\":\"70字以内\",\"b_win_condition\":\"70字以内\",\"deciding_line\":\"90字以内\"}"
+        "}\n"
+        "- Generate only verdict_conditions. Do not change winner, confidence, weak_spot, fatal_phrase, or flip_condition.\n"
+        "- Each field must be a concrete case-specific factual condition, not a debate-strategy abstraction.\n"
+        "- a_win_condition: write the concrete facts that would have made Side A right.\n"
+        "- b_win_condition: write the concrete facts that made or would make Side B right.\n"
+        "- deciding_line: write the factual condition line that decided this match.\n"
+        "- Avoid vague phrases such as 証拠が必要, 主導権, フレーム, より強い根拠, stronger support, or more evidence was needed.\n"
+        f"Transcript:\n{transcript}\n"
+    )
+
+
 def _judge_scorecard_v1_prompt(cfg: DebateConfig, transcript: str) -> str:
     topic_basis = _normalized_topic_evaluation_basis(cfg.topic)
     return (
@@ -4445,6 +4558,18 @@ def _parse_judge_pass2_response(raw_text: str) -> dict[str, Any]:
         "gemini_takeaway": parsed.get("gemini_takeaway"),
         "gemini_quote": parsed.get("gemini_quote"),
     }
+
+
+def _parse_judge_verdict_conditions_repair_response(raw_text: str) -> dict[str, str]:
+    parsed = _parse_judge_json_object(raw_text, mode="verdict_conditions_repair")
+    normalized = _normalize_verdict_conditions(parsed)
+    if not normalized:
+        raise JudgeError(
+            "schema_mismatch",
+            "judge verdict_conditions repair missing complete concrete fields",
+            debug={"raw_text": raw_text, "parsed_summary": parsed},
+        )
+    return normalized
 
 
 def _parse_judge_scorecard_v1_response(raw_text: str) -> dict[str, Any]:

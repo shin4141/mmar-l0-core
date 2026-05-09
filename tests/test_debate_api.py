@@ -3,7 +3,7 @@ import json
 import pytest
 
 import tools.debate_api as debate_api
-from tools.debate_api import LOCALIZED_EN_GENERATOR_VERSION, DebateConfig, JudgeError, _ask_match_prompt, _battle_localization_seed, _call_gemini_generate_content, _call_gemini_match_chat, _canonical_payload_hash, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _suppress_overlapping_summary_roles, _three_turn_validation_report, ask_match_gemini, localize_battle_record, run_debate
+from tools.debate_api import LOCALIZED_EN_GENERATOR_VERSION, DebateConfig, JudgeError, _ask_match_prompt, _battle_localization_seed, _call_gemini_generate_content, _call_gemini_match_chat, _canonical_payload_hash, _classify_provider_reason, _extract_transcript_quote, _judge_metrics, _judge_pass1_prompt, _judge_pass2_prompt, _judge_prompt, _judge_summary_data, _normalize_summary, _normalize_turn_meta, _parse_judge_pass1_response, _parse_judge_pass2_response, _sanitize_fighter_speech, _speaker_prompt, _speaker_role_rules, _suppress_overlapping_summary_roles, _three_turn_validation_report, ask_match_gemini, localize_battle_record, run_debate
 from tools.history_store import (
     archive_run,
     get_history_record,
@@ -1339,6 +1339,114 @@ def test_parse_judge_pass2_response_accepts_camel_case_keys():
     assert parsed["verdict_conditions"]["a_win_condition"] == "Aが時系列の記録を提示できた場合。"
     assert parsed["gemini_takeaway"]["structural_explanation"] == "Aが崩れた。"
     assert parsed["gemini_quote"]["text"] == "Bが残った。"
+
+
+def test_judge_summary_repairs_missing_verdict_conditions(monkeypatch):
+    calls = []
+
+    def fake_gemini_chat(prompt, api_key, **kwargs):
+        label = kwargs.get("debug_context", {}).get("pass_label", "")
+        calls.append(label)
+        debug = {
+            "finish_reason": "STOP",
+            "pass_label": label,
+            "provider_error": "",
+            "latency_ms": 10,
+            "judge_prompt_char_count": len(prompt),
+            "request_variant": "contents_with_generation_config",
+            "request_url": "https://example.test/gemini",
+            "request_body_shape": "contents+generationConfig",
+            "request_has_generation_config": True,
+            "model": "models/gemini-2.5-flash",
+        }
+        if label == "judge_pass1":
+            return (
+                '{"winner":{"side":"B","reason":"Bが押した。"},"reason_one_liner":"Bが具体条件を守った。","confidence":"High","turning_point_turn":3}',
+                debug,
+            )
+        if label == "judge_pass2":
+            return (
+                '{"fatal_phrase":{"turn":3,"speaker":"B","text":"計測記録がない。","reason":"成立条件を閉じた。"},"weak_spot":{"side":"A","turn":3,"speaker":"A","label":"計測不足","quote_excerpt":"映像だけで足りる。","why_one_sentence":"三次元追跡を示せていない。","how_to_fix":"複数センサー記録を出すべきだった。"},"flip_condition":"複数センサー記録を出すこと。"}',
+                debug,
+            )
+        return (
+            '{"verdict_conditions":{"a_win_condition":"Aがレーダーや三角測量で同一物体の三次元追跡を確認できた場合。","b_win_condition":"Bが公的センサー記録や三角測量がなく映像だけでは物理的実在を確認できないと示した場合。","deciding_line":"映像上の一致だけでなく公的センサー記録や三角測量で同一物体を確認できるかが分かれ目だった。"}}',
+            debug,
+        )
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_match_chat", fake_gemini_chat)
+    cfg = DebateConfig(
+        topic="UAE上空の逆さしずく型物体は本物の未知飛行体か",
+        side_a="本物の未知飛行体だ。",
+        side_b="本物ではない。",
+        turn_count=3,
+        mode="casual",
+        fighter_a_provider="openai",
+        fighter_b_provider="openai",
+        openai_key="",
+        anthropic_key="",
+        gemini_key="gm-test",
+    )
+    turns = [{"turn": 3, "a": "映像だけで足りる。", "b": "計測記録がない。"}]
+
+    summary, status = _judge_summary_data(cfg, turns, "Turn 3 A: 映像だけで足りる。\nTurn 3 B: 計測記録がない。")
+
+    assert calls == ["judge_pass1", "judge_pass2", "judge_verdict_conditions_repair"]
+    assert status["judge_verdict_conditions_status"] == "repaired"
+    assert status["judge_verdict_conditions_repair_reason"] == ""
+    assert summary["verdict_conditions"]["a_win_condition"].startswith("Aがレーダー")
+    assert summary["verdict_conditions"]["b_win_condition"].startswith("Bが公的センサー")
+    assert "三角測量" in summary["verdict_conditions"]["deciding_line"]
+
+
+def test_judge_summary_records_repair_failure_without_failing_judge(monkeypatch):
+    def fake_gemini_chat(prompt, api_key, **kwargs):
+        label = kwargs.get("debug_context", {}).get("pass_label", "")
+        debug = {
+            "finish_reason": "STOP",
+            "pass_label": label,
+            "provider_error": "",
+            "latency_ms": 10,
+            "judge_prompt_char_count": len(prompt),
+            "request_variant": "contents_with_generation_config",
+            "request_url": "https://example.test/gemini",
+            "request_body_shape": "contents+generationConfig",
+            "request_has_generation_config": True,
+            "model": "models/gemini-2.5-flash",
+        }
+        if label == "judge_pass1":
+            return (
+                '{"winner":{"side":"B","reason":"Bが押した。"},"reason_one_liner":"Bが具体条件を守った。","confidence":"High","turning_point_turn":3}',
+                debug,
+            )
+        if label == "judge_pass2":
+            return (
+                '{"fatal_phrase":{"turn":3,"speaker":"B","text":"記録がない。","reason":"弱点を突いた。"},"weak_spot":{"side":"A","turn":3,"speaker":"A","label":"記録不足","quote_excerpt":"映像だけ。","why_one_sentence":"記録不足。","how_to_fix":"記録を出す。"},"flip_condition":"記録を出すこと。"}',
+                debug,
+            )
+        return ('{"verdict_conditions":{"a_win_condition":"より強い根拠が必要。"}}', debug)
+
+    monkeypatch.setattr("tools.debate_api._call_gemini_match_chat", fake_gemini_chat)
+    cfg = DebateConfig(
+        topic="UAE上空の逆さしずく型物体は本物の未知飛行体か",
+        side_a="本物の未知飛行体だ。",
+        side_b="本物ではない。",
+        turn_count=3,
+        mode="casual",
+        fighter_a_provider="openai",
+        fighter_b_provider="openai",
+        openai_key="",
+        anthropic_key="",
+        gemini_key="gm-test",
+    )
+
+    summary, status = _judge_summary_data(cfg, [{"turn": 3, "a": "映像だけ。", "b": "記録がない。"}], "Turn 3 A: 映像だけ。\nTurn 3 B: 記録がない。")
+
+    assert status["mode"] == "live"
+    assert status["judge_parse_success"] is True
+    assert status["judge_verdict_conditions_status"] == "repair_failed"
+    assert status["judge_verdict_conditions_repair_reason"] == "schema_mismatch"
+    assert summary["verdict_conditions"] == {}
 
 
 @pytest.mark.skip(reason="obsolete after current Gemini finish reason metadata contract rewrite")
