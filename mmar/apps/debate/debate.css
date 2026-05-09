@@ -2388,6 +2388,11 @@ button:disabled {
   gap: 7px;
 }
 
+.judge-notes-core-grid.judge-notes-readable-fallback {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 10px;
+}
+
 .judge-notes-core-grid .summary-card {
   width: 100%;
   min-width: 0;
@@ -2665,6 +2670,25 @@ body.battle-mode .summary-card-confidence {
   min-height: 0;
   align-content: center;
   background: rgba(255, 255, 255, 0.72);
+}
+
+body.battle-mode .fallback-read-card {
+  min-height: 0;
+  align-content: start;
+  gap: 7px;
+  border-color: rgba(35, 87, 137, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(245, 249, 255, 0.78));
+}
+
+body.battle-mode .fallback-read-weak {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 247, 234, 0.86));
+}
+
+body.battle-mode .fallback-read-flip {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 248, 246, 0.82));
 }
 
 body.battle-mode .summary-card-confidence .summary-emphasis {
@@ -3170,6 +3194,18 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   }
 
   .verdict-grid.judge-notes-core-grid.judge-notes-condition-grid > * {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .verdict-grid.judge-notes-core-grid.judge-notes-readable-fallback {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .verdict-grid.judge-notes-core-grid.judge-notes-readable-fallback > * {
     grid-column: 1 / -1 !important;
     width: 100% !important;
     min-width: 0 !important;

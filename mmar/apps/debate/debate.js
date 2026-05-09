@@ -4432,10 +4432,22 @@ function renderSummary(summary) {
         <strong>${escapeHtml(verdictConditions.deciding_line || "")}</strong>
       </article>
     ` : `
-      <article class="summary-card summary-card-why">
-        <div class="summary-label">${escapeHtml(battleLabels.summaryLabel)}</div>
+      <article class="summary-card fallback-read-card fallback-read-why">
+        <div class="summary-label">${escapeHtml(battleLocaleText("勝敗の理由", "Why the Verdict Landed"))}</div>
         <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(summary?.why_role || "verdict_summary"))}</div>
         <div class="summary-value summary-why-copy">${escapeHtml(displayWhy)}</div>
+      </article>
+      <article class="summary-card fallback-read-card fallback-read-weak">
+        <div class="summary-label">${escapeHtml(battleLabels.weakLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(formatCardRoleLabel(weakSpot.role || "failure_exposure"))}</div>
+        <div class="summary-meta">${escapeHtml(`${formatBattleSideLabel(weakSpot.side)} / Turn ${weakSpot.turn} / ${weakSpot.speaker}`)}</div>
+        <div class="summary-value summary-weak-label">${escapeHtml(displayWeakLabel)}</div>
+        <div class="summary-subvalue summary-quote">${escapeHtml(normalizeTakeawayQuote(displayWeakQuote))}</div>
+      </article>
+      <article class="summary-card fallback-read-card fallback-read-flip">
+        <div class="summary-label">${escapeHtml(uiCopy.flipConditionLabel)}</div>
+        <div class="summary-kicker">${escapeHtml(battleLocaleText("逆転に必要な線", "What Would Have Flipped It"))}</div>
+        <div class="summary-value summary-why-copy">${escapeHtml(displayFlipCondition)}</div>
       </article>
     `;
     if (geminiQuoteText) {
@@ -4500,6 +4512,7 @@ function renderSummary(summary) {
     spotlightGridEl.hidden = true;
     verdictGridEl.classList.add("judge-notes-core-grid");
     verdictGridEl.classList.toggle("judge-notes-condition-grid", hasVerdictConditions);
+    verdictGridEl.classList.toggle("judge-notes-readable-fallback", !hasVerdictConditions);
     detailPanelEl.innerHTML = `
       <section class="judge-notes-trail" aria-label="${escapeHtml(battleLocaleText("判定の読み筋", "Judge Trail"))}">
         <div class="judge-notes-trail-head">
@@ -4568,7 +4581,7 @@ function renderSummary(summary) {
   }
   spotlightGridEl.hidden = false;
   spotlightGridEl.classList.remove("judge-notes-secondary-grid");
-  verdictGridEl.classList.remove("judge-notes-core-grid", "judge-notes-condition-grid");
+  verdictGridEl.classList.remove("judge-notes-core-grid", "judge-notes-condition-grid", "judge-notes-readable-fallback");
   verdictGridEl.innerHTML = `
     <article class="summary-card summary-card-verdict tone-winner">
       <div class="summary-label">Winner</div>
