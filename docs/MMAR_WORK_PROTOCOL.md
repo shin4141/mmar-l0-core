@@ -4,6 +4,30 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This protocol is the default path for candidate, preview, and public work. `docs/APPROVAL_POLICY.md` remains mandatory and takes precedence.
 
+## Context Hygiene Gate
+
+Before any implementation, run the CONTEXT HYGIENE GATE. Do not edit files until this gate is complete.
+
+Inspect repo state:
+
+- `git status --short`
+- `git diff --stat`
+- untracked files with `git ls-files --others --exclude-standard`
+- stale fixtures, snapshots, tmp files, debug files, and local artifacts that could influence the task
+
+Then declare:
+
+- `CONTEXT_IN`: files, fixtures, branches, SHAs, and artifacts allowed for the current mission
+- `CONTEXT_OUT`: stale files, fixtures, snapshots, tmp/debug/local artifacts, and leftovers that must not be used
+
+Stop before implementation when:
+
+- untracked files are unexplained
+- stale fixtures may influence the task
+- debug or local artifacts may enter a public diff
+- the implementation target is unclear
+- the next step would delete tracked snapshots, tmp files, fixtures, or debug artifacts without explicit approval
+
 ## Release Flow
 
 1. Candidate branch work.
