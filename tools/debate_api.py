@@ -944,13 +944,64 @@ def _resolve_x_battle_source_image(url: str, seed: dict[str, Any]) -> str:
     direct_image = _fetch_primary_og_image(url)
     if direct_image:
         return direct_image
+    article_url = _extract_single_article_url(seed)
+    if article_url:
+        article_image = _fetch_primary_og_image(article_url, timeout=6, max_bytes=120000)
+        if article_image:
+            return article_image
     return _battle_placeholder_image(
         _clean_text(seed.get("issue") or ""),
         _clean_text(seed.get("source_summary") or ""),
     )
 
 
-def _fetch_primary_og_image(url: str) -> str:
+def _extract_single_article_url(seed: Any) -> str:
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add_candidate(raw_url: str) -> None:
+        cleaned = _clean_article_url(raw_url)
+        if not cleaned or cleaned in seen:
+            return
+        seen.add(cleaned)
+        candidates.append(cleaned)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            for match in re.finditer(r"https?://[^\s<>'\"()\[\]{}]+", value):
+                add_candidate(match.group(0))
+            return
+        if isinstance(value, dict):
+            for child in value.values():
+                walk(child)
+            return
+        if isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(seed)
+    return candidates[0] if len(candidates) == 1 else ""
+
+
+def _clean_article_url(raw_url: str) -> str:
+    candidate = _clean_text(raw_url).strip(" \t\r\n.,。、!！?？;；:")
+    if not candidate:
+        return ""
+    parsed = parse.urlparse(candidate)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return ""
+    if host in {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "t.co", "www.t.co"}:
+        return ""
+    path = parsed.path.lower()
+    if re.search(r"\.(?:jpe?g|png|gif|webp|avif|svg|mp4|mov|m3u8)(?:$|[?#])", path):
+        return ""
+    return candidate
+
+
+def _fetch_primary_og_image(url: str, *, timeout: int = 12, max_bytes: int = 160000) -> str:
     try:
         req = request.Request(
             url,
@@ -959,11 +1010,11 @@ def _fetch_primary_og_image(url: str) -> str:
                 "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
             },
         )
-        with request.urlopen(req, timeout=12) as response:
+        with request.urlopen(req, timeout=timeout) as response:
             content_type = str(response.headers.get("Content-Type") or "")
             if "text/html" not in content_type:
                 return ""
-            html = response.read(160000).decode("utf-8", errors="ignore")
+            html = response.read(max_bytes).decode("utf-8", errors="ignore")
     except Exception:
         return ""
 
