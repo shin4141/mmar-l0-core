@@ -346,7 +346,7 @@ button:disabled {
 .admin-data-totals {
   margin-top: 18px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -505,6 +505,26 @@ button:disabled {
 
 .admin-table-empty {
   color: #6b5d49;
+}
+
+.admin-lang-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: rgba(35, 83, 168, 0.1);
+  color: #1d4d8f;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-table-subtext {
+  margin-top: 4px;
+  color: #6b5d49;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
 }
 
 @media (max-width: 960px) {

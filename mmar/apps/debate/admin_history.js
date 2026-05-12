@@ -484,6 +484,25 @@ function renderSourceUrl(run) {
   `;
 }
 
+function localizedStatusLine(run) {
+  const views = run?.localized_views;
+  const enView = views && typeof views === "object" && !Array.isArray(views) ? views.en : null;
+  const status = String(enView?.status || run?.localized_en_status || "").trim();
+  const version = String(enView?.generator_version || run?.localized_en_generator_version || "").trim();
+  if (!status && !version) return "en: none";
+  return `en: ${status || "unknown"}${version ? ` / ${version}` : ""}`;
+}
+
+function renderLanguageMeta(run) {
+  return `
+    <section class="admin-section">
+      <div class="admin-section-title">Language</div>
+      <div class="admin-section-copy"><strong>battle_lang:</strong> ${escapeHtml(run?.battle_lang || "ja")}</div>
+      <div class="admin-section-copy"><strong>localized:</strong> ${escapeHtml(localizedStatusLine(run))}</div>
+    </section>
+  `;
+}
+
 function renderDetail(run) {
   activeRun = run || null;
   if (!run) {
@@ -515,6 +534,7 @@ function renderDetail(run) {
       <div class="admin-section-copy"><strong>A:</strong> ${escapeHtml(run.stance_a || "")}</div>
       <div class="admin-section-copy"><strong>B:</strong> ${escapeHtml(run.stance_b || "")}</div>
     </section>
+    ${renderLanguageMeta(run)}
     ${renderSourceUrl(run)}
     ${renderLifecycleMeta(run)}
     <section class="admin-section">

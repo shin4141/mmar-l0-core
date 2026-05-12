@@ -29,6 +29,10 @@
         <div id="gallery-runtime" class="gallery-runtime" hidden></div>
       </div>
       <div class="gallery-actions">
+        <div class="gallery-lang-toggle" role="group" aria-label="Gallery language">
+          <button type="button" class="gallery-lang-button is-active" data-gallery-lang="ja" aria-pressed="true">日本語</button>
+          <button type="button" class="gallery-lang-button" data-gallery-lang="en" aria-pressed="false">EN</button>
+        </div>
         <a id="gallery-create-link" class="gallery-link" href="./debate.html?mode=battle&focus=x_url">バトルを作る</a>
       </div>
     </header>
@@ -40,11 +44,16 @@
         const copyEl = document.getElementById("gallery-copy");
         const createEl = document.getElementById("gallery-create-link");
         if (titleEl) titleEl.textContent = "VerdAIct";
-        if (copyEl) copyEl.textContent = "Browse AI argument breakdowns. Some battle text may still be Japanese in this Phase 1 viewer shell.";
+        if (copyEl) copyEl.textContent = "Browse AI argument breakdowns with source, output, and judge notes.";
         if (createEl) {
           createEl.textContent = "Create a battle";
           createEl.href = "./debate.html?mode=battle&focus=x_url&lang=en";
         }
+        document.querySelectorAll("[data-gallery-lang]").forEach((button) => {
+          const active = button.getAttribute("data-gallery-lang") === "en";
+          button.classList.toggle("is-active", active);
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+        });
         document.documentElement.removeAttribute("data-first-paint-pending");
       })();
     </script>

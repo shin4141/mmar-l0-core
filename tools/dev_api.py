@@ -307,10 +307,12 @@ ADMIN_DATA_SORT_KEYS = {
     "opens",
     "shares",
     "saves",
+    "likes",
     "open_rate",
     "views_today",
     "opens_today",
     "shares_today",
+    "saves_today",
     "open_rate_today",
 }
 ADMIN_X_EMBED_STATUSES = {"success", "x_forbidden", "invalid", "temporary_error", "missing_html"}
@@ -784,6 +786,7 @@ def _flatten_saved_record(record: dict, *, curated: bool | None = None) -> dict:
         "opens": int(record.get("opens", nested_run.get("opens", 0)) or 0),
         "shares": int(record.get("shares", nested_run.get("shares", 0)) or 0),
         "saves": int(record.get("saves", nested_run.get("saves", 0)) or 0),
+        "likes": int(record.get("likes", nested_run.get("likes", 0)) or 0),
         "turn_count": turn_count,
         "raw_turns": raw_turns,
         "display_turns": display_turns or raw_turns or transcript,
@@ -849,6 +852,16 @@ def _open_rate(opens: int, views: int) -> float:
     if view_count <= 0:
         return 0.0
     return round(int(opens or 0) / view_count, 4)
+
+
+def _localized_status_for_admin_item(item: dict) -> str:
+    views = item.get("localized_views")
+    en_view = views.get("en") if isinstance(views, dict) and isinstance(views.get("en"), dict) else {}
+    status = str(en_view.get("status") or item.get("localized_en_status") or "").strip()
+    version = str(en_view.get("generator_version") or item.get("localized_en_generator_version") or "").strip()
+    if not status and not version:
+        return "en: none"
+    return f"en: {status or 'unknown'}{f' / {version}' if version else ''}"
 
 
 def _blank_metric_counts() -> dict[str, int]:
@@ -924,6 +937,9 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
                 "title": _title_for_admin_item(item),
                 "status": str(item.get("record_state") or "candidate"),
                 "created_at": str(item.get("created_at") or ""),
+                "battle_lang": str(item.get("battle_lang") or "ja"),
+                "localized_status": _localized_status_for_admin_item(item),
+                "likes": int(item.get("likes", 0) or 0),
                 "open_rate": _open_rate(int(counts.get("opens", 0) or 0), int(counts.get("views", 0) or 0)),
                 "views_today": int(today_counts.get("views", 0) or 0),
                 "opens_today": int(today_counts.get("opens", 0) or 0),
@@ -944,6 +960,7 @@ def _admin_data_summary(*, range_key: str, state_filter: str, sort_key: str, aud
         metric: sum(int(row.get(metric, 0) or 0) for row in table_rows)
         for metric in ("views", "opens", "shares", "saves")
     }
+    totals["likes"] = sum(int(row.get("likes", 0) or 0) for row in table_rows)
     totals["open_rate"] = _open_rate(totals["opens"], totals["views"])
     today_totals = _sum_daily_metrics(daily_counts, [today_key])
     yesterday_totals = _sum_daily_metrics(daily_counts, [yesterday_key])

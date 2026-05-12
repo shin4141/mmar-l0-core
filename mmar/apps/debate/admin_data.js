@@ -67,6 +67,8 @@ function renderTotals(totals = {}, meta = {}) {
   totalsEl.innerHTML = `
     <div class="admin-total-card"><span class="admin-total-label">${escapeHtml(rangeLabel)} views</span><strong>${formatNumber(totals.views)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "views"))}</small></div>
     <div class="admin-total-card"><span class="admin-total-label">${escapeHtml(rangeLabel)} opens</span><strong>${formatNumber(totals.opens)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "opens"))}</small></div>
+    <div class="admin-total-card"><span class="admin-total-label">${escapeHtml(rangeLabel)} saves</span><strong>${formatNumber(totals.saves)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "saves"))}</small></div>
+    <div class="admin-total-card"><span class="admin-total-label">All-time likes</span><strong>${formatNumber(totals.likes)}</strong><small>Existing saved counter</small></div>
     <div class="admin-total-card"><span class="admin-total-label">Open rate</span><strong>${formatRate(totals.open_rate)}</strong><small>${escapeHtml(renderComparison("7d vs prev 7d", comparisons.last_7d_vs_previous_7d, "open_rate", formatRate))}</small></div>
     <div class="admin-total-card"><span class="admin-total-label">Today</span><strong>${formatNumber(today.views)} views</strong><small>${formatNumber(today.opens)} opens · ${formatRate(today.open_rate)} open rate · ${escapeHtml(renderComparison("vs yesterday", comparisons.today_vs_yesterday, "views"))}</small></div>
   `;
@@ -74,7 +76,7 @@ function renderTotals(totals = {}, meta = {}) {
 
 function renderRows(items = []) {
   if (!items.length) {
-    tableBodyEl.innerHTML = '<tr><td colspan="9" class="admin-table-empty">No cards in this range yet.</td></tr>';
+    tableBodyEl.innerHTML = '<tr><td colspan="13" class="admin-table-empty">No cards in this range yet.</td></tr>';
     return;
   }
   tableBodyEl.innerHTML = items.map((item) => `
@@ -87,11 +89,15 @@ function renderRows(items = []) {
       <td><span class="admin-badge admin-state-badge admin-state-badge-${escapeHtml(item.status || "candidate")}">${escapeHtml(item.status || "candidate")}</span></td>
       <td>${formatNumber(item.views)}</td>
       <td>${formatNumber(item.opens)}</td>
+      <td>${formatNumber(item.saves)}</td>
+      <td>${formatNumber(item.likes)}</td>
       <td>${formatRate(item.open_rate)}</td>
       <td>${formatNumber(item.views_today)}</td>
       <td>${formatNumber(item.opens_today)}</td>
       <td>${formatNumber(item.shares_today)}</td>
+      <td>${formatNumber(item.saves_today)}</td>
       <td>${formatRate(item.open_rate_today)}</td>
+      <td><span class="admin-lang-pill">${escapeHtml(item.battle_lang || "ja")}</span><div class="admin-table-subtext">${escapeHtml(item.localized_status || "en: none")}</div></td>
     </tr>
   `).join("");
   tableBodyEl.querySelectorAll("[data-session-id]").forEach((node) => {

@@ -4,6 +4,7 @@ const galleryTitleEl = document.querySelector("#gallery-title");
 const galleryCopyEl = document.querySelector("#gallery-copy");
 const galleryCreateLinkEl = document.querySelector("#gallery-create-link");
 const galleryRuntimeEl = document.querySelector("#gallery-runtime");
+const galleryLangButtons = Array.from(document.querySelectorAll("[data-gallery-lang]"));
 const queryParams = new URLSearchParams(window.location.search);
 let currentHealthInfo = null;
 
@@ -39,7 +40,7 @@ const GALLERY_COPY = {
   },
   en: {
     title: "VerdAIct",
-    copy: "Browse AI argument breakdowns. Some battle text may still be Japanese in this Phase 1 viewer shell.",
+    copy: "Browse AI argument breakdowns with source, output, and judge notes.",
     action: "Create a battle",
     badge: "AI Battle",
     count: (count) => `${count} cards`,
@@ -53,6 +54,30 @@ const GALLERY_COPY = {
 
 function galleryCopy() {
   return GALLERY_COPY[currentLang] || GALLERY_COPY.ja;
+}
+
+function persistGalleryLang(lang) {
+  try {
+    window.localStorage.setItem("mmar_lang", normalizeBattleLang(lang));
+  } catch {}
+}
+
+function setGalleryLang(nextLang) {
+  const lang = normalizeBattleLang(nextLang);
+  persistGalleryLang(lang);
+  const nextUrl = new URL(window.location.href);
+  if (lang === "en") nextUrl.searchParams.set("lang", "en");
+  else nextUrl.searchParams.set("lang", "ja");
+  window.location.href = nextUrl.toString();
+}
+
+function syncGalleryLangButtons() {
+  galleryLangButtons.forEach((button) => {
+    const lang = normalizeBattleLang(button.dataset.galleryLang || "");
+    const active = lang === currentLang;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
 }
 
 function endpointUrl(path) {
@@ -382,9 +407,7 @@ function buildCardMarkup(record) {
   if (!id) {
     return "";
   }
-  const href = currentLang === "en"
-    ? `/battle/${encodeURIComponent(id)}?lang=en`
-    : `/battle/${encodeURIComponent(id)}`;
+  const href = `/battle/${encodeURIComponent(id)}?lang=${encodeURIComponent(currentLang)}`;
   const mediaMarkup = thumbnailUrl
     ? `
       <div class="gallery-card-media gallery-card-media-fixed">
@@ -507,6 +530,8 @@ async function loadGallery() {
 }
 
 function applyGalleryLanguage() {
+  persistGalleryLang(currentLang);
+  syncGalleryLangButtons();
   const copy = galleryCopy();
   if (galleryTitleEl) galleryTitleEl.textContent = copy.title;
   if (galleryCopyEl) galleryCopyEl.textContent = copy.copy;
@@ -517,6 +542,10 @@ function applyGalleryLanguage() {
       : "./debate.html?mode=battle&focus=x_url";
   }
 }
+
+galleryLangButtons.forEach((button) => {
+  button.addEventListener("click", () => setGalleryLang(button.dataset.galleryLang || "ja"));
+});
 
 applyGalleryLanguage();
 void loadGallery();

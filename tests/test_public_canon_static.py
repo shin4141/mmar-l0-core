@@ -43,8 +43,8 @@ def test_phase1_english_shell_does_not_require_localized_records():
     gallery_html = GALLERY_HTML.read_text(encoding="utf-8")
     debate_js = DEBATE_JS.read_text(encoding="utf-8")
 
-    assert "Phase 1 viewer shell" in gallery_js
-    assert "Phase 1 viewer shell" in gallery_html
+    assert "Browse AI argument breakdowns with source, output, and judge notes." in gallery_js
+    assert "Browse AI argument breakdowns with source, output, and judge notes." in gallery_html
     assert "record?.topic" in gallery_js
     assert "English preview not ready yet" not in gallery_js
     assert "fullSourceLabel: \"Full Source Text\"" in debate_js
