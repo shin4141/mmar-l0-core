@@ -69,9 +69,15 @@
 
       <div class="admin-data-table-wrap">
         <table class="admin-data-table">
+          <colgroup>
+            <col class="admin-data-title-col" />
+            <col class="admin-data-state-col" />
+            <col span="10" class="admin-data-kpi-col" />
+            <col class="admin-data-lang-col" />
+          </colgroup>
           <thead>
             <tr>
-              <th>Title</th>
+              <th class="admin-data-title-head">Title</th>
               <th>Status</th>
               <th><button type="button" class="admin-sort-button is-active" data-sort-key="views">Period views</button></th>
               <th><button type="button" class="admin-sort-button" data-sort-key="opens">Period opens</button></th>

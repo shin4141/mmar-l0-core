@@ -81,22 +81,22 @@ function renderRows(items = []) {
   }
   tableBodyEl.innerHTML = items.map((item) => `
     <tr class="admin-data-row" data-session-id="${escapeHtml(item.session_id || item.id || "")}">
-      <td>
-        <button type="button" class="admin-data-link" data-session-id="${escapeHtml(item.session_id || item.id || "")}">
+      <td class="admin-data-title-cell">
+        <button type="button" class="admin-data-link" data-session-id="${escapeHtml(item.session_id || item.id || "")}" title="${escapeHtml(item.title || "(no title)")}">
           ${escapeHtml(item.title || "(no title)")}
         </button>
       </td>
       <td><span class="admin-badge admin-state-badge admin-state-badge-${escapeHtml(item.status || "candidate")}">${escapeHtml(item.status || "candidate")}</span></td>
-      <td>${formatNumber(item.views)}</td>
-      <td>${formatNumber(item.opens)}</td>
-      <td>${formatNumber(item.saves)}</td>
-      <td>${formatNumber(item.likes)}</td>
-      <td>${formatRate(item.open_rate)}</td>
-      <td>${formatNumber(item.views_today)}</td>
-      <td>${formatNumber(item.opens_today)}</td>
-      <td>${formatNumber(item.shares_today)}</td>
-      <td>${formatNumber(item.saves_today)}</td>
-      <td>${formatRate(item.open_rate_today)}</td>
+      <td class="admin-data-number">${formatNumber(item.views)}</td>
+      <td class="admin-data-number">${formatNumber(item.opens)}</td>
+      <td class="admin-data-number">${formatNumber(item.saves)}</td>
+      <td class="admin-data-number">${formatNumber(item.likes)}</td>
+      <td class="admin-data-number admin-data-rate">${formatRate(item.open_rate)}</td>
+      <td class="admin-data-number">${formatNumber(item.views_today)}</td>
+      <td class="admin-data-number">${formatNumber(item.opens_today)}</td>
+      <td class="admin-data-number">${formatNumber(item.shares_today)}</td>
+      <td class="admin-data-number">${formatNumber(item.saves_today)}</td>
+      <td class="admin-data-number admin-data-rate">${formatRate(item.open_rate_today)}</td>
       <td><span class="admin-lang-pill">${escapeHtml(item.battle_lang || "ja")}</span><div class="admin-table-subtext">${escapeHtml(item.localized_status || "en: none")}</div></td>
     </tr>
   `).join("");

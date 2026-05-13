@@ -456,11 +456,29 @@ button:disabled {
 
 .admin-data-table {
   width: 100%;
+  min-width: 1180px;
   border-collapse: collapse;
+  table-layout: fixed;
   background: #fff;
   border: 1px solid #dfd1bf;
   border-radius: 16px;
   overflow: hidden;
+}
+
+.admin-data-title-col {
+  width: 240px;
+}
+
+.admin-data-state-col {
+  width: 118px;
+}
+
+.admin-data-kpi-col {
+  width: 92px;
+}
+
+.admin-data-lang-col {
+  width: 132px;
 }
 
 .admin-data-table th,
@@ -489,6 +507,7 @@ button:disabled {
 
 .admin-sort-button {
   font-size: 13px;
+  text-align: inherit;
 }
 
 .admin-sort-button.is-active {
@@ -501,6 +520,28 @@ button:disabled {
   text-align: left;
   font-size: 15px;
   font-weight: 700;
+  width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+.admin-data-number,
+.admin-data-table th:not(.admin-data-title-head) {
+  text-align: right;
+}
+
+.admin-data-number {
+  color: #1e1d1a;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.admin-data-rate {
+  color: #7b2d20;
 }
 
 .admin-table-empty {
