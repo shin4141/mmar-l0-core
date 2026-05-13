@@ -3157,6 +3157,84 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     gap: 12px;
   }
 
+  body.mobile-ui.battle-mode .input-panel {
+    gap: 8px;
+    padding: 10px;
+    border-color: rgba(96, 31, 21, 0.10);
+    background: rgba(255, 247, 240, 0.74);
+    box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .battle-lang-switch {
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.48);
+  }
+
+  body.mobile-ui.battle-mode .battle-lang-switch-label {
+    font-size: 0.76rem;
+  }
+
+  body.mobile-ui.battle-mode .battle-lang-toggle {
+    gap: 5px;
+  }
+
+  body.mobile-ui.battle-mode .battle-lang-button {
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+  }
+
+  body.mobile-ui.battle-mode .battle-x-source {
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 12px;
+    background: rgba(255, 250, 246, 0.54);
+    box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .battle-x-source-head {
+    gap: 2px;
+  }
+
+  body.mobile-ui.battle-mode .battle-x-source-head p,
+  body.mobile-ui.battle-mode .battle-source-summary,
+  body.mobile-ui.battle-mode .battle-context-card {
+    font-size: 0.82rem;
+    line-height: 1.38;
+  }
+
+  body.mobile-ui.battle-mode .battle-x-source-row {
+    gap: 6px;
+  }
+
+  body.mobile-ui.battle-mode .field span,
+  body.mobile-ui.battle-mode .battle-source-label,
+  body.mobile-ui.battle-mode .battle-source-section-label,
+  body.mobile-ui.battle-mode .battle-context-card-title {
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+  }
+
+  body.mobile-ui.battle-mode input,
+  body.mobile-ui.battle-mode textarea,
+  body.mobile-ui.battle-mode select {
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+
+  body.mobile-ui.battle-mode textarea {
+    min-height: 54px;
+    max-height: 96px;
+  }
+
+  body.mobile-ui.battle-mode .turn-mode-row,
+  body.mobile-ui.battle-mode .control-stack {
+    gap: 7px;
+  }
+
   body.mobile-ui .topline,
   body.mobile-ui .lede,
   body.mobile-ui .session-box {
@@ -3209,13 +3287,71 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   }
 
   body.mobile-ui.battle-mode .verdict-strip-card {
-    padding: 12px;
-    border-radius: 12px;
+    gap: 12px;
+    padding: 18px 16px;
+    border-radius: 16px;
+    border-color: rgba(24, 52, 74, 0.26);
+    border-left: 7px solid rgba(24, 88, 150, 0.74);
+    background:
+      linear-gradient(180deg, rgba(244, 249, 255, 0.98), rgba(255, 251, 246, 0.94));
+    box-shadow: 0 18px 38px rgba(24, 52, 74, 0.12);
   }
 
   body.mobile-ui.battle-mode .verdict-strip-headline-row {
     align-items: flex-start;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-main {
+    font-size: 2.08rem;
+    line-height: 1.08;
+    font-weight: 900;
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-subline {
+    font-size: 1.02rem;
+    line-height: 1.62;
+    font-weight: 760;
+    color: rgba(42, 31, 24, 0.92);
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-meta {
+    gap: 6px;
+  }
+
+  body.mobile-ui.battle-mode .verdict-pill {
+    min-height: 28px;
+    padding: 5px 10px;
+    font-size: 0.68rem;
+    letter-spacing: 0.07em;
+    box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .verdict-pill-confidence {
+    order: -1;
+  }
+
+  body.mobile-ui.battle-mode .verdict-pill-confidence-medium {
+    background: linear-gradient(135deg, #8a5a00, #b87512);
+  }
+
+  body.mobile-ui.battle-mode .momentum-card {
+    padding: 10px 0 0;
+    border: 0;
+    border-top: 1px solid rgba(24, 52, 74, 0.14);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  body.mobile-ui.battle-mode .momentum-bar {
+    height: 16px;
+    margin: 9px 0 7px;
+  }
+
+  body.mobile-ui.battle-mode .momentum-note {
+    font-size: 0.74rem;
+    line-height: 1.48;
   }
 
   .verdict-grid.judge-notes-core-grid.judge-notes-condition-grid {
@@ -3234,8 +3370,13 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   body.mobile-ui.battle-mode .summary-card.condition-block,
   body.mobile-ui.battle-mode .summary-card.condition-decision-row,
   body.mobile-ui.battle-mode .judge-notes-condition-grid .gemini-takeaway-card {
-    padding: 12px;
+    padding: 14px 13px;
     border-radius: 10px;
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-condition-grid .summary-card.tone-fatal {
+    border-left: 5px solid rgba(185, 45, 38, 0.68);
+    background: linear-gradient(180deg, rgba(255, 241, 238, 0.88), rgba(255, 255, 255, 0.78));
   }
 
   body.mobile-ui.battle-mode .summary-card.condition-block,
@@ -3288,17 +3429,20 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   }
 
   body.mobile-ui.battle-mode .fallback-read-card {
-    padding: 12px;
+    padding: 14px 13px;
     border-left: 5px solid rgba(35, 87, 137, 0.42);
     border-radius: 10px;
+    background: rgba(255, 255, 255, 0.58);
   }
 
   body.mobile-ui.battle-mode .fallback-read-weak {
     border-left-color: rgba(179, 109, 0, 0.56);
+    background: linear-gradient(180deg, rgba(255, 247, 232, 0.88), rgba(255, 255, 255, 0.62));
   }
 
   body.mobile-ui.battle-mode .fallback-read-flip {
     border-left-color: rgba(23, 100, 61, 0.52);
+    background: linear-gradient(180deg, rgba(239, 250, 244, 0.88), rgba(255, 255, 255, 0.62));
   }
 
   .position-row {
@@ -3318,33 +3462,51 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   body.mobile-ui.battle-mode .detail-panel,
   body.mobile-ui.battle-mode .judge-notes-trail,
   body.mobile-ui.battle-mode .judge-notes-full {
-    gap: 12px;
+    gap: 16px;
   }
 
   body.mobile-ui.battle-mode .judge-notes-trail {
-    padding: 0 0 0 10px;
-    border-width: 0 0 0 3px;
+    margin-top: 4px;
+    padding: 0 0 0 12px;
+    border-width: 0 0 0 4px;
     border-radius: 0;
     background: transparent;
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-trail-title {
+    font-size: 1.12rem;
+    line-height: 1.48;
   }
 
   body.mobile-ui.battle-mode .analysis-details {
-    padding: 11px 0 12px 10px;
-    border-width: 0 0 0 3px;
+    padding: 14px 0 15px 12px;
+    border-width: 0 0 0 4px;
     border-radius: 0;
     background: transparent;
   }
 
-  body.mobile-ui.battle-mode .judge-trail-step,
-  body.mobile-ui.battle-mode .judge-notes-verdict-copy {
+  body.mobile-ui.battle-mode .judge-trail-step {
     border-left-color: rgba(35, 87, 137, 0.42);
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-verdict-copy {
+    border-left-color: rgba(23, 100, 61, 0.52);
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-verdict-copy:nth-child(2) {
+    border-left-color: rgba(23, 100, 61, 0.58);
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-verdict-copy:last-child {
+    border-left-color: rgba(91, 65, 143, 0.46);
   }
 
   body.mobile-ui.battle-mode .analysis-details summary {
     align-items: flex-start;
-    font-size: 12px;
+    color: rgba(36, 28, 22, 0.88);
+    font-size: 12.5px;
     line-height: 1.35;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.035em;
   }
 
   body.mobile-ui.battle-mode .judge-trail-step-index {
@@ -3354,8 +3516,37 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
   body.mobile-ui.battle-mode .analysis-detail-copy,
   body.mobile-ui.battle-mode .flip-copy {
-    font-size: 13px;
-    line-height: 1.72;
+    font-size: 13.5px;
+    line-height: 1.82;
+  }
+
+  body.mobile-ui.battle-mode .summary-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+  }
+
+  body.mobile-ui.battle-mode .summary-card .summary-value,
+  body.mobile-ui.battle-mode .summary-card .summary-subvalue,
+  body.mobile-ui.battle-mode .summary-card .summary-kicker,
+  body.mobile-ui.battle-mode .gemini-takeaway-line {
+    line-height: 1.68;
+  }
+
+  body.mobile-ui.battle-mode .summary-card.tone-fatal .summary-label {
+    color: rgba(155, 31, 27, 0.96);
+  }
+
+  body.mobile-ui.battle-mode .fallback-read-weak .summary-label,
+  body.mobile-ui.battle-mode .summary-card.tone-contradiction .summary-label {
+    color: rgba(138, 90, 0, 0.96);
+  }
+
+  body.mobile-ui.battle-mode .fallback-read-flip .summary-label {
+    color: rgba(23, 100, 61, 0.96);
+  }
+
+  body.mobile-ui.battle-mode .gemini-takeaway-card .summary-label {
+    color: rgba(91, 65, 143, 0.88);
   }
 
   body.mobile-ui .hero {
@@ -3388,6 +3579,68 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   body.mobile-ui.battle-mode .result-hero-media-block {
     border-color: rgba(79, 55, 33, 0.09);
     box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .output-block {
+    gap: 8px;
+  }
+
+  body.mobile-ui.battle-mode .section-title-row h3 {
+    color: rgba(45, 34, 26, 0.86);
+    font-size: 0.94rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  body.mobile-ui.battle-mode .turn-log {
+    gap: 8px;
+    padding-right: 0;
+  }
+
+  body.mobile-ui.battle-mode .turn-card {
+    padding: 10px 0 12px 10px;
+    border-width: 0 0 0 3px;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .turn-card.marker-fatal {
+    border-left-color: rgba(185, 45, 38, 0.50);
+  }
+
+  body.mobile-ui.battle-mode .turn-card.marker-turning {
+    border-left-color: rgba(179, 109, 0, 0.50);
+  }
+
+  body.mobile-ui.battle-mode .turn-card.marker-contradiction {
+    border-left-color: rgba(35, 87, 137, 0.50);
+  }
+
+  body.mobile-ui.battle-mode .turn-head {
+    margin-bottom: 7px;
+  }
+
+  body.mobile-ui.battle-mode .turn-index {
+    font-size: 0.92rem;
+  }
+
+  body.mobile-ui.battle-mode .turn-phase {
+    min-height: 21px;
+    padding: 0 7px;
+    font-size: 0.58rem;
+  }
+
+  body.mobile-ui.battle-mode .speaker-block,
+  body.mobile-ui.battle-mode .rally-block {
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.46);
+  }
+
+  body.mobile-ui.battle-mode .turn-copy {
+    font-size: 12.5px;
+    line-height: 1.72;
   }
 
   body.mobile-ui #run-button {
