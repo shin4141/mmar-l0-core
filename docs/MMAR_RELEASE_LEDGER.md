@@ -4,6 +4,23 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This ledger records durable release fixed points for future MMAR work. Keep entries concise. Do not paste raw chat logs, secrets, tokens, webhooks, or provider keys.
 
+## 2026-05-13 Release State Alignment
+
+- Public/current: `636bce8`
+- Public health verified: yes, `/api/health` returned `build_sha=636bce8` and `env_tag=public` for `https://mmar-l0-core.onrender.com`.
+- Preview/current: unknown / not verified in this mission.
+- Candidate/current: `636bce8` as the current repo HEAD and user-handoff accepted public state; no candidate branch mutation in this mission.
+- Rollback target: `699a640c13b33f851c4184754ece3acabf9af554`.
+- Rollback reason: previous public stable rollback after `636bce8` acceptance.
+- Status: docs-only ledger correction before any UI work.
+- Included in this alignment:
+  - Reconciled stale ledger current-public pointer with observed public health.
+  - Preserved preview as unverified instead of inferring from public or repo state.
+  - Recorded rollback target supplied for the next candidate mission.
+- Excluded from this alignment:
+  - No UI, CSS, JS, template, judge, API, DB, admin, gallery, preview deploy, or public deploy changes.
+  - No public/main/env/publish/remove/delete/archive operation.
+
 ## 2026-05-09 Public-Accepted Fixed Point
 
 - Fixed SHA: `699a640c13b33f851c4184754ece3acabf9af554`
