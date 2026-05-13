@@ -173,10 +173,11 @@ function resolveRequestedBattleLang(params = queryParams, options = {}) {
 }
 
 const queryParams = new URLSearchParams(window.location.search);
+const REQUESTED_BATTLE_PATH = /^\/battle\/[^/]+\/?$/.test(window.location.pathname);
 const VIEWER_MODE = queryParams.get("viewer") === "1" || queryParams.get("demo") === "1";
 const BETA_MODE = queryParams.get("beta") === "1";
 const PREVIEW_ONLY_CONDITION_MOCK = queryParams.get("judge_conditions_mock") === "1";
-const REQUESTED_EXPERIENCE_MODE = queryParams.get("mode") === "battle" ? "battle" : "debate";
+const REQUESTED_EXPERIENCE_MODE = queryParams.get("mode") === "battle" || REQUESTED_BATTLE_PATH ? "battle" : "debate";
 const REQUESTED_FOCUS = String(queryParams.get("focus") || "").trim().toLowerCase();
 const REQUESTED_BATTLE_LANG_EXPLICIT = queryParams.has("lang");
 const REQUESTED_BATTLE_LANG = resolveRequestedBattleLang(queryParams, { mode: REQUESTED_EXPERIENCE_MODE });

@@ -7,7 +7,8 @@
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
-      const mode = params.get("mode") === "battle" ? "battle" : "debate";
+      const isBattlePath = /^\/battle\/[^/]+\/?$/.test(window.location.pathname);
+      const mode = params.get("mode") === "battle" || isBattlePath ? "battle" : "debate";
       let storedLang = "";
       try {
         storedLang = String(window.localStorage.getItem("mmar_lang") || "").trim().toLowerCase();
@@ -22,7 +23,7 @@
         } catch {}
       }
       document.documentElement.lang = lang;
-      if (mode === "battle" && lang === "en") document.documentElement.setAttribute("data-first-paint-pending", "1");
+      if (mode === "battle") document.documentElement.setAttribute("data-first-paint-pending", "1");
     })();
   </script>
   <style>
@@ -457,6 +458,6 @@
     </aside>
   </div>
 
-  <script type="module" src="./debate.js?v=20260420v2b"></script>
+  <script type="module" src="./debate.js?v=20260514a"></script>
 </body>
 </html>
