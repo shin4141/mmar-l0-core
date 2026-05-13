@@ -452,11 +452,11 @@ button:disabled {
 .admin-data-table-wrap {
   margin-top: 18px;
   overflow: auto;
+  max-width: 100%;
 }
 
 .admin-data-table {
   width: 100%;
-  min-width: 1180px;
   border-collapse: collapse;
   table-layout: fixed;
   background: #fff;
@@ -466,24 +466,32 @@ button:disabled {
 }
 
 .admin-data-title-col {
-  width: 240px;
+  width: 18.5%;
 }
 
 .admin-data-state-col {
-  width: 118px;
+  width: 8%;
 }
 
 .admin-data-kpi-col {
-  width: 92px;
+  width: 7%;
+}
+
+.admin-data-kpi-rate-col {
+  width: 7.5%;
+}
+
+.admin-data-kpi-secondary-col {
+  width: 5.5%;
 }
 
 .admin-data-lang-col {
-  width: 132px;
+  width: 10.5%;
 }
 
 .admin-data-table th,
 .admin-data-table td {
-  padding: 14px 16px;
+  padding: 10px 8px;
   border-bottom: 1px solid #efe4d3;
   text-align: left;
   vertical-align: middle;
@@ -492,9 +500,10 @@ button:disabled {
 .admin-data-table th {
   background: #fff6ea;
   color: #5e513f;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.25;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .admin-sort-button,
@@ -506,7 +515,8 @@ button:disabled {
 }
 
 .admin-sort-button {
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.25;
   text-align: inherit;
 }
 
@@ -518,7 +528,7 @@ button:disabled {
 
 .admin-data-link {
   text-align: left;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   width: 100%;
   display: -webkit-box;
@@ -535,13 +545,14 @@ button:disabled {
 
 .admin-data-number {
   color: #1e1d1a;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
-  font-weight: 750;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .admin-data-rate {
-  color: #7b2d20;
+  color: #8a453a;
 }
 
 .admin-table-empty {
