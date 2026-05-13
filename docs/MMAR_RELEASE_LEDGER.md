@@ -4,6 +4,27 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This ledger records durable release fixed points for future MMAR work. Keep entries concise. Do not paste raw chat logs, secrets, tokens, webhooks, or provider keys.
 
+## 2026-05-14 Preview-Accepted Candidate
+
+- Candidate SHA: `855fd9ab5206e528840d8a0951b1d166ce28562c`
+- Preview health verified: yes, `/api/health` returned `build_sha=855fd9a` and `env_tag=preview` for `https://mmar-debate-preview.onrender.com`.
+- Owner acceptance: pass.
+- Public deploy: not yet.
+- Public/main/env/DB: untouched.
+- Rollback target: `699a640c13b33f851c4184754ece3acabf9af554`.
+- Included commits:
+  - `7ad2b58` `style: polish mobile battle flow`
+  - `855fd9a` `fix: open battle routes in battle mode initially`
+- Accepted items:
+  - Gallery -> battle flash removed.
+  - Mobile battle readability improved.
+  - Turn A/B guide improved.
+  - Judge Notes readability improved.
+- Excluded from this acceptance:
+  - No public deploy.
+  - No main/env/DB changes.
+  - No further Judge Notes polish in this ledger entry.
+
 ## 2026-05-13 Release State Alignment
 
 - Public/current: `636bce8`
