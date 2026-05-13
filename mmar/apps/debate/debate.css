@@ -3135,18 +3135,26 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
 @media (max-width: 760px) {
   .page-shell {
-    padding: 12px;
+    padding: 8px;
   }
 
   body.mobile-ui .page-shell {
     grid-template-columns: 1fr;
-    gap: 12px;
-    padding: 10px;
+    gap: 8px;
+    padding: 8px;
   }
 
   body.mobile-ui .input-panel,
   body.mobile-ui .output-panel {
-    padding: 16px;
+    padding: 12px;
+  }
+
+  body.mobile-ui.battle-mode .panel {
+    border-radius: 14px;
+  }
+
+  body.mobile-ui.battle-mode .output-panel {
+    gap: 12px;
   }
 
   body.mobile-ui .topline,
@@ -3180,12 +3188,34 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
   .judge-notes-core-grid.judge-notes-condition-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: 12px;
   }
 
   body.battle-mode .summary-card.condition-decision-row {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-block,
+  body.mobile-ui.battle-mode #analysis-panel {
+    border-top-width: 3px;
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-card,
+  body.mobile-ui.battle-mode .summary-card,
+  body.mobile-ui.battle-mode .gemini-quote-card,
+  body.mobile-ui.battle-mode .analysis-details {
+    box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-card {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  body.mobile-ui.battle-mode .verdict-strip-headline-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .verdict-grid.judge-notes-core-grid.judge-notes-condition-grid {
@@ -3200,9 +3230,54 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     max-width: 100% !important;
   }
 
+  body.mobile-ui.battle-mode .judge-notes-condition-grid .summary-card.tone-fatal,
+  body.mobile-ui.battle-mode .summary-card.condition-block,
+  body.mobile-ui.battle-mode .summary-card.condition-decision-row,
+  body.mobile-ui.battle-mode .judge-notes-condition-grid .gemini-takeaway-card {
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  body.mobile-ui.battle-mode .summary-card.condition-block,
+  body.mobile-ui.battle-mode .summary-card.condition-decision-row {
+    border-left-width: 5px;
+  }
+
+  body.mobile-ui.battle-mode .condition-block span,
+  body.mobile-ui.battle-mode .condition-decision-row span {
+    align-items: flex-start;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+  }
+
+  body.mobile-ui.battle-mode .condition-block span::before,
+  body.mobile-ui.battle-mode .condition-decision-row span::before {
+    width: 8px;
+    height: 24px;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+
+  body.mobile-ui.battle-mode .condition-block strong,
+  body.mobile-ui.battle-mode .condition-decision-row strong {
+    font-size: 1rem;
+    line-height: 1.58;
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-condition-grid .gemini-takeaway-card {
+    border-left: 5px solid rgba(91, 65, 143, 0.48);
+    background: linear-gradient(180deg, rgba(252, 250, 255, 0.94), rgba(255, 255, 255, 0.88));
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
+    font-size: 1rem;
+    line-height: 1.58;
+  }
+
   .verdict-grid.judge-notes-core-grid.judge-notes-readable-fallback {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px;
   }
 
   .verdict-grid.judge-notes-core-grid.judge-notes-readable-fallback > * {
@@ -3210,6 +3285,20 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
+  }
+
+  body.mobile-ui.battle-mode .fallback-read-card {
+    padding: 12px;
+    border-left: 5px solid rgba(35, 87, 137, 0.42);
+    border-radius: 10px;
+  }
+
+  body.mobile-ui.battle-mode .fallback-read-weak {
+    border-left-color: rgba(179, 109, 0, 0.56);
+  }
+
+  body.mobile-ui.battle-mode .fallback-read-flip {
+    border-left-color: rgba(23, 100, 61, 0.52);
   }
 
   .position-row {
@@ -3224,6 +3313,49 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   .judge-notes-trail-grid,
   .judge-notes-full {
     grid-template-columns: 1fr;
+  }
+
+  body.mobile-ui.battle-mode .detail-panel,
+  body.mobile-ui.battle-mode .judge-notes-trail,
+  body.mobile-ui.battle-mode .judge-notes-full {
+    gap: 12px;
+  }
+
+  body.mobile-ui.battle-mode .judge-notes-trail {
+    padding: 0 0 0 10px;
+    border-width: 0 0 0 3px;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  body.mobile-ui.battle-mode .analysis-details {
+    padding: 11px 0 12px 10px;
+    border-width: 0 0 0 3px;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  body.mobile-ui.battle-mode .judge-trail-step,
+  body.mobile-ui.battle-mode .judge-notes-verdict-copy {
+    border-left-color: rgba(35, 87, 137, 0.42);
+  }
+
+  body.mobile-ui.battle-mode .analysis-details summary {
+    align-items: flex-start;
+    font-size: 12px;
+    line-height: 1.35;
+    letter-spacing: 0.04em;
+  }
+
+  body.mobile-ui.battle-mode .judge-trail-step-index {
+    width: 25px;
+    height: 25px;
+  }
+
+  body.mobile-ui.battle-mode .analysis-detail-copy,
+  body.mobile-ui.battle-mode .flip-copy {
+    font-size: 13px;
+    line-height: 1.72;
   }
 
   body.mobile-ui .hero {
@@ -3241,6 +3373,21 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
   body.mobile-ui .output-panel > .hero > .chip-stack {
     margin-top: 4px;
+  }
+
+  body.mobile-ui.battle-mode .hero,
+  body.mobile-ui.battle-mode .result-hero-media-block,
+  body.mobile-ui.battle-mode .battle-output-right-copy-main,
+  body.mobile-ui.battle-mode .result-source-evidence-copy,
+  body.mobile-ui.battle-mode .battle-output-right-copy-next,
+  body.mobile-ui.battle-mode .battle-output-right-copy .battle-context-card {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  body.mobile-ui.battle-mode .result-hero-media-block {
+    border-color: rgba(79, 55, 33, 0.09);
+    box-shadow: none;
   }
 
   body.mobile-ui #run-button {
