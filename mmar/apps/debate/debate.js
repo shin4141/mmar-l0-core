@@ -4071,15 +4071,31 @@ function resolveTurnCard(turnNumber) {
   return turnNumber ? document.querySelector(`#turn-${turnNumber}`) : null;
 }
 
+function normalizeJumpSpeaker(value) {
+  const speaker = String(value || "").trim().toUpperCase();
+  return speaker === "A" || speaker === "B" ? speaker : "";
+}
+
+function resolveSpeakerBlocks(turnNumber, speaker) {
+  const normalizedSpeaker = normalizeJumpSpeaker(speaker);
+  if (turnNumber) {
+    const turnBlocks = [...document.querySelectorAll(`[data-turn="${turnNumber}"][data-speaker]`)];
+    if (!turnBlocks.length) return [];
+    if (normalizedSpeaker) {
+      const preferred = turnBlocks.filter((block) => block.dataset.speaker === normalizedSpeaker);
+      const others = turnBlocks.filter((block) => block.dataset.speaker !== normalizedSpeaker);
+      return [...preferred, ...others];
+    }
+    return turnBlocks;
+  }
+  if (normalizedSpeaker) {
+    return [...document.querySelectorAll(`[data-speaker="${normalizedSpeaker}"]`)].reverse();
+  }
+  return [];
+}
+
 function resolveSpeakerBlock(turnNumber, speaker) {
-  if (turnNumber && speaker && speaker !== "A/B") {
-    return document.querySelector(`[data-turn="${turnNumber}"][data-speaker="${speaker}"]`);
-  }
-  if (speaker && speaker !== "A/B") {
-    const blocks = [...document.querySelectorAll(`[data-speaker="${speaker}"]`)];
-    return blocks[blocks.length - 1] || null;
-  }
-  return null;
+  return resolveSpeakerBlocks(turnNumber, speaker)[0] || null;
 }
 
 function resolveSentenceHighlight(block, quote, fallbackText = "") {
@@ -4105,18 +4121,27 @@ function resolveSentenceHighlight(block, quote, fallbackText = "") {
   return null;
 }
 
+function resolveJumpTarget(turnNumber, speaker, quote = "", fallbackText = "") {
+  const blocks = resolveSpeakerBlocks(turnNumber, speaker);
+  for (const block of blocks) {
+    const sentence = resolveSentenceHighlight(block, quote, fallbackText);
+    if (sentence) return { block, sentence };
+  }
+  return { block: blocks[0] || null, sentence: null };
+}
+
 function jumpToFatalPhrase(summary) {
   const fatal = normalizeFatalPhrase(summary);
   const turnNumber = extractTurnNumber(summary?.fatal_phrase) || Number(fatal.turn) || null;
   const speaker = String(summary?.fatal_phrase?.speaker || fatal.speaker || "").trim().toUpperCase();
-  const block = resolveSpeakerBlock(turnNumber, speaker);
+  const { block, sentence: exactSentence } = resolveJumpTarget(
+    turnNumber,
+    speaker,
+    summary?.fatal_phrase?.quote || fatal.quote,
+    summary?.fatal_phrase?.reason || fatal.why,
+  );
   if (block) {
-    const exactSentence = resolveSentenceHighlight(block, summary?.fatal_phrase?.quote || fatal.quote, summary?.fatal_phrase?.reason || fatal.why);
-    if (exactSentence) {
-      pulseJumpTarget([block, exactSentence]);
-      return;
-    }
-    pulseJumpTarget(block);
+    pulseJumpTarget(exactSentence ? [block, exactSentence] : block);
     return;
   }
   const fallbackTurn = resolveTurnCard(turnNumber);
@@ -4126,14 +4151,35 @@ function jumpToFatalPhrase(summary) {
 function jumpToTimelineQuote(item) {
   const turnNumber = extractTurnNumber(item?.turn);
   const speaker = String(item?.speaker || "").trim().toUpperCase();
-  const block = resolveSpeakerBlock(turnNumber, speaker);
+  const { block, sentence: exactSentence } = resolveJumpTarget(
+    turnNumber,
+    speaker,
+    item?.quote || "",
+    item?.reason || "",
+  );
   if (block) {
-    const exactSentence = resolveSentenceHighlight(block, item?.quote || "", item?.reason || "");
     pulseJumpTarget(exactSentence ? [block, exactSentence] : block);
     return;
   }
   const fallbackTurn = resolveTurnCard(turnNumber);
   if (fallbackTurn) pulseJumpTarget(fallbackTurn);
+}
+
+function jumpToFirstCrack(summary) {
+  const firstCrack = normalizeFirstCrack(summary);
+  if (extractTurnNumber(firstCrack.turn)) {
+    jumpToTimelineQuote(firstCrack);
+    return;
+  }
+  const weakSpot = normalizeWeakSpot(summary);
+  const fatal = normalizeFatalPhrase(summary);
+  const turning = normalizeTurningPoint(summary);
+  jumpToTimelineQuote({
+    turn: weakSpot.turn || fatal.turn || extractTurnNumber(turning.turn) || 0,
+    speaker: weakSpot.speaker || fatal.speaker || "",
+    quote: firstCrack.quote || weakSpot.quote_excerpt || fatal.quote || "",
+    reason: firstCrack.reason || weakSpot.why_one_sentence || fatal.why || turning.summary || "",
+  });
 }
 
 function jumpToTurningPoint(summary) {
@@ -4142,18 +4188,26 @@ function jumpToTurningPoint(summary) {
   const target = resolveTurnCard(turnNumber);
   if (!target) return;
   const likelySpeaker = String(summary?.fatal_phrase?.speaker || "").trim().toUpperCase();
-  const block = resolveSpeakerBlock(turnNumber, likelySpeaker);
-  const sentence = resolveSentenceHighlight(block, turning.quote_excerpt || "", turning.summary || summary?.turning_point);
-  pulseJumpTarget(sentence ? [target, sentence] : target);
+  const { block, sentence } = resolveJumpTarget(
+    turnNumber,
+    likelySpeaker,
+    turning.quote_excerpt || "",
+    turning.summary || summary?.turning_point,
+  );
+  pulseJumpTarget(sentence ? [block || target, sentence] : (block || target));
 }
 
 function jumpToWeakSpot(summary) {
   const weakSpot = normalizeWeakSpot(summary);
   const turnNumber = extractTurnNumber(weakSpot?.turn);
   const speaker = String(weakSpot?.speaker || "").trim().toUpperCase();
-  const block = resolveSpeakerBlock(turnNumber, speaker);
+  const { block, sentence } = resolveJumpTarget(
+    turnNumber,
+    speaker,
+    weakSpot?.quote_excerpt || "",
+    weakSpot?.why_one_sentence || "",
+  );
   if (block) {
-    const sentence = resolveSentenceHighlight(block, weakSpot?.quote_excerpt || "", weakSpot?.why_one_sentence || "");
     pulseJumpTarget(sentence ? [block, sentence] : block);
     return;
   }
@@ -5777,7 +5831,7 @@ document.addEventListener("click", (event) => {
   const summary = currentResult.debate?.summary || {};
   const target = trigger.dataset.jumpTarget || "";
   if (target === "fatal") jumpToFatalPhrase(summary);
-  if (target === "first-crack") jumpToTimelineQuote(normalizeFirstCrack(summary));
+  if (target === "first-crack") jumpToFirstCrack(summary);
   if (target === "turning") jumpToTurningPoint(summary);
   if (target === "weak") jumpToWeakSpot(summary);
   if (target === "clincher") jumpToTimelineQuote(normalizeClincher(summary));
