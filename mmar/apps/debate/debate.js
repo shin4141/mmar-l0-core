@@ -4059,7 +4059,8 @@ function pulseJumpTarget(targets) {
   clearJumpHighlight();
   activeSelectedTargets = nodes;
   nodes.forEach((node) => node.classList.add("jump-highlight", "mmar-hit-flash", "mmar-hit-selected"));
-  nodes[0].scrollIntoView({ behavior: "smooth", block: "center" });
+  const scrollTarget = nodes.find((node) => node.classList?.contains("turn-copy-sentence")) || nodes[0];
+  scrollTarget.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
   activeJumpTimer = window.setTimeout(() => {
     nodes.forEach((node) => node.classList.remove("jump-highlight", "mmar-hit-flash"));
     activeJumpTimer = null;
