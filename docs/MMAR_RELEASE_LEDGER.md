@@ -4,6 +4,28 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This ledger records durable release fixed points for future MMAR work. Keep entries concise. Do not paste raw chat logs, secrets, tokens, webhooks, or provider keys.
 
+## 2026-05-15 Public-Accepted Gallery Asset Candidate
+
+- Public deployed SHA: `2e67a0e710daeaf72d6530dbd4ed87ce1d53211a`.
+- Public health verified: yes, `/api/health` returned `build_sha=2e67a0e` and `env_tag=public` for `https://mmar-l0-core.onrender.com`.
+- Public accepted items:
+  - `/gallery` mobile rendered styled.
+  - `gallery.css?v=20260514a` returned `200 text/css`.
+  - `gallery.js?v=20260514a` returned `200 text/javascript`.
+  - Gallery cards, images, and language switch were visible.
+  - No unstyled HTML observed.
+  - Required battle smoke passed for `/battle/fefb70ebe4d1`, `/battle/ce07d53d3093`, and `/battle/9c5f1615bdc3`.
+  - Gallery -> battle flash remained fixed.
+  - Judge Notes mobile alignment remained improved.
+  - JA label `判断が変わる条件` remained present.
+  - Mobile battle readability remained improved.
+- Incident recovery:
+  - Prior public break at `6e37cc0` was rolled back to `699a640c13b33f851c4184754ece3acabf9af554`.
+  - The gallery public unstyled risk was mitigated by bumping gallery asset cache-bust values and expanding fresh public smoke.
+  - Fresh public smoke now includes `/gallery` mobile styled verification plus gallery CSS/JS asset 200 content-type checks before completion.
+- Rollback target: `699a640c13b33f851c4184754ece3acabf9af554`.
+- Public/main/env/DB: no repo-side operation in this docs-only record.
+
 ## 2026-05-14 Public Break And Rollback
 
 - Broken public candidate: `6e37cc037477cc399476e9740221943f5a21647b`.
