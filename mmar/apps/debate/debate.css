@@ -3042,6 +3042,16 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   background: linear-gradient(180deg, rgba(250, 255, 251, 0.86), rgba(255, 250, 240, 0.78));
 }
 
+.judge-notes-verdict-reason {
+  border-color: rgba(122, 83, 31, 0.2);
+  background: linear-gradient(180deg, rgba(255, 249, 236, 0.9), rgba(255, 252, 244, 0.78));
+}
+
+.judge-notes-verdict-flip {
+  border-color: rgba(23, 100, 61, 0.2);
+  background: linear-gradient(180deg, rgba(239, 250, 244, 0.9), rgba(255, 252, 244, 0.78));
+}
+
 .judge-notes-verdict-copy:last-child {
   grid-column: 1 / -1;
 }
@@ -3467,10 +3477,11 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
   body.mobile-ui.battle-mode .judge-notes-trail {
     margin-top: 4px;
-    padding: 0 0 0 10px;
+    padding: 0 0 0 12px;
     border-width: 0 0 0 4px;
     border-radius: 0;
     background: transparent;
+    border-left-color: rgba(35, 87, 137, 0.46);
   }
 
   body.mobile-ui.battle-mode .judge-notes-trail-title {
@@ -3486,25 +3497,32 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   }
 
   body.mobile-ui.battle-mode .judge-trail-step {
-    border-left-color: rgba(35, 87, 137, 0.42);
+    padding: 0;
+    border-width: 0;
+    background: transparent;
   }
 
-  body.mobile-ui.battle-mode .judge-notes-verdict-copy {
-    border-left-color: rgba(23, 100, 61, 0.52);
+  body.mobile-ui.battle-mode .judge-notes-verdict-reason {
+    border-left-color: rgba(122, 83, 31, 0.52);
+    background: linear-gradient(180deg, rgba(255, 248, 232, 0.88), rgba(255, 255, 255, 0.62));
   }
 
-  body.mobile-ui.battle-mode .judge-notes-verdict-copy:nth-child(2) {
+  body.mobile-ui.battle-mode .judge-notes-verdict-flip {
     border-left-color: rgba(23, 100, 61, 0.58);
+    background: linear-gradient(180deg, rgba(239, 250, 244, 0.9), rgba(255, 255, 255, 0.62));
   }
 
-  body.mobile-ui.battle-mode .judge-notes-verdict-copy:last-child {
+  body.mobile-ui.battle-mode .judge-notes-verdict-detail {
     border-left-color: rgba(91, 65, 143, 0.46);
   }
 
   body.mobile-ui.battle-mode .analysis-details summary {
-    align-items: flex-start;
+    align-items: start;
     color: rgba(36, 28, 22, 0.88);
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
     font-size: 12.5px;
+    gap: 10px;
     line-height: 1.35;
     letter-spacing: 0.035em;
   }
@@ -3512,7 +3530,7 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   body.mobile-ui.battle-mode .judge-trail-step-index {
     width: 24px;
     height: 24px;
-    margin-top: -2px;
+    margin-top: 0;
   }
 
   body.mobile-ui.battle-mode .analysis-detail-copy,

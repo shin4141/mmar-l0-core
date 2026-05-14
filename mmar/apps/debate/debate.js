@@ -351,7 +351,7 @@ function battleSummaryCopy() {
     winnerPill: battleLocaleText("Winner", "Winner"),
     momentumLabel: battleLocaleText("Momentum Bar", "Momentum Bar"),
     momentumNote: battleLocaleText("この判定は真偽ではなく、この命題での押し込みです。", "This measures who controlled the proposition, not who proved objective truth."),
-    flipConditionLabel: battleLocaleText("Flip Condition", "Flip Condition"),
+    flipConditionLabel: battleLocaleText("判断が変わる条件", "Flip Condition"),
     geminiTakeawayLabel: battleLocaleText("Gemini Takeaway", "Gemini Takeaway"),
     geminiQuoteLabel: battleLocaleText("Gemini Quote", "Gemini Quote"),
     askTitle: battleLocaleText("この試合についてGeminiに聞く", "Ask Gemini About This Match"),
@@ -4561,15 +4561,15 @@ function renderSummary(summary) {
         </div>
       </section>
       <section class="judge-notes-full" aria-label="${escapeHtml(battleLocaleText("判定本文", "Verdict Text"))}">
-        <details class="analysis-details judge-notes-verdict-copy" open>
+        <details class="analysis-details judge-notes-verdict-copy judge-notes-verdict-reason" open>
           <summary><span class="judge-trail-step-index">${escapeHtml(showClincher ? "05" : "04")}</span><span>${escapeHtml(battleLocaleText("勝敗の理由", "Why the Verdict Landed"))}</span></summary>
           <div class="analysis-detail-copy">${escapeHtml(displayWhy)}</div>
         </details>
-        <details class="analysis-details judge-notes-verdict-copy" open>
+        <details class="analysis-details judge-notes-verdict-copy judge-notes-verdict-flip" open>
           <summary><span class="judge-trail-step-index">${escapeHtml(showClincher ? "06" : "05")}</span><span>${escapeHtml(uiCopy.flipConditionLabel)}</span></summary>
           <div class="flip-copy">${escapeHtml(displayFlipCondition)}</div>
         </details>
-        <details class="analysis-details judge-notes-verdict-copy">
+        <details class="analysis-details judge-notes-verdict-copy judge-notes-verdict-detail">
           <summary><span class="judge-trail-step-index">${escapeHtml(showClincher ? "07" : "06")}</span><span>${escapeHtml(uiCopy.detailSummary)}</span></summary>
           <div class="analysis-detail-stack">
             ${battleSourceMarkup}
