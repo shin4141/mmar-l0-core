@@ -4,6 +4,27 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This ledger records durable release fixed points for future MMAR work. Keep entries concise. Do not paste raw chat logs, secrets, tokens, webhooks, or provider keys.
 
+## 2026-05-14 Public Break And Rollback
+
+- Broken public candidate: `6e37cc037477cc399476e9740221943f5a21647b`.
+- Observed public break: `/gallery` on mobile showed unstyled HTML after the candidate public deploy.
+- Public rollback deployed: `699a640c13b33f851c4184754ece3acabf9af554`.
+- Public restored health: `/api/health` returned `build_sha=699a640` and `env_tag=public`.
+- Public restored checks:
+  - `/gallery` styled UI restored; unstyled HTML no longer observed.
+  - `/battle/fefb70ebe4d1` smoke passed.
+  - `/battle/ce07d53d3093` smoke passed.
+  - `/battle/9c5f1615bdc3` smoke passed.
+  - SOURCE image, OUTPUT, full source text, Judge Notes, and Turn content remained visible.
+  - No `[object Object]`, header-only state, or forbidden iframe/video/twitter embeds observed in restored smoke.
+- Candidate status: `6e37cc0` is rejected for public until the gallery public smoke / asset loading issue is resolved.
+- Preview cause check:
+  - Preview `6e37cc0` health matched.
+  - Preview `/gallery` CSS/JS returned 200.
+  - Preview `/gallery` rendered styled.
+  - Cause not conclusively proven; likely public deploy artifact/cache/path mismatch or public-only asset mismatch.
+- Operational result: rollback first was correct; investigate the candidate only on preview.
+
 ## 2026-05-14 Preview-Accepted Candidate
 
 - Candidate SHA: `855fd9ab5206e528840d8a0951b1d166ce28562c`

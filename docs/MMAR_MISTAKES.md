@@ -12,6 +12,8 @@ This file records operational mistakes that must not be repeated. Keep it action
 - Do not treat same SHA as sufficient when public-visible data differs.
 - Do not deploy public before real owner-visible preview acceptance.
 - Do not call old-data fallback a regression before checking whether the record actually has the new structured fields.
+- Do not treat battle detail smoke as sufficient public acceptance; fresh public smoke must include `/gallery` on mobile.
+- Do not assume preview pass proves public artifact/cache correctness.
 
 ## Preview/Public Data Mistakes
 
@@ -33,3 +35,5 @@ This file records operational mistakes that must not be repeated. Keep it action
 - Do not let a mock-only condition-card path become a public candidate.
 - Do not let condition-card changes break old-record fallback.
 - Do not let English labels be translated while English body text remains raw Japanese.
+- After public deploy, verify CSS/JS asset loading and styled UI on `/gallery`, not just HTTP 200 or battle pages.
+- If public shows unstyled HTML, rollback first and investigate later on preview.
