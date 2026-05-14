@@ -3472,16 +3472,15 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   body.mobile-ui.battle-mode .detail-panel,
   body.mobile-ui.battle-mode .judge-notes-trail,
   body.mobile-ui.battle-mode .judge-notes-full {
-    gap: 14px;
+    gap: 12px;
   }
 
   body.mobile-ui.battle-mode .judge-notes-trail {
     margin-top: 4px;
-    padding: 0 0 0 12px;
-    border-width: 0 0 0 4px;
+    padding: 0;
+    border-width: 0;
     border-radius: 0;
     background: transparent;
-    border-left-color: rgba(35, 87, 137, 0.46);
   }
 
   body.mobile-ui.battle-mode .judge-notes-trail-title {
@@ -3490,15 +3489,14 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   }
 
   body.mobile-ui.battle-mode .analysis-details {
-    padding: 13px 0 14px 10px;
-    border-width: 0 0 0 4px;
+    padding: 12px 0 14px 10px;
+    border-width: 0 0 0 3px;
     border-radius: 0;
     background: transparent;
   }
 
   body.mobile-ui.battle-mode .judge-trail-step {
-    padding: 0;
-    border-width: 0;
+    border-left-color: rgba(35, 87, 137, 0.46);
     background: transparent;
   }
 
@@ -3525,12 +3523,25 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     gap: 10px;
     line-height: 1.35;
     letter-spacing: 0.035em;
+    margin: 0;
   }
 
   body.mobile-ui.battle-mode .judge-trail-step-index {
     width: 24px;
     height: 24px;
     margin-top: 0;
+  }
+
+  body.mobile-ui.battle-mode .judge-trail-step > .summary-card,
+  body.mobile-ui.battle-mode .analysis-details > .analysis-detail-copy,
+  body.mobile-ui.battle-mode .analysis-details > .flip-copy,
+  body.mobile-ui.battle-mode .analysis-details > .analysis-detail-stack {
+    margin-left: 34px;
+    margin-top: 10px;
+  }
+
+  body.mobile-ui.battle-mode .judge-trail-step > .summary-card {
+    width: calc(100% - 34px);
   }
 
   body.mobile-ui.battle-mode .analysis-detail-copy,
