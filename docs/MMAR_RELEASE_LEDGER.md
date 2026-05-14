@@ -25,6 +25,39 @@ This ledger records durable release fixed points for future MMAR work. Keep entr
   - Cause not conclusively proven; likely public deploy artifact/cache/path mismatch or public-only asset mismatch.
 - Operational result: rollback first was correct; investigate the candidate only on preview.
 
+## 2026-05-14 Preview-Accepted Gallery Asset Candidate
+
+- Candidate SHA: `aeaef7f7dad4308fb297998fecef28f6935c0e94`.
+- Included fix: gallery asset cache-bust references in `gallery.html` only.
+  - `gallery.css` reference changed from `v=20260429b` to `v=20260514a`.
+  - `gallery.js` reference changed from `v=20260429b` to `v=20260514a`.
+  - No CSS/JS behavior change.
+- Preview health verified: yes, `/api/health` returned `build_sha=aeaef7f` and `env_tag=preview` for `https://mmar-debate-preview.onrender.com`.
+- Owner-visible preview check: Shin confirmed preview `/gallery` mobile is OK.
+- Gallery preview smoke:
+  - `/gallery` mobile 390px styled pass.
+  - Unstyled HTML not reproduced.
+  - Cards rendered: 36.
+  - Source images visible.
+  - Language switch visible.
+  - No `[object Object]`.
+  - No horizontal scroll.
+  - `gallery.css?v=20260514a` returned `200 text/css`.
+  - `gallery.js?v=20260514a` returned `200 text/javascript`.
+- Battle preview smoke:
+  - `/battle/fefb70ebe4d1` passed.
+  - `/battle/ce07d53d3093` passed.
+  - `/battle/9c5f1615bdc3` passed.
+  - Mobile 390px and desktop passed.
+  - Gallery -> battle flash not reproduced.
+  - Direct `/battle/...` initial state was `battle-mode`.
+  - JA label `判断が変わる条件` remained present.
+  - Judge Notes alignment remained maintained.
+- Public deploy: not yet.
+- Public/main/env/DB: untouched.
+- Rollback target: `699a640c13b33f851c4184754ece3acabf9af554`.
+- Remaining risk: the previous incident was public-only artifact/cache mismatch; public deploy completion must include fresh public `/gallery` mobile styled smoke and CSS/JS asset 200 checks.
+
 ## 2026-05-14 Preview-Accepted Candidate
 
 - Candidate SHA: `855fd9ab5206e528840d8a0951b1d166ce28562c`
