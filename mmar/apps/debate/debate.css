@@ -3119,6 +3119,31 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
   align-items: center;
 }
 
+.judge-notes-toggle-row {
+  border-radius: 12px;
+}
+
+body.mobile-ui .judge-notes-toggle-row {
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(156, 102, 36, 0.10);
+}
+
+body.mobile-ui #analysis-panel.mobile-analysis-collapsed .analysis-toggle-button {
+  position: relative;
+  border-color: rgba(158, 106, 38, 0.26);
+  background: rgba(255, 250, 238, 0.82);
+}
+
+body.mobile-ui #analysis-panel.mobile-analysis-collapsed .analysis-toggle-button::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: 7px;
+  border-right: 1.5px solid rgba(126, 82, 24, 0.72);
+  border-bottom: 1.5px solid rgba(126, 82, 24, 0.72);
+  transform: rotate(45deg);
+}
+
 .empty-state {
   padding: 18px;
   border: 1px dashed rgba(79, 55, 33, 0.2);
@@ -3719,6 +3744,14 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
     padding-bottom: 12px;
   }
 
+  body.mobile-ui #analysis-panel.mobile-analysis-collapsed .analysis-toggle-button {
+    animation: judgeNotesInvite 3.8s ease-in-out infinite;
+  }
+
+  body.mobile-ui #analysis-panel.mobile-analysis-collapsed .analysis-toggle-button::after {
+    animation: judgeNotesChevron 3.8s ease-in-out infinite;
+  }
+
   body.mobile-ui #analysis-panel.mobile-analysis-collapsed #analysis-content {
     display: none;
   }
@@ -3747,5 +3780,34 @@ body.battle-mode .judge-notes-condition-grid .gemini-takeaway-quote {
 
   .chip-stack {
     justify-content: flex-start;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.mobile-ui #analysis-panel.mobile-analysis-collapsed .analysis-toggle-button,
+    body.mobile-ui #analysis-panel.mobile-analysis-collapsed .analysis-toggle-button::after {
+      animation: none;
+    }
+  }
+}
+
+@keyframes judgeNotesInvite {
+  0%,
+  72%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(158, 106, 38, 0);
+  }
+  82% {
+    box-shadow: 0 0 0 4px rgba(158, 106, 38, 0.10);
+  }
+}
+
+@keyframes judgeNotesChevron {
+  0%,
+  72%,
+  100% {
+    transform: translateY(0) rotate(45deg);
+  }
+  82% {
+    transform: translateY(2px) rotate(45deg);
   }
 }

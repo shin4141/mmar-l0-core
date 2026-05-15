@@ -4784,10 +4784,10 @@ function ensureAnalysisPanel() {
   analysisPanelEl.id = "analysis-panel";
   analysisPanelEl.className = "output-block";
   analysisPanelEl.innerHTML = `
-    <div class="section-title-row">
+    <div class="section-title-row judge-notes-toggle-row">
       <h3>${escapeHtml(uiCopy.judgeNotesTitle)}</h3>
       <div class="analysis-head-actions">
-        <button type="button" id="analysis-toggle-button" class="chip-button analysis-toggle-button" hidden>${escapeHtml(uiCopy.analysisOpen)}</button>
+        <button type="button" id="analysis-toggle-button" class="chip-button analysis-toggle-button" hidden aria-expanded="true">${escapeHtml(uiCopy.analysisOpen)}</button>
         <span class="meta-chip">Judge</span>
       </div>
     </div>
@@ -4802,6 +4802,11 @@ function ensureAnalysisPanel() {
   spotlightGridEl = analysisPanelEl.querySelector("#spotlight-grid");
   detailPanelEl = analysisPanelEl.querySelector("#detail-panel");
   analysisPanelEl.querySelector("#analysis-toggle-button")?.addEventListener("click", () => {
+    mobileAnalysisCollapsed = !mobileAnalysisCollapsed;
+    syncMobileAnalysisPanel();
+  });
+  analysisPanelEl.querySelector(".judge-notes-toggle-row")?.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
     mobileAnalysisCollapsed = !mobileAnalysisCollapsed;
     syncMobileAnalysisPanel();
   });
@@ -4828,9 +4833,11 @@ function syncMobileAnalysisPanel() {
     analysisPanelEl.classList.toggle("mobile-analysis-collapsed", mobileAnalysisCollapsed);
     content.hidden = mobileAnalysisCollapsed;
     toggleButton.textContent = mobileAnalysisCollapsed ? uiCopy.analysisOpen : uiCopy.analysisClose;
+    toggleButton.setAttribute("aria-expanded", mobileAnalysisCollapsed ? "false" : "true");
     return;
   }
   toggleButton.hidden = true;
+  toggleButton.setAttribute("aria-expanded", "true");
   analysisPanelEl.classList.remove("mobile-analysis-collapsed");
   content.hidden = false;
 }
