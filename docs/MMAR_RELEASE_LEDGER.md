@@ -4,6 +4,45 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This ledger records durable release fixed points for future MMAR work. Keep entries concise. Do not paste raw chat logs, secrets, tokens, webhooks, or provider keys.
 
+## 2026-05-15 Preview-Accepted Gallery Card Polish Candidate
+
+- Preview accepted SHA: `fdd03e5e1a40cf1236caf4729bb1daad169c94f1`.
+- Included changes:
+  - Gallery first-view copy.
+  - Gallery card depth, spacing, and click affordance.
+  - Card entry cue: `AIバトル →` / `AI Battle →`.
+  - Gallery asset cache-bust bumped to `v=20260515a`.
+  - Judge Notes collapsed affordance from the previous accepted candidate remains included.
+  - Battle detail mobile readability remains included.
+- Preview health verified: yes, `/api/health` returned `build_sha=fdd03e5` and `env_tag=preview` for `https://mmar-debate-preview.onrender.com`.
+- Gallery preview smoke:
+  - Desktop 1440px passed.
+  - Mobile 390px passed.
+  - Cards, images, and language switch were visible.
+  - Intro copy was visible.
+  - Source URL remained available.
+  - Whole card click worked.
+  - Keyboard Enter/Space activation worked.
+  - No featured battle, ranking, or recommendation UI was added.
+  - No `[object Object]`.
+  - No horizontal scroll.
+  - `gallery.css?v=20260515a` returned `200 text/css`.
+  - `gallery.js?v=20260515a` returned `200 text/javascript`.
+- Battle regression preview smoke:
+  - `/battle/fefb70ebe4d1` passed.
+  - `/battle/ce07d53d3093` passed.
+  - `/battle/9c5f1615bdc3` passed.
+  - SOURCE, OUTPUT, full source text, Judge Notes, and Turn content remained visible.
+  - Gallery -> battle flash was not reproduced.
+  - Judge Notes collapsed row worked.
+- Remaining risk:
+  - Public deploy is not yet done.
+  - Fresh public smoke must start from `/gallery` mobile styled verification plus gallery asset 200 content-type checks.
+  - Prior public-only asset/cache incident remains relevant.
+- Public deploy: not yet.
+- Public/main/env/DB: untouched.
+- Rollback target: `699a640c13b33f851c4184754ece3acabf9af554`.
+
 ## 2026-05-15 Public-Accepted Gallery Asset Candidate
 
 - Public deployed SHA: `2e67a0e710daeaf72d6530dbd4ed87ce1d53211a`.
