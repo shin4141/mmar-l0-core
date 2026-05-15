@@ -122,6 +122,7 @@ let archiveModeFilter = "all";
 let currentLoadedRecord = null;
 let curatedViewerRecords = [];
 let mobileAnalysisCollapsed = true;
+let desktopAnalysisCollapsed = false;
 let historyRecordsCache = [];
 let historyRecordsHydrated = false;
 let historyFetchInFlight = false;
@@ -4801,14 +4802,18 @@ function ensureAnalysisPanel() {
   verdictGridEl = analysisPanelEl.querySelector("#verdict-grid");
   spotlightGridEl = analysisPanelEl.querySelector("#spotlight-grid");
   detailPanelEl = analysisPanelEl.querySelector("#detail-panel");
-  analysisPanelEl.querySelector("#analysis-toggle-button")?.addEventListener("click", () => {
-    mobileAnalysisCollapsed = !mobileAnalysisCollapsed;
+  const toggleAnalysisPanel = () => {
+    if (isMobileLayout()) {
+      mobileAnalysisCollapsed = !mobileAnalysisCollapsed;
+    } else {
+      desktopAnalysisCollapsed = !desktopAnalysisCollapsed;
+    }
     syncMobileAnalysisPanel();
-  });
+  };
+  analysisPanelEl.querySelector("#analysis-toggle-button")?.addEventListener("click", toggleAnalysisPanel);
   analysisPanelEl.querySelector(".judge-notes-toggle-row")?.addEventListener("click", (event) => {
     if (event.target.closest("button")) return;
-    mobileAnalysisCollapsed = !mobileAnalysisCollapsed;
-    syncMobileAnalysisPanel();
+    toggleAnalysisPanel();
   });
 }
 
@@ -4828,18 +4833,14 @@ function syncMobileAnalysisPanel() {
   const content = analysisPanelEl.querySelector("#analysis-content");
   const uiCopy = battleSummaryCopy();
   if (!toggleButton || !content) return;
-  if (isMobileLayout()) {
-    toggleButton.hidden = false;
-    analysisPanelEl.classList.toggle("mobile-analysis-collapsed", mobileAnalysisCollapsed);
-    content.hidden = mobileAnalysisCollapsed;
-    toggleButton.textContent = mobileAnalysisCollapsed ? uiCopy.analysisOpen : uiCopy.analysisClose;
-    toggleButton.setAttribute("aria-expanded", mobileAnalysisCollapsed ? "false" : "true");
-    return;
-  }
-  toggleButton.hidden = true;
-  toggleButton.setAttribute("aria-expanded", "true");
-  analysisPanelEl.classList.remove("mobile-analysis-collapsed");
-  content.hidden = false;
+  const mobile = isMobileLayout();
+  const collapsed = mobile ? mobileAnalysisCollapsed : desktopAnalysisCollapsed;
+  toggleButton.hidden = false;
+  analysisPanelEl.classList.toggle("analysis-collapsed", collapsed);
+  analysisPanelEl.classList.toggle("mobile-analysis-collapsed", mobile && collapsed);
+  content.hidden = collapsed;
+  toggleButton.textContent = collapsed ? uiCopy.analysisOpen : uiCopy.analysisClose;
+  toggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
 
 function renderTurns(turns, summary = {}, reveal = false) {
