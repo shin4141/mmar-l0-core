@@ -30,7 +30,7 @@ const currentLang = resolveGalleryLang(queryParams);
 const GALLERY_COPY = {
   ja: {
     title: "VerdAIct",
-    copy: "気になるAIバトルを選ぶ",
+    copy: "気になるバトルを選ぶ。AIが論点を分け、主張・反論・判定まで整理します。",
     action: "バトルを作る",
     badge: "AIバトル",
     count: (count) => `${count} cards`,
@@ -40,7 +40,7 @@ const GALLERY_COPY = {
   },
   en: {
     title: "VerdAIct",
-    copy: "Browse AI argument breakdowns with source, output, and judge notes.",
+    copy: "Choose a battle that interests you. AI separates the arguments, counterpoints, and verdict.",
     action: "Create a battle",
     badge: "AI Battle",
     count: (count) => `${count} cards`,

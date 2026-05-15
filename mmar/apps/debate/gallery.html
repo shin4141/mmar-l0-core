@@ -25,7 +25,7 @@
       <div class="gallery-copy">
         <div class="gallery-eyebrow">VerdAIct</div>
         <h1 id="gallery-title">VerdAIct</h1>
-        <p id="gallery-copy">気になるAIバトルを選ぶ</p>
+        <p id="gallery-copy">気になるバトルを選ぶ。AIが論点を分け、主張・反論・判定まで整理します。</p>
         <div id="gallery-runtime" class="gallery-runtime" hidden></div>
       </div>
       <div class="gallery-actions">
@@ -44,7 +44,7 @@
         const copyEl = document.getElementById("gallery-copy");
         const createEl = document.getElementById("gallery-create-link");
         if (titleEl) titleEl.textContent = "VerdAIct";
-        if (copyEl) copyEl.textContent = "Browse AI argument breakdowns with source, output, and judge notes.";
+        if (copyEl) copyEl.textContent = "Choose a battle that interests you. AI separates the arguments, counterpoints, and verdict.";
         if (createEl) {
           createEl.textContent = "Create a battle";
           createEl.href = "./debate.html?mode=battle&focus=x_url&lang=en";
