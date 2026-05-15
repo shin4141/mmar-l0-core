@@ -4,6 +4,35 @@ Read first: docs/APPROVAL_POLICY.md, then docs/MMAR_PUBLIC_CANON.md, docs/MMAR_M
 
 This ledger records durable release fixed points for future MMAR work. Keep entries concise. Do not paste raw chat logs, secrets, tokens, webhooks, or provider keys.
 
+## 2026-05-15 Public-Accepted Gallery Card Polish Candidate
+
+- Public deployed SHA: `d418302376cfaf2dc7c058a389c546c9a405f729`.
+- Public acceptance: Shin owner-visible confirmation passed.
+- Public health verified: yes, `/api/health` returned `build_sha=d418302` and `env_tag=public` for `https://mmar-l0-core.onrender.com`.
+- Public accepted items:
+  - `/gallery` mobile and desktop had no owner-visible issue.
+  - Gallery card polish accepted.
+  - Gallery became stronger as an SNS entry screen.
+  - Source URL remained available.
+  - Card entry cue `AIバトル →` accepted.
+  - No featured battle, ranking, or recommendation UI was added.
+- Included changes:
+  - Gallery first-view copy.
+  - Gallery card depth, spacing, and click affordance.
+  - Gallery asset cache-bust `v=20260515a`.
+  - Judge Notes collapsed affordance.
+  - Prior accepted battle readability and gallery -> battle flash fix.
+- Required public smoke:
+  - `/gallery` mobile rendered styled with gallery assets returning 200.
+  - `/gallery` desktop rendered styled.
+  - Required battle smoke passed for `/battle/fefb70ebe4d1`, `/battle/ce07d53d3093`, and `/battle/9c5f1615bdc3`.
+- Incident risk note:
+  - Prior public-only asset/cache incident remained the main risk.
+  - Risk was mitigated by gallery cache-bust `v=20260515a` and fresh public `/gallery`-first smoke.
+- Remaining known non-blocker: first-crack target remains `none` in two battle IDs in the existing reference-jump residual.
+- Rollback target: `699a640c13b33f851c4184754ece3acabf9af554`.
+- Public/main/env/DB: no repo-side operation in this docs-only record.
+
 ## 2026-05-15 Preview-Accepted Gallery Card Polish Candidate
 
 - Preview accepted SHA: `fdd03e5e1a40cf1236caf4729bb1daad169c94f1`.
