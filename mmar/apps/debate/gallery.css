@@ -9,6 +9,8 @@
   --battle-badge-bg: rgba(177, 57, 34, 0.12);
   --battle-badge-text: #972d1e;
   --shadow: 0 20px 48px rgba(32, 22, 15, 0.08);
+  --card-shadow: 0 22px 46px rgba(32, 22, 15, 0.10), 0 2px 0 rgba(255, 255, 255, 0.7) inset;
+  --card-shadow-hover: 0 30px 64px rgba(32, 22, 15, 0.15), 0 2px 0 rgba(255, 255, 255, 0.78) inset;
 }
 
 * {
@@ -147,32 +149,68 @@ body {
 }
 
 .gallery-card {
+  position: relative;
   display: grid;
+  grid-template-rows: auto 1fr;
   gap: 0;
-  border: 1px solid var(--line);
-  border-radius: 22px;
+  border: 1px solid rgba(79, 55, 33, 0.16);
+  border-radius: 24px;
   overflow: hidden;
-  background: var(--paper);
-  box-shadow: var(--shadow);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 247, 237, 0.94)),
+    var(--paper);
+  box-shadow: var(--card-shadow);
   text-decoration: none;
   color: inherit;
-  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+  cursor: pointer;
+  isolation: isolate;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    filter 180ms ease;
+}
+
+.gallery-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.52);
+}
+
+.gallery-card:focus-visible {
+  outline: 3px solid rgba(29, 77, 143, 0.28);
+  outline-offset: 4px;
 }
 
 .gallery-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 28px 56px rgba(32, 22, 15, 0.12);
+  transform: translateY(-3px);
+  border-color: rgba(177, 57, 34, 0.22);
+  box-shadow: var(--card-shadow-hover);
 }
 
 .gallery-card:hover .gallery-card-image {
   filter: brightness(0.92);
 }
 
+.gallery-card:hover .gallery-card-entry-arrow,
+.gallery-card:focus-visible .gallery-card-entry-arrow {
+  transform: translateX(3px);
+}
+
 .gallery-card-media {
   position: relative;
+  width: 100%;
+  min-width: 0;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(177, 57, 34, 0.12), rgba(29, 77, 143, 0.08));
+  background:
+    linear-gradient(135deg, rgba(177, 57, 34, 0.12), rgba(29, 77, 143, 0.08)),
+    #f0e3d5;
+  border-bottom: 1px solid rgba(79, 55, 33, 0.10);
 }
 
 .gallery-card-media-fixed {
@@ -182,6 +220,7 @@ body {
 
 .gallery-card-image {
   width: 100%;
+  max-width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
@@ -218,8 +257,10 @@ body {
 
 .gallery-card-copy {
   display: grid;
-  gap: 10px;
-  padding: 16px 16px 18px;
+  grid-template-rows: auto 1fr auto;
+  gap: 11px;
+  padding: 17px 18px 16px;
+  min-height: 178px;
 }
 
 .gallery-card-title-link {
@@ -235,7 +276,8 @@ body {
   text-decoration: none;
 }
 
-.gallery-card:hover .gallery-card-title-link {
+.gallery-card:hover .gallery-card-title-link,
+.gallery-card:focus-visible .gallery-card-title-link {
   color: var(--accent);
 }
 
@@ -261,13 +303,54 @@ body {
 
 .gallery-card-source-link {
   color: var(--accent-alt);
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   font-weight: 700;
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .gallery-card-source-link:hover {
   text-decoration: underline;
+}
+
+.gallery-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(79, 55, 33, 0.10);
+}
+
+.gallery-card-entry-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  color: var(--battle-badge-text);
+  font-size: 0.76rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.gallery-card-entry-cue::before {
+  content: "";
+  width: 26px;
+  height: 8px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 4px 50%, rgba(177, 57, 34, 0.62) 0 3px, transparent 3.5px),
+    radial-gradient(circle at 13px 50%, rgba(29, 77, 143, 0.52) 0 3px, transparent 3.5px),
+    radial-gradient(circle at 22px 50%, rgba(38, 124, 82, 0.48) 0 3px, transparent 3.5px);
+}
+
+.gallery-card-entry-arrow {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 160ms ease;
 }
 
 .gallery-empty {
@@ -374,5 +457,22 @@ body {
   .gallery-grid {
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+
+  .gallery-card {
+    border-radius: 20px;
+  }
+
+  .gallery-card-copy {
+    min-height: 0;
+    padding: 15px 15px 14px;
+  }
+
+  .gallery-card-footer {
+    gap: 10px;
+  }
+
+  .gallery-card-entry-cue {
+    font-size: 0.72rem;
   }
 }

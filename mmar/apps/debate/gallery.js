@@ -33,6 +33,7 @@ const GALLERY_COPY = {
     copy: "気になるバトルを選ぶ。AIが論点を分け、主張・反論・判定まで整理します。",
     action: "バトルを作る",
     badge: "AIバトル",
+    entry: "AIバトル",
     count: (count) => `${count} cards`,
     empty: "AIバトルはまだありません。",
     loading: "AIバトルを読み込み中です。",
@@ -43,6 +44,7 @@ const GALLERY_COPY = {
     copy: "Choose a battle that interests you. AI separates the arguments, counterpoints, and verdict.",
     action: "Create a battle",
     badge: "AI Battle",
+    entry: "AI Battle",
     count: (count) => `${count} cards`,
     empty: "No English AI battles yet.",
     loading: "Loading AI battles.",
@@ -445,12 +447,15 @@ function buildCardMarkup(record) {
         </div>
       `;
   return `
-    <article class="gallery-card" data-record-id="${escapeHtml(id)}" data-href="${escapeHtml(href)}">
+    <article class="gallery-card" data-record-id="${escapeHtml(id)}" data-href="${escapeHtml(href)}" role="link" tabindex="0" aria-label="${escapeHtml(issue)}">
       ${mediaMarkup}
       <div class="gallery-card-copy">
         <a class="gallery-card-title-link" href="${escapeHtml(href)}">${escapeHtml(issue)}</a>
         ${summary ? `<div class="gallery-card-summary">${escapeHtml(summary)}</div>` : (excerpt ? `<div class="gallery-card-excerpt">${escapeHtml(excerpt)}</div>` : "")}
-        ${sourceUrl ? `<a class="gallery-card-source-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLinkLabel())}</a>` : ""}
+        <div class="gallery-card-footer">
+          ${sourceUrl ? `<a class="gallery-card-source-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLinkLabel())}</a>` : "<span></span>"}
+          <span class="gallery-card-entry-cue" aria-hidden="true">${escapeHtml(copy.entry)}<span class="gallery-card-entry-arrow">→</span></span>
+        </div>
       </div>
     </article>
   `;
@@ -501,6 +506,14 @@ function renderGallery(records) {
       if (event.target.closest("a")) return;
       if (event.target.closest(".gallery-x-embed")) return;
       if (!href) return;
+      handleMetric();
+      window.location.href = href;
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.target.closest("a")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (!href) return;
+      event.preventDefault();
       handleMetric();
       window.location.href = href;
     });
